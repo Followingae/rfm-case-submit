@@ -31,10 +31,10 @@ export function WizardShell({ currentStep, children }: WizardShellProps) {
 
             return (
               <div key={step.label} className="flex items-center">
-                <div className="flex flex-col items-center gap-2">
+                <div className="flex flex-col items-center gap-1.5 md:gap-2">
                   <div
                     className={cn(
-                      "flex h-10 w-10 items-center justify-center rounded-xl border-2 transition-all duration-300",
+                      "flex h-8 w-8 items-center justify-center rounded-lg border-2 transition-all duration-300 md:h-10 md:w-10 md:rounded-xl",
                       isCompleted &&
                         "border-emerald-500 bg-emerald-500 text-white",
                       isCurrent &&
@@ -45,14 +45,14 @@ export function WizardShell({ currentStep, children }: WizardShellProps) {
                     )}
                   >
                     {isCompleted ? (
-                      <Check className="h-4 w-4" />
+                      <Check className="h-3.5 w-3.5 md:h-4 md:w-4" />
                     ) : (
-                      <step.icon className="h-4 w-4" />
+                      <step.icon className="h-3.5 w-3.5 md:h-4 md:w-4" />
                     )}
                   </div>
                   <span
                     className={cn(
-                      "text-xs font-medium transition-colors",
+                      "text-[10px] font-medium transition-colors md:text-xs",
                       isCurrent
                         ? "text-foreground"
                         : isCompleted
@@ -67,7 +67,7 @@ export function WizardShell({ currentStep, children }: WizardShellProps) {
                 {index < steps.length - 1 && (
                   <div
                     className={cn(
-                      "mx-4 mb-6 h-[2px] w-16 rounded-full transition-colors duration-300 md:w-24",
+                      "mx-2 mb-6 h-[2px] w-8 rounded-full transition-colors duration-300 md:mx-4 md:w-24",
                       isCompleted ? "bg-emerald-500" : "bg-border/50"
                     )}
                   />

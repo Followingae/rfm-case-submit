@@ -142,7 +142,7 @@ export function StepMerchant({
         <Label className="text-sm font-medium">
           Case Type <span className="text-destructive">*</span>
         </Label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {caseTypes.map((ct) => {
             const selected = merchantInfo.caseType === ct.value;
             const colors = colorMap[ct.color];
@@ -205,7 +205,7 @@ export function StepMerchant({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <button
                 onClick={() => onUpdate({ branchMode: "with-main" })}
                 className={cn(

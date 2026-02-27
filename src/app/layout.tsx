@@ -34,8 +34,8 @@ export default function RootLayout({
           <TooltipProvider delayDuration={0}>
             <div className="flex min-h-screen">
               <Sidebar />
-              <main className="flex-1 pl-[72px]">
-                <div className="mx-auto max-w-6xl px-6 py-8">
+              <main className="flex-1 pt-14 md:pt-0 md:pl-[72px]">
+                <div className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
                   {children}
                 </div>
               </main>

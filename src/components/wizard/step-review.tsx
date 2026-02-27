@@ -124,7 +124,7 @@ export function StepReview({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
             <div>
               <span className="text-muted-foreground">Legal Name</span>
               <p className="font-medium">{merchantInfo.legalName || "—"}</p>
@@ -253,19 +253,23 @@ export function StepReview({
               {renameMappings.map((mapping, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-3 rounded-lg bg-accent/30 px-3 py-2 text-xs"
+                  className="rounded-lg bg-accent/30 px-3 py-2 text-xs"
                 >
-                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 truncate text-muted-foreground">
-                    {mapping.originalName}
-                  </span>
-                  <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/50" />
-                  <span className="flex-1 truncate font-medium text-foreground">
-                    {mapping.newName}
-                  </span>
-                  <Badge variant="secondary" className="text-[10px] shrink-0">
-                    {mapping.folder}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      {mapping.originalName}
+                    </span>
+                    <Badge variant="secondary" className="shrink-0 text-[10px]">
+                      {mapping.folder}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 pl-5">
+                    <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+                    <span className="min-w-0 truncate font-medium text-foreground">
+                      {mapping.newName}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -275,7 +279,7 @@ export function StepReview({
 
       <Separator />
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Button
           variant="ghost"
           size="lg"
@@ -286,7 +290,7 @@ export function StepReview({
           Back
         </Button>
 
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           {exported && (
             <Button
               variant="outline"

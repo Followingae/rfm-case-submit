@@ -186,18 +186,18 @@ export function ShareholderKYCSection({
               className="rounded-xl border border-border/50 bg-card/30 p-4"
             >
               {/* Shareholder header */}
-              <div className="mb-3 flex items-center gap-3">
+              <div className="mb-3 flex flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
                   {index + 1}
                 </div>
-                <div className="flex flex-1 gap-2">
+                <div className="flex min-w-0 flex-1 gap-2">
                   <Input
                     placeholder="Partner / Shareholder name"
                     value={sh.name}
                     onChange={(e) =>
                       updateShareholder(sh.id, { name: e.target.value })
                     }
-                    className="h-8 rounded-lg text-sm"
+                    className="h-9 rounded-lg text-sm"
                   />
                   <Input
                     placeholder="%"
@@ -205,7 +205,7 @@ export function ShareholderKYCSection({
                     onChange={(e) =>
                       updateShareholder(sh.id, { percentage: e.target.value })
                     }
-                    className="h-8 w-20 rounded-lg text-center text-sm"
+                    className="h-9 w-16 shrink-0 rounded-lg text-center text-sm sm:w-20"
                   />
                 </div>
                 <Button
@@ -218,8 +218,8 @@ export function ShareholderKYCSection({
                 </Button>
               </div>
 
-              {/* Document uploads - side by side */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Document uploads - side by side on larger screens */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {/* Passport */}
                 <div>
                   <Label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">

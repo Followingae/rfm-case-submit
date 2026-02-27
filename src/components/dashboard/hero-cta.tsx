@@ -13,7 +13,7 @@ export function HeroCTA() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-accent/20 p-8 md:p-12"
+      className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-accent/20 p-5 sm:p-8 md:p-12"
     >
       <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/5 blur-3xl" />
       <div className="absolute -bottom-10 -left-10 h-48 w-48 rounded-full bg-primary/5 blur-3xl" />
@@ -26,7 +26,7 @@ export function HeroCTA() {
           </div>
         </div>
 
-        <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+        <h1 className="mb-3 text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
           Merchant Case Submission
         </h1>
         <p className="mb-8 max-w-lg text-muted-foreground">
@@ -37,7 +37,7 @@ export function HeroCTA() {
         <Button
           size="lg"
           onClick={() => router.push("/case/new")}
-          className="group h-14 gap-3 rounded-xl px-8 text-base font-semibold shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30"
+          className="group h-12 gap-3 rounded-xl px-6 text-sm font-semibold shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30 sm:h-14 sm:px-8 sm:text-base"
         >
           <FilePlus2 className="h-5 w-5" />
           Create New Case
