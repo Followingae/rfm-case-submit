@@ -2,10 +2,16 @@ import { supabase } from "./supabase";
 import { MerchantInfo, ShareholderKYC } from "./types";
 import type { ParsedMDF, ParsedTradeLicense } from "./ocr-engine";
 
+// ── Helper: log Supabase errors ────────────────
+
+function logError(operation: string, error: unknown) {
+  console.error(`[Supabase] ${operation} failed:`, error);
+}
+
 // ── Cases ──────────────────────────────────────
 
 export async function createCase(caseId: string, merchantInfo: MerchantInfo): Promise<void> {
-  await supabase.from("cases").upsert({
+  const { error } = await supabase.from("cases").upsert({
     id: caseId,
     legal_name: merchantInfo.legalName,
     dba: merchantInfo.dba,
@@ -13,17 +19,20 @@ export async function createCase(caseId: string, merchantInfo: MerchantInfo): Pr
     branch_mode: merchantInfo.branchMode || null,
     status: "incomplete",
   });
+  if (error) logError("createCase", error);
 }
 
 export async function updateCaseStatus(caseId: string, status: string): Promise<void> {
-  await supabase.from("cases").update({ status }).eq("id", caseId);
+  const { error } = await supabase.from("cases").update({ status }).eq("id", caseId);
+  if (error) logError("updateCaseStatus", error);
 }
 
 export async function updateCaseConditionals(
   caseId: string,
   conditionals: Record<string, boolean>
 ): Promise<void> {
-  await supabase.from("cases").update({ conditionals }).eq("id", caseId);
+  const { error } = await supabase.from("cases").update({ conditionals }).eq("id", caseId);
+  if (error) logError("updateCaseConditionals", error);
 }
 
 // ── Document records ───────────────────────────
@@ -38,7 +47,7 @@ export async function saveDocumentRecord(
   fileSize: number,
   fileType: string
 ): Promise<void> {
-  await supabase.from("case_documents").insert({
+  const { error } = await supabase.from("case_documents").insert({
     case_id: caseId,
     item_id: itemId,
     label,
@@ -48,10 +57,12 @@ export async function saveDocumentRecord(
     file_size: fileSize,
     file_type: fileType,
   });
+  if (error) logError("saveDocumentRecord", error);
 }
 
 export async function removeDocumentRecord(filePath: string): Promise<void> {
-  await supabase.from("case_documents").delete().eq("file_path", filePath);
+  const { error } = await supabase.from("case_documents").delete().eq("file_path", filePath);
+  if (error) logError("removeDocumentRecord", error);
 }
 
 // ── File uploads to Supabase Storage ───────────
@@ -69,7 +80,7 @@ export async function uploadFile(
     .upload(path, file, { upsert: false });
 
   if (error) {
-    console.error("Upload error:", error.message);
+    logError("uploadFile", error);
     return null;
   }
 
@@ -77,7 +88,8 @@ export async function uploadFile(
 }
 
 export async function deleteFile(filePath: string): Promise<void> {
-  await supabase.storage.from("case-documents").remove([filePath]);
+  const { error } = await supabase.storage.from("case-documents").remove([filePath]);
+  if (error) logError("deleteFile", error);
 }
 
 // ── OCR: Save MDF Extracted Data ───────────────
@@ -88,7 +100,7 @@ export async function saveMDFData(
   confidence: number
 ): Promise<void> {
   // 1. Merchant details (upsert — one per case)
-  await supabase.from("ocr_merchant_details").upsert({
+  const { error: e1 } = await supabase.from("ocr_merchant_details").upsert({
     case_id: caseId,
     merchant_legal_name: parsed.merchantLegalName || null,
     doing_business_as: parsed.dba || null,
@@ -122,11 +134,12 @@ export async function saveMDFData(
     raw_text: parsed.rawText || null,
     confidence_score: confidence,
   }, { onConflict: "case_id" });
+  if (e1) logError("saveMDFData.merchantDetails", e1);
 
   // 2. Fee schedule (delete old, insert new)
   await supabase.from("ocr_fee_schedule").delete().eq("case_id", caseId);
   if (parsed.feeSchedule.length > 0) {
-    await supabase.from("ocr_fee_schedule").insert(
+    const { error: e2 } = await supabase.from("ocr_fee_schedule").insert(
       parsed.feeSchedule.map((f) => ({
         case_id: caseId,
         card_type: f.cardType,
@@ -134,6 +147,7 @@ export async function saveMDFData(
         ecom_rate: f.ecomRate || null,
       }))
     );
+    if (e2) logError("saveMDFData.feeSchedule", e2);
   }
 
   // 3. Terminal fees
@@ -147,7 +161,7 @@ export async function saveMDFData(
     ...(parsed.businessInsightFee ? [{ category: "other", label: "Business Insight Fee", amount: parsed.businessInsightFee }] : []),
   ];
   if (allFees.length > 0) {
-    await supabase.from("ocr_terminal_fees").insert(
+    const { error: e3 } = await supabase.from("ocr_terminal_fees").insert(
       allFees.map((f) => ({
         case_id: caseId,
         fee_category: f.category,
@@ -155,12 +169,13 @@ export async function saveMDFData(
         amount: f.amount || null,
       }))
     );
+    if (e3) logError("saveMDFData.terminalFees", e3);
   }
 
   // 4. OCR-extracted shareholders
   await supabase.from("ocr_shareholders").delete().eq("case_id", caseId);
   if (parsed.shareholders.length > 0) {
-    await supabase.from("ocr_shareholders").insert(
+    const { error: e4 } = await supabase.from("ocr_shareholders").insert(
       parsed.shareholders.map((s) => ({
         case_id: caseId,
         shareholder_name: s.name || null,
@@ -170,10 +185,11 @@ export async function saveMDFData(
         country_of_birth: s.countryOfBirth || null,
       }))
     );
+    if (e4) logError("saveMDFData.shareholders", e4);
   }
 
   // 5. KYC business profile (upsert — one per case)
-  await supabase.from("ocr_kyc_profile").upsert({
+  const { error: e5 } = await supabase.from("ocr_kyc_profile").upsert({
     case_id: caseId,
     projected_monthly_volume: parsed.projectedMonthlyVolume || null,
     projected_monthly_count: parsed.projectedMonthlyCount || null,
@@ -192,6 +208,7 @@ export async function saveMDFData(
     reason_for_magnati: parsed.reasonForMagnati || null,
     raw_text: parsed.rawText || null,
   }, { onConflict: "case_id" });
+  if (e5) logError("saveMDFData.kycProfile", e5);
 }
 
 // ── OCR: Save Trade License Data ───────────────
@@ -201,7 +218,7 @@ export async function saveTradeLicenseData(
   parsed: ParsedTradeLicense,
   confidence: number
 ): Promise<void> {
-  await supabase.from("ocr_trade_license").upsert({
+  const { error } = await supabase.from("ocr_trade_license").upsert({
     case_id: caseId,
     license_number: parsed.licenseNumber || null,
     issue_date: parsed.issueDate || null,
@@ -214,6 +231,7 @@ export async function saveTradeLicenseData(
     raw_text: parsed.rawText || null,
     confidence_score: confidence,
   }, { onConflict: "case_id" });
+  if (error) logError("saveTradeLicenseData", error);
 }
 
 // ── Shareholders (user-entered) ────────────────
@@ -222,7 +240,8 @@ export async function saveShareholders(
   caseId: string,
   shareholders: ShareholderKYC[]
 ): Promise<void> {
-  await supabase.from("shareholders").delete().eq("case_id", caseId);
+  const { error: delErr } = await supabase.from("shareholders").delete().eq("case_id", caseId);
+  if (delErr) logError("saveShareholders.delete", delErr);
 
   if (shareholders.length === 0) return;
 
@@ -233,7 +252,8 @@ export async function saveShareholders(
     percentage: sh.percentage,
   }));
 
-  await supabase.from("shareholders").insert(rows);
+  const { error } = await supabase.from("shareholders").insert(rows);
+  if (error) logError("saveShareholders.insert", error);
 }
 
 export async function saveShareholderDocument(
@@ -244,7 +264,7 @@ export async function saveShareholderDocument(
   fileSize: number,
   fileType: string
 ): Promise<void> {
-  await supabase.from("shareholder_documents").insert({
+  const { error } = await supabase.from("shareholder_documents").insert({
     shareholder_id: shareholderId,
     doc_type: docType,
     file_name: fileName,
@@ -252,4 +272,5 @@ export async function saveShareholderDocument(
     file_size: fileSize,
     file_type: fileType,
   });
+  if (error) logError("saveShareholderDocument", error);
 }
