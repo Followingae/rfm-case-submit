@@ -5,8 +5,8 @@
 async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
   const pdfjsLib = await import("pdfjs-dist");
 
-  // Use the bundled worker
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  // Use locally served worker (copied to public/)
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const allText: string[] = [];
