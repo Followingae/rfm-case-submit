@@ -39,45 +39,5 @@ export interface MerchantInfo {
   branchMode?: BranchMode;
 }
 
-export interface OCRData {
-  merchantLegalName?: string;
-  dba?: string;
-  address?: string;
-  emirate?: string;
-  country?: string;
-  telephone?: string;
-  mobile?: string;
-  email1?: string;
-  email2?: string;
-  shopLocation?: string;
-  businessType?: string;
-  webAddress?: string;
-  iban?: string;
-  accountNo?: string;
-  accountTitle?: string;
-  bankName?: string;
-  swiftCode?: string;
-  numberOfTerminals?: string;
-  shareholders?: Array<{
-    name: string;
-    shares: string;
-    nationality: string;
-    residence: string;
-  }>;
-  tlNumber?: string;
-  tlIssueDate?: string;
-  tlExpiryDate?: string;
-  tlBusinessName?: string;
-  tlActivities?: string;
-  rawMdfText?: string;
-  rawTlText?: string;
-}
-
-export interface CaseSubmission {
-  id: string;
-  merchantInfo: MerchantInfo;
-  checklist: ChecklistItem[];
-  ocrData: OCRData;
-  createdAt: string;
-  status: "incomplete" | "complete" | "exported";
-}
+// OCR types are now defined in ocr-engine.ts (ParsedMDF, ParsedTradeLicense)
+// and stored in structured Supabase tables instead of a single blob

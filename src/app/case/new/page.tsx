@@ -15,6 +15,7 @@ import {
 import { getChecklistForCase } from "@/lib/checklist-config";
 import {
   extractTextFromFile,
+  getLastConfidence,
   parseMDFText,
   parseTradeLicenseText,
 } from "@/lib/ocr-engine";
@@ -22,7 +23,8 @@ import {
   createCase,
   updateCaseStatus,
   updateCaseConditionals,
-  saveOCRData,
+  saveMDFData,
+  saveTradeLicenseData,
   saveDocumentRecord,
   uploadFile,
   saveShareholders,
@@ -150,7 +152,7 @@ export default function NewCasePage() {
           );
         }
 
-        // Background OCR for MDF and Trade License
+        // Background OCR for MDF → structured data across 5 tables
         if (itemId === "mdf") {
           if (
             file.type.startsWith("image/") ||
@@ -158,9 +160,10 @@ export default function NewCasePage() {
           ) {
             try {
               const text = await extractTextFromFile(file);
+              const confidence = getLastConfidence();
               if (text) {
                 const parsed = parseMDFText(text);
-                await saveOCRData(caseId, parsed, "mdf", text);
+                await saveMDFData(caseId, parsed, confidence);
               }
             } catch {
               // Silent fail — OCR is best-effort
@@ -168,6 +171,7 @@ export default function NewCasePage() {
           }
         }
 
+        // Background OCR for Trade License → structured table
         if (itemId === "trade-license") {
           if (
             file.type.startsWith("image/") ||
@@ -175,9 +179,10 @@ export default function NewCasePage() {
           ) {
             try {
               const text = await extractTextFromFile(file);
+              const confidence = getLastConfidence();
               if (text) {
                 const parsed = parseTradeLicenseText(text);
-                await saveOCRData(caseId, parsed, "trade-license", text);
+                await saveTradeLicenseData(caseId, parsed, confidence);
               }
             } catch {
               // Silent fail
