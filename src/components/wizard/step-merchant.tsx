@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Building2,
   ShieldCheck,
   ShieldAlert,
   Globe,
@@ -11,13 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { CaseType, BranchMode, MerchantInfo } from "@/lib/types";
 
@@ -37,28 +29,28 @@ const caseTypes: {
   {
     value: "low-risk",
     label: "Low Risk",
-    description: "Standard merchant onboarding with regular documents",
+    description: "Standard onboarding",
     icon: ShieldCheck,
     color: "emerald",
   },
   {
     value: "high-risk",
     label: "High Risk",
-    description: "Additional bank statements, ECDD, PEP & sanction docs",
+    description: "Enhanced due diligence",
     icon: ShieldAlert,
     color: "amber",
   },
   {
     value: "ecom",
     label: "E-Commerce",
-    description: "Standard docs + ECOM template & sanction undertaking",
+    description: "Online merchant",
     icon: Globe,
     color: "blue",
   },
   {
     value: "branch",
     label: "Branch",
-    description: "Branch location submission with or without main",
+    description: "Additional location",
     icon: GitBranch,
     color: "violet",
   },
@@ -102,47 +94,41 @@ export function StepMerchant({
     (merchantInfo.caseType !== "branch" || merchantInfo.branchMode !== undefined);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Merchant Details</h2>
-        <p className="mt-1 text-muted-foreground">
-          Enter the merchant information and select the case type
-        </p>
-      </div>
+    <div className="mx-auto max-w-2xl space-y-6">
+      <h2 className="text-xl font-bold tracking-tight">Merchant Details</h2>
 
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="legalName" className="text-sm font-medium">
-            Merchant Legal Name <span className="text-destructive">*</span>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="legalName" className="text-xs font-medium">
+            Legal Name <span className="text-destructive">*</span>
           </Label>
           <Input
             id="legalName"
             value={merchantInfo.legalName}
             onChange={(e) => onUpdate({ legalName: e.target.value })}
             placeholder="As per Trade License"
-            className="h-11 rounded-xl"
+            className="h-10 rounded-xl"
           />
         </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="dba" className="text-sm font-medium">
-            Doing Business As (DBA)
+        <div className="space-y-1.5">
+          <Label htmlFor="dba" className="text-xs font-medium">
+            DBA (Trading Name)
           </Label>
           <Input
             id="dba"
             value={merchantInfo.dba}
             onChange={(e) => onUpdate({ dba: e.target.value })}
-            placeholder="Trading name / brand name"
-            className="h-11 rounded-xl"
+            placeholder="Brand / signboard name"
+            className="h-10 rounded-xl"
           />
         </div>
       </div>
 
-      <div className="space-y-3">
-        <Label className="text-sm font-medium">
+      <div className="space-y-2">
+        <Label className="text-xs font-medium">
           Case Type <span className="text-destructive">*</span>
         </Label>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {caseTypes.map((ct) => {
             const selected = merchantInfo.caseType === ct.value;
             const colors = colorMap[ct.color];
@@ -157,35 +143,28 @@ export function StepMerchant({
                   })
                 }
                 className={cn(
-                  "flex flex-col items-start gap-3 rounded-xl border-2 p-4 text-left transition-all duration-200",
+                  "flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all duration-200",
                   selected
-                    ? `${colors.border} ${colors.bg} shadow-lg ${colors.shadow}`
+                    ? `${colors.border} ${colors.bg} shadow-md ${colors.shadow}`
                     : "border-border/50 hover:border-border hover:bg-accent/50"
                 )}
               >
-                <div
+                <ct.icon
                   className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-lg",
-                    selected ? colors.bg : "bg-muted"
+                    "h-5 w-5",
+                    selected ? colors.text : "text-muted-foreground"
                   )}
-                >
-                  <ct.icon
-                    className={cn(
-                      "h-5 w-5",
-                      selected ? colors.text : "text-muted-foreground"
-                    )}
-                  />
-                </div>
+                />
                 <div>
                   <div
                     className={cn(
-                      "font-semibold",
+                      "text-sm font-semibold",
                       selected ? colors.text : ""
                     )}
                   >
                     {ct.label}
                   </div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">
+                  <div className="text-[10px] text-muted-foreground">
                     {ct.description}
                   </div>
                 </div>
@@ -196,49 +175,38 @@ export function StepMerchant({
       </div>
 
       {merchantInfo.caseType === "branch" && (
-        <Card className="border-violet-500/30 bg-violet-500/5">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Branch Submission Type</CardTitle>
-            <CardDescription>
-              Is this branch being submitted with the main location or
-              separately?
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <button
-                onClick={() => onUpdate({ branchMode: "with-main" })}
-                className={cn(
-                  "flex-1 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-all",
-                  merchantInfo.branchMode === "with-main"
-                    ? "border-violet-500 bg-violet-500/10 text-violet-500"
-                    : "border-border/50 text-muted-foreground hover:border-border"
-                )}
-              >
-                With Main Location
-              </button>
-              <button
-                onClick={() => onUpdate({ branchMode: "separate" })}
-                className={cn(
-                  "flex-1 rounded-xl border-2 px-4 py-3 text-sm font-medium transition-all",
-                  merchantInfo.branchMode === "separate"
-                    ? "border-violet-500 bg-violet-500/10 text-violet-500"
-                    : "border-border/50 text-muted-foreground hover:border-border"
-                )}
-              >
-                Separate Submission
-              </button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex gap-2">
+          <button
+            onClick={() => onUpdate({ branchMode: "with-main" })}
+            className={cn(
+              "flex-1 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all",
+              merchantInfo.branchMode === "with-main"
+                ? "border-violet-500 bg-violet-500/10 text-violet-500"
+                : "border-border/50 text-muted-foreground hover:border-border"
+            )}
+          >
+            With Main Location
+          </button>
+          <button
+            onClick={() => onUpdate({ branchMode: "separate" })}
+            className={cn(
+              "flex-1 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all",
+              merchantInfo.branchMode === "separate"
+                ? "border-violet-500 bg-violet-500/10 text-violet-500"
+                : "border-border/50 text-muted-foreground hover:border-border"
+            )}
+          >
+            Separate Submission
+          </button>
+        </div>
       )}
 
-      <div className="flex justify-end pt-4">
+      <div className="flex justify-end pt-2">
         <Button
           size="lg"
           disabled={!canProceed}
           onClick={onNext}
-          className="group h-12 gap-2 rounded-xl px-8 font-semibold shadow-lg shadow-primary/20"
+          className="group h-11 gap-2 rounded-xl px-8 font-semibold shadow-lg shadow-primary/20"
         >
           Continue to Documents
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />

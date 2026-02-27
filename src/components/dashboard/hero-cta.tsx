@@ -13,7 +13,7 @@ export function HeroCTA() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-accent/20 p-5 sm:p-8 md:p-12"
+      className="relative overflow-hidden rounded-2xl border border-border/50 bg-gradient-to-br from-card via-card to-accent/20 p-5 sm:p-6 md:p-8"
     >
       <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/5 blur-3xl" />
       <div className="absolute -bottom-10 -left-10 h-48 w-48 rounded-full bg-primary/5 blur-3xl" />
@@ -26,20 +26,19 @@ export function HeroCTA() {
           </div>
         </div>
 
-        <h1 className="mb-3 text-2xl font-bold tracking-tight sm:text-3xl md:text-4xl">
+        <h1 className="mb-2 text-2xl font-bold tracking-tight sm:text-3xl">
           Merchant Case Submission
         </h1>
-        <p className="mb-8 max-w-lg text-muted-foreground">
-          Upload complete merchant documents, validate requirements, and generate
-          standardized case packages ready for processing.
+        <p className="mb-6 max-w-md text-sm text-muted-foreground">
+          Build complete case packages with document validation and standardized exports.
         </p>
 
         <Button
           size="lg"
           onClick={() => router.push("/case/new")}
-          className="group h-12 gap-3 rounded-xl px-6 text-sm font-semibold shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30 sm:h-14 sm:px-8 sm:text-base"
+          className="group h-11 gap-2.5 rounded-xl px-6 text-sm font-semibold shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30"
         >
-          <FilePlus2 className="h-5 w-5" />
+          <FilePlus2 className="h-4 w-4" />
           Create New Case
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
         </Button>

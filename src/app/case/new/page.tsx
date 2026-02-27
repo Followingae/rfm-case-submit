@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { v4 as uuid } from "uuid";
+import { toast } from "sonner";
 import { WizardShell } from "@/components/wizard/wizard-shell";
 import { StepMerchant } from "@/components/wizard/step-merchant";
 import { StepDocuments } from "@/components/wizard/step-documents";
@@ -30,6 +31,12 @@ import {
   saveShareholders,
   saveShareholderDocument,
 } from "@/lib/storage";
+import {
+  validateMDFFields,
+  MDFValidationResult,
+} from "@/lib/mdf-validation";
+import { detectDocumentType, DocTypeDetectionResult } from "@/lib/doc-type-detector";
+import { detectDuplicates, DuplicateWarning } from "@/lib/duplicate-detector";
 
 export default function NewCasePage() {
   const [step, setStep] = useState(0);
@@ -48,6 +55,11 @@ export default function NewCasePage() {
 
   // Track which file paths are stored in Supabase (for the review step rename preview)
   const uploadedPathsRef = useRef<Map<string, string[]>>(new Map());
+
+  // Validation state
+  const [mdfValidation, setMdfValidation] = useState<MDFValidationResult | null>(null);
+  const [docTypeWarnings, setDocTypeWarnings] = useState<Map<string, DocTypeDetectionResult>>(new Map());
+  const [duplicateWarnings, setDuplicateWarnings] = useState<DuplicateWarning[]>([]);
 
   const buildChecklist = useCallback(
     (info: MerchantInfo) => {
@@ -71,6 +83,9 @@ export default function NewCasePage() {
       uploadedPathsRef.current = new Map();
       setConditionals({});
       setShareholders([]);
+      setMdfValidation(null);
+      setDocTypeWarnings(new Map());
+      setDuplicateWarnings([]);
     },
     []
   );
@@ -121,6 +136,47 @@ export default function NewCasePage() {
     []
   );
 
+  // Run duplicate detection after any file change
+  const runDuplicateCheck = useCallback(() => {
+    const dupes = detectDuplicates(fileStoreRef.current);
+    setDuplicateWarnings(dupes);
+    dupes.forEach((d) => {
+      toast.warning(`"${d.fileName}" uploaded in multiple slots`, {
+        description: `Found in ${d.slots.length} locations`,
+      });
+    });
+  }, []);
+
+  // Run doc type detection on a file
+  const runDocTypeDetection = useCallback(
+    async (itemId: string, file: File) => {
+      if (
+        !file.type.startsWith("image/") &&
+        file.type !== "application/pdf"
+      ) return;
+
+      try {
+        const text = await extractTextFromFile(file);
+        if (!text || text.trim().length < 30) return;
+
+        const result = detectDocumentType(text, itemId);
+        if (result.suggestion) {
+          setDocTypeWarnings((prev) => {
+            const next = new Map(prev);
+            next.set(itemId, result);
+            return next;
+          });
+          toast.warning(result.suggestion, {
+            description: "This file may be in the wrong slot",
+          });
+        }
+      } catch {
+        // Silent fail
+      }
+    },
+    []
+  );
+
   const handleRawFilesAdded = useCallback(
     (itemId: string, rawFiles: File[]) => {
       const existing = fileStoreRef.current.get(itemId) || [];
@@ -152,7 +208,7 @@ export default function NewCasePage() {
           );
         }
 
-        // Background OCR for MDF → structured data across 5 tables
+        // Background OCR for MDF → structured data + validation
         if (itemId === "mdf") {
           if (
             file.type.startsWith("image/") ||
@@ -164,6 +220,34 @@ export default function NewCasePage() {
               if (text) {
                 const parsed = parseMDFText(text);
                 await saveMDFData(caseId, parsed, confidence);
+
+                // MDF field validation
+                const validation = validateMDFFields(parsed);
+                setMdfValidation(validation);
+                toast.info(
+                  `MDF scanned: ${validation.totalPresent} of ${validation.totalChecked} fields detected`,
+                  {
+                    description: validation.isAcceptable
+                      ? "Key fields look good"
+                      : "Some critical fields may be missing",
+                  }
+                );
+
+                // Auto-fill merchant name/DBA if empty
+                setMerchantInfo((prev) => {
+                  const updates: Partial<MerchantInfo> = {};
+                  if (!prev.legalName.trim() && parsed.merchantLegalName?.trim()) {
+                    updates.legalName = parsed.merchantLegalName.trim();
+                  }
+                  if (!prev.dba.trim() && parsed.dba?.trim()) {
+                    updates.dba = parsed.dba.trim();
+                  }
+                  if (Object.keys(updates).length > 0) {
+                    toast.success("Auto-filled merchant info from MDF");
+                    return { ...prev, ...updates };
+                  }
+                  return prev;
+                });
               }
             } catch {
               // Silent fail — OCR is best-effort
@@ -183,15 +267,24 @@ export default function NewCasePage() {
               if (text) {
                 const parsed = parseTradeLicenseText(text);
                 await saveTradeLicenseData(caseId, parsed, confidence);
+                toast.info("Trade License scanned successfully");
               }
             } catch {
               // Silent fail
             }
           }
         }
+
+        // Doc type detection for non-MDF/TL files (MDF/TL already get OCR'd)
+        if (itemId !== "mdf" && itemId !== "trade-license") {
+          runDocTypeDetection(itemId, file);
+        }
       });
+
+      // Run duplicate check after adding files
+      setTimeout(() => runDuplicateCheck(), 100);
     },
-    []
+    [runDuplicateCheck, runDocTypeDetection]
   );
 
   const handleShareholderRawFiles = useCallback(
@@ -201,10 +294,9 @@ export default function NewCasePage() {
 
       // Upload to Supabase Storage
       const caseId = caseIdRef.current;
-      // key format: kyc::{shareholderId}::{passportFiles|eidFiles}
       const parts = key.split("::");
       const shareholderId = parts[1];
-      const docTypeRaw = parts[2]; // passportFiles or eidFiles
+      const docTypeRaw = parts[2];
       const docType = docTypeRaw === "passportFiles" ? "passport" : "eid";
 
       rawFiles.forEach(async (file) => {
@@ -224,14 +316,16 @@ export default function NewCasePage() {
           );
         }
       });
+
+      // Run duplicate check
+      setTimeout(() => runDuplicateCheck(), 100);
     },
-    []
+    [runDuplicateCheck]
   );
 
   const handleShareholdersUpdate = useCallback(
     (newShareholders: ShareholderKYC[]) => {
       setShareholders(newShareholders);
-      // Save to Supabase (debounced implicitly — each call replaces)
       saveShareholders(caseIdRef.current, newShareholders);
     },
     []
@@ -259,8 +353,18 @@ export default function NewCasePage() {
         existing.splice(fileIndex, 1);
         fileStoreRef.current.set(itemId, existing);
       }
+
+      // Clear doc type warning for this slot if no files remain
+      setDocTypeWarnings((prev) => {
+        const next = new Map(prev);
+        next.delete(itemId);
+        return next;
+      });
+
+      // Re-check duplicates
+      setTimeout(() => runDuplicateCheck(), 100);
     },
-    [checklist]
+    [checklist, runDuplicateCheck]
   );
 
   const handleConditionalToggle = useCallback((key: string) => {
@@ -299,6 +403,9 @@ export default function NewCasePage() {
             shareholders={shareholders}
             onShareholdersUpdate={handleShareholdersUpdate}
             onShareholderRawFiles={handleShareholderRawFiles}
+            mdfValidation={mdfValidation}
+            docTypeWarnings={docTypeWarnings}
+            duplicateWarnings={duplicateWarnings}
             onPrev={() => setStep(0)}
             onNext={handleNextToReview}
           />
@@ -311,6 +418,7 @@ export default function NewCasePage() {
             fileStore={fileStoreRef.current}
             shareholders={shareholders}
             caseId={caseIdRef.current}
+            mdfValidation={mdfValidation}
             onPrev={() => setStep(1)}
           />
         )}
