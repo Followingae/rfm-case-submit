@@ -18,7 +18,16 @@ import {
   parseMDFText,
   parseTradeLicenseText,
 } from "@/lib/ocr-engine";
-import { saveOCRData } from "@/lib/storage";
+import {
+  createCase,
+  updateCaseStatus,
+  updateCaseConditionals,
+  saveOCRData,
+  saveDocumentRecord,
+  uploadFile,
+  saveShareholders,
+  saveShareholderDocument,
+} from "@/lib/storage";
 
 export default function NewCasePage() {
   const [step, setStep] = useState(0);
@@ -34,6 +43,9 @@ export default function NewCasePage() {
   const [conditionals, setConditionals] = useState<Record<string, boolean>>({});
   const [shareholders, setShareholders] = useState<ShareholderKYC[]>([]);
   const fileStoreRef = useRef<Map<string, File[]>>(new Map());
+
+  // Track which file paths are stored in Supabase (for the review step rename preview)
+  const uploadedPathsRef = useRef<Map<string, string[]>>(new Map());
 
   const buildChecklist = useCallback(
     (info: MerchantInfo) => {
@@ -54,6 +66,7 @@ export default function NewCasePage() {
         }))
       );
       fileStoreRef.current = new Map();
+      uploadedPathsRef.current = new Map();
       setConditionals({});
       setShareholders([]);
     },
@@ -87,6 +100,12 @@ export default function NewCasePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Create case in Supabase when moving to step 1
+  const handleNextToDocuments = useCallback(async () => {
+    await createCase(caseIdRef.current, merchantInfo);
+    setStep(1);
+  }, [merchantInfo]);
+
   const handleItemUpdate = useCallback(
     (itemId: string, newFiles: UploadedFile[]) => {
       setChecklist((prev) =>
@@ -105,9 +124,34 @@ export default function NewCasePage() {
       const existing = fileStoreRef.current.get(itemId) || [];
       fileStoreRef.current.set(itemId, [...existing, ...rawFiles]);
 
-      // Background OCR for MDF and Trade License
-      if (itemId === "mdf") {
-        rawFiles.forEach(async (file) => {
+      // Upload each file to Supabase Storage + save record
+      const caseId = caseIdRef.current;
+      rawFiles.forEach(async (file) => {
+        const itemData = document.querySelector(`[data-item-id="${itemId}"]`);
+        const label = itemData?.getAttribute("data-label") || itemId;
+        const category = itemData?.getAttribute("data-category") || "Other";
+
+        const path = await uploadFile(caseId, itemId, file);
+        if (path) {
+          // Track uploaded path
+          const paths = uploadedPathsRef.current.get(itemId) || [];
+          paths.push(path);
+          uploadedPathsRef.current.set(itemId, paths);
+
+          await saveDocumentRecord(
+            caseId,
+            itemId,
+            label,
+            category,
+            file.name,
+            path,
+            file.size,
+            file.type
+          );
+        }
+
+        // Background OCR for MDF and Trade License
+        if (itemId === "mdf") {
           if (
             file.type.startsWith("image/") ||
             file.type === "application/pdf"
@@ -116,17 +160,15 @@ export default function NewCasePage() {
               const text = await extractTextFromFile(file);
               if (text) {
                 const parsed = parseMDFText(text);
-                saveOCRData(caseIdRef.current, parsed);
+                await saveOCRData(caseId, parsed, "mdf", text);
               }
             } catch {
               // Silent fail — OCR is best-effort
             }
           }
-        });
-      }
+        }
 
-      if (itemId === "trade-license") {
-        rawFiles.forEach(async (file) => {
+        if (itemId === "trade-license") {
           if (
             file.type.startsWith("image/") ||
             file.type === "application/pdf"
@@ -135,14 +177,14 @@ export default function NewCasePage() {
               const text = await extractTextFromFile(file);
               if (text) {
                 const parsed = parseTradeLicenseText(text);
-                saveOCRData(caseIdRef.current, parsed);
+                await saveOCRData(caseId, parsed, "trade-license", text);
               }
             } catch {
               // Silent fail
             }
           }
-        });
-      }
+        }
+      });
     },
     []
   );
@@ -151,6 +193,41 @@ export default function NewCasePage() {
     (key: string, rawFiles: File[]) => {
       const existing = fileStoreRef.current.get(key) || [];
       fileStoreRef.current.set(key, [...existing, ...rawFiles]);
+
+      // Upload to Supabase Storage
+      const caseId = caseIdRef.current;
+      // key format: kyc-{shareholderId}-{passportFiles|eidFiles}
+      const parts = key.split("-");
+      const shareholderId = parts[1];
+      const docTypeRaw = parts.slice(2).join("-"); // passportFiles or eidFiles
+      const docType = docTypeRaw === "passportFiles" ? "passport" : "eid";
+
+      rawFiles.forEach(async (file) => {
+        const path = await uploadFile(caseId, `kyc/${shareholderId}`, file);
+        if (path) {
+          const paths = uploadedPathsRef.current.get(key) || [];
+          paths.push(path);
+          uploadedPathsRef.current.set(key, paths);
+
+          await saveShareholderDocument(
+            shareholderId,
+            docType as "passport" | "eid",
+            file.name,
+            path,
+            file.size,
+            file.type
+          );
+        }
+      });
+    },
+    []
+  );
+
+  const handleShareholdersUpdate = useCallback(
+    (newShareholders: ShareholderKYC[]) => {
+      setShareholders(newShareholders);
+      // Save to Supabase (debounced implicitly — each call replaces)
+      saveShareholders(caseIdRef.current, newShareholders);
     },
     []
   );
@@ -169,7 +246,7 @@ export default function NewCasePage() {
         })
       );
 
-      // Also remove from raw file store (by index approximation)
+      // Also remove from raw file store
       const existing = fileStoreRef.current.get(itemId) || [];
       const itemFiles = checklist.find((i) => i.id === itemId)?.files || [];
       const fileIndex = itemFiles.findIndex((f) => f.id === fileId);
@@ -182,7 +259,17 @@ export default function NewCasePage() {
   );
 
   const handleConditionalToggle = useCallback((key: string) => {
-    setConditionals((prev) => ({ ...prev, [key]: !prev[key] }));
+    setConditionals((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      updateCaseConditionals(caseIdRef.current, next);
+      return next;
+    });
+  }, []);
+
+  // When moving to review, update case status
+  const handleNextToReview = useCallback(async () => {
+    await updateCaseStatus(caseIdRef.current, "complete");
+    setStep(2);
   }, []);
 
   return (
@@ -192,7 +279,7 @@ export default function NewCasePage() {
           <StepMerchant
             merchantInfo={merchantInfo}
             onUpdate={handleMerchantUpdate}
-            onNext={() => setStep(1)}
+            onNext={handleNextToDocuments}
           />
         )}
         {step === 1 && (
@@ -205,10 +292,10 @@ export default function NewCasePage() {
             onConditionalToggle={handleConditionalToggle}
             onRawFilesAdded={handleRawFilesAdded}
             shareholders={shareholders}
-            onShareholdersUpdate={setShareholders}
+            onShareholdersUpdate={handleShareholdersUpdate}
             onShareholderRawFiles={handleShareholderRawFiles}
             onPrev={() => setStep(0)}
-            onNext={() => setStep(2)}
+            onNext={handleNextToReview}
           />
         )}
         {step === 2 && (
@@ -218,6 +305,7 @@ export default function NewCasePage() {
             conditionals={conditionals}
             fileStore={fileStoreRef.current}
             shareholders={shareholders}
+            caseId={caseIdRef.current}
             onPrev={() => setStep(1)}
           />
         )}

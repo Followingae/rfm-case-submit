@@ -26,7 +26,8 @@ import {
 import { cn } from "@/lib/utils";
 import { ChecklistItem, MerchantInfo, ShareholderKYC } from "@/lib/types";
 import { generateRenameMappings, createCaseZip } from "@/lib/file-utils";
-import { validateCase, ValidationWarning } from "@/lib/validation";
+import { validateCase } from "@/lib/validation";
+import { updateCaseStatus } from "@/lib/storage";
 import { useRouter } from "next/navigation";
 
 interface StepReviewProps {
@@ -35,6 +36,7 @@ interface StepReviewProps {
   conditionals: Record<string, boolean>;
   fileStore: Map<string, File[]>;
   shareholders: ShareholderKYC[];
+  caseId: string;
   onPrev: () => void;
 }
 
@@ -44,6 +46,7 @@ export function StepReview({
   conditionals,
   fileStore,
   shareholders,
+  caseId,
   onPrev,
 }: StepReviewProps) {
   const router = useRouter();
@@ -83,6 +86,7 @@ export function StepReview({
     setIsExporting(true);
     try {
       await createCaseZip(merchantInfo, items, fileStore, shareholders);
+      await updateCaseStatus(caseId, "exported");
       setExported(true);
     } catch (err) {
       console.error("Export failed:", err);
