@@ -68,7 +68,7 @@ export function generateRenameMappings(
       const shName = sanitizeName(sh.name || `Shareholder${shIndex + 1}`);
 
       // Passport files
-      const passportKey = `kyc-${sh.id}-passportFiles`;
+      const passportKey = `kyc::${sh.id}::passportFiles`;
       const passportRaw = fileMap.get(passportKey) || [];
       passportRaw.forEach((file, fi) => {
         const ext = getFileExtension(file.name);
@@ -83,7 +83,7 @@ export function generateRenameMappings(
       });
 
       // EID files
-      const eidKey = `kyc-${sh.id}-eidFiles`;
+      const eidKey = `kyc::${sh.id}::eidFiles`;
       const eidRaw = fileMap.get(eidKey) || [];
       eidRaw.forEach((file, fi) => {
         const ext = getFileExtension(file.name);

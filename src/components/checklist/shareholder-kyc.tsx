@@ -104,7 +104,7 @@ export function ShareholderKYCSection({
       }));
 
       // Store raw files for ZIP
-      const storeKey = `kyc-${shareholderId}-${docType}`;
+      const storeKey = `kyc::${shareholderId}::${docType}`;
       onRawFilesAdded(storeKey, rawFiles);
 
       // Update shareholder state

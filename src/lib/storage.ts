@@ -240,10 +240,11 @@ export async function saveShareholders(
   caseId: string,
   shareholders: ShareholderKYC[]
 ): Promise<void> {
-  const { error: delErr } = await supabase.from("shareholders").delete().eq("case_id", caseId);
-  if (delErr) logError("saveShareholders.delete", delErr);
-
-  if (shareholders.length === 0) return;
+  if (shareholders.length === 0) {
+    const { error } = await supabase.from("shareholders").delete().eq("case_id", caseId);
+    if (error) logError("saveShareholders.delete", error);
+    return;
+  }
 
   const rows = shareholders.map((sh) => ({
     id: sh.id,
@@ -252,8 +253,18 @@ export async function saveShareholders(
     percentage: sh.percentage,
   }));
 
-  const { error } = await supabase.from("shareholders").insert(rows);
-  if (error) logError("saveShareholders.insert", error);
+  // Upsert to avoid duplicate key conflicts from rapid calls
+  const { error } = await supabase.from("shareholders").upsert(rows, { onConflict: "id" });
+  if (error) logError("saveShareholders.upsert", error);
+
+  // Clean up removed shareholders
+  const keepIds = shareholders.map((sh) => sh.id);
+  const { error: cleanErr } = await supabase
+    .from("shareholders")
+    .delete()
+    .eq("case_id", caseId)
+    .not("id", "in", `(${keepIds.join(",")})`);
+  if (cleanErr) logError("saveShareholders.cleanup", cleanErr);
 }
 
 export async function saveShareholderDocument(

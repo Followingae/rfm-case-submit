@@ -201,10 +201,10 @@ export default function NewCasePage() {
 
       // Upload to Supabase Storage
       const caseId = caseIdRef.current;
-      // key format: kyc-{shareholderId}-{passportFiles|eidFiles}
-      const parts = key.split("-");
+      // key format: kyc::{shareholderId}::{passportFiles|eidFiles}
+      const parts = key.split("::");
       const shareholderId = parts[1];
-      const docTypeRaw = parts.slice(2).join("-"); // passportFiles or eidFiles
+      const docTypeRaw = parts[2]; // passportFiles or eidFiles
       const docType = docTypeRaw === "passportFiles" ? "passport" : "eid";
 
       rawFiles.forEach(async (file) => {
