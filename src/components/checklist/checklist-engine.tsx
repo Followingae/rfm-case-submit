@@ -1,25 +1,24 @@
 "use client";
 
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useState } from "react";
 import {
   CheckCircle2,
-  Circle,
   Upload,
   X,
   FileText,
   Image as ImageIcon,
   File as FileIcon,
   Info,
+  AlertTriangle,
   FileStack,
   Scale,
   Landmark,
   Store,
   ScrollText,
+  ChevronDown,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
   Tooltip,
@@ -50,10 +49,18 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
   Shop: Store,
 };
 
+const CATEGORY_COLORS: Record<string, string> = {
+  Forms: "text-blue-400",
+  Legal: "text-violet-400",
+  KYC: "text-rose-400",
+  Bank: "text-emerald-400",
+  Shop: "text-amber-400",
+};
+
 function getFileIcon(type: string) {
-  if (type.startsWith("image/")) return <ImageIcon className="h-3 w-3" />;
-  if (type.includes("pdf")) return <FileText className="h-3 w-3" />;
-  return <FileIcon className="h-3 w-3" />;
+  if (type.startsWith("image/")) return <ImageIcon className="h-3.5 w-3.5" />;
+  if (type.includes("pdf")) return <FileText className="h-3.5 w-3.5" />;
+  return <FileIcon className="h-3.5 w-3.5" />;
 }
 
 function formatSize(bytes: number): string {
@@ -72,6 +79,8 @@ export function ChecklistEngine({
   docTypeWarnings,
   duplicateFileNames,
 }: ChecklistEngineProps) {
+  const [dragOver, setDragOver] = useState<string | null>(null);
+
   const grouped = useMemo(() => {
     const map = new Map<string, ChecklistItem[]>();
     for (const cat of CATEGORIES_ORDER) {
@@ -97,34 +106,18 @@ export function ChecklistEngine({
     };
   }, [items, conditionals]);
 
-  // Which items are the first for their conditionalKey (per category)
-  const firstToggleIds = useMemo(() => {
-    const result = new Set<string>();
-    for (const [, categoryItems] of grouped) {
-      const seen = new Set<string>();
-      for (const item of categoryItems) {
-        if (item.conditionalKey && !seen.has(item.conditionalKey)) {
-          seen.add(item.conditionalKey);
-          result.add(item.id);
-        }
-      }
-    }
-    return result;
-  }, [grouped]);
-
-  // Gather all conditionals per category for display at top
+  // Gather all conditionals per category
   const categoryConditionals = useMemo(() => {
-    const map = new Map<string, { key: string; label: string; itemId: string }[]>();
+    const map = new Map<string, { key: string; label: string }[]>();
     for (const [cat, categoryItems] of grouped) {
       const seen = new Set<string>();
-      const toggles: { key: string; label: string; itemId: string }[] = [];
+      const toggles: { key: string; label: string }[] = [];
       for (const item of categoryItems) {
         if (item.conditionalKey && !seen.has(item.conditionalKey)) {
           seen.add(item.conditionalKey);
           toggles.push({
             key: item.conditionalKey,
             label: item.conditionalLabel || item.conditionalKey,
-            itemId: item.id,
           });
         }
       }
@@ -137,6 +130,7 @@ export function ChecklistEngine({
     (itemId: string, e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      setDragOver(null);
       const fileList = e.dataTransfer.files;
       if (fileList.length === 0) return;
       const rawFiles = Array.from(fileList);
@@ -170,270 +164,244 @@ export function ChecklistEngine({
     [onItemUpdate, onRawFilesAdded]
   );
 
-  function renderItem(item: ChecklistItem) {
-    const isConditional = !!item.conditionalKey;
-    const isEnabled = !isConditional || conditionals[item.conditionalKey!];
-    const isUploaded = item.status === "uploaded";
-    const hasDocTypeWarning = docTypeWarnings?.get(item.id)?.suggestion;
-    const hasDuplicateFile = item.files.some((f) => duplicateFileNames?.has(f.name));
-
-    if (!isEnabled) return null;
-
-    return (
-      <div
-        key={item.id}
-        data-item-id={item.id}
-        data-label={item.label}
-        data-category={item.category}
-        className={cn(
-          "group flex items-center gap-2.5 rounded-lg px-3 py-1.5 transition-all",
-          isUploaded && "bg-emerald-500/[0.04]"
-        )}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          e.currentTarget.classList.add("bg-primary/5", "ring-1", "ring-primary/20");
-        }}
-        onDragLeave={(e) => {
-          e.currentTarget.classList.remove("bg-primary/5", "ring-1", "ring-primary/20");
-        }}
-        onDrop={(e) => {
-          e.currentTarget.classList.remove("bg-primary/5", "ring-1", "ring-primary/20");
-          handleFileDrop(item.id, e);
-        }}
-      >
-        {/* Status icon */}
-        <div className="shrink-0">
-          {isUploaded ? (
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-          ) : (
-            <Circle className="h-3.5 w-3.5 text-muted-foreground/20" />
-          )}
-        </div>
-
-        {/* Label + files */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "text-[12.5px] leading-snug",
-                isUploaded
-                  ? "font-medium text-emerald-600 dark:text-emerald-400"
-                  : "text-foreground"
-              )}
-            >
-              {item.label}
-            </span>
-            {item.required && !isUploaded && (
-              <span className="text-[9px] font-bold text-orange-500">*</span>
-            )}
-            {item.notes && item.notes.length > 0 && (
-              <Tooltip delayDuration={0}>
-                <TooltipTrigger>
-                  <Info className="h-3 w-3 text-muted-foreground/30" />
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-xs">
-                  <div className="space-y-1">
-                    {item.notes.map((note, ni) => (
-                      <p key={ni} className="text-xs">{note}</p>
-                    ))}
-                  </div>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {hasDocTypeWarning && (
-              <Tooltip delayDuration={0}>
-                <TooltipTrigger>
-                  <span className="text-amber-500 text-[10px]">&#9888;</span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">{hasDocTypeWarning}</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {hasDuplicateFile && (
-              <Tooltip delayDuration={0}>
-                <TooltipTrigger>
-                  <Info className="h-3 w-3 text-blue-400" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">Duplicate file detected in another slot</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-
-          {/* Compact file chips */}
-          {item.files.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {item.files.map((f) => (
-                <div
-                  key={f.id}
-                  className="flex items-center gap-1 rounded bg-accent/50 px-1.5 py-0.5 text-[10px]"
-                >
-                  <span className="text-muted-foreground">
-                    {getFileIcon(f.type)}
-                  </span>
-                  <span className="max-w-[120px] truncate">{f.name}</span>
-                  <span className="text-muted-foreground/50">
-                    {formatSize(f.size)}
-                  </span>
-                  <button
-                    onClick={() => onFileRemove(item.id, f.id)}
-                    className="rounded p-0.5 text-muted-foreground hover:text-destructive"
-                  >
-                    <X className="h-2.5 w-2.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Upload button */}
-        <div className="shrink-0">
-          <input
-            type="file"
-            id={`file-${item.id}`}
-            className="hidden"
-            multiple={item.multiFile}
-            onChange={(e) => handleFileInput(item.id, e)}
-            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.gif,.bmp,.tiff"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "h-6 gap-1 rounded-md px-2 text-[10px]",
-              isUploaded
-                ? "text-emerald-600 hover:text-emerald-700"
-                : "text-muted-foreground"
-            )}
-            onClick={() =>
-              document.getElementById(`file-${item.id}`)?.click()
-            }
-          >
-            <Upload className="h-3 w-3" />
-            {isUploaded ? "More" : "Upload"}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      {/* Progress */}
-      <div className="space-y-1">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">
-            <span className="font-semibold text-foreground">{uploaded}</span>
-            <span className="text-muted-foreground/50"> / {total} required</span>
-          </span>
-          <span
+    <div className="space-y-5">
+      {/* Progress bar */}
+      <div className="flex items-center gap-3">
+        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted/50">
+          <div
             className={cn(
-              "text-[10px] font-semibold",
-              progress === 100 ? "text-emerald-500" : "text-muted-foreground"
+              "h-full rounded-full transition-all duration-500",
+              progress === 100 ? "bg-emerald-500" : "bg-primary"
             )}
-          >
-            {Math.round(progress)}%
-          </span>
+            style={{ width: `${progress}%` }}
+          />
         </div>
-        <Progress value={progress} className="h-1" />
+        <span className="text-xs font-medium tabular-nums text-muted-foreground">
+          {uploaded}/{total}
+        </span>
       </div>
 
-      {/* Flat sections — all visible */}
-      <div className="space-y-3">
-        {CATEGORIES_ORDER.map((category) => {
-          const categoryItems = grouped.get(category);
-          if (!categoryItems || categoryItems.length === 0) return null;
+      {/* Category sections */}
+      {CATEGORIES_ORDER.map((category) => {
+        const categoryItems = grouped.get(category);
+        if (!categoryItems || categoryItems.length === 0) return null;
 
-          const catUploaded = categoryItems.filter(
-            (i) => i.status === "uploaded"
-          ).length;
-          const catRequired = categoryItems.filter(
-            (i) =>
-              i.required ||
-              (i.conditionalKey && conditionals[i.conditionalKey])
-          ).length;
-          const catComplete = catRequired > 0 && catUploaded >= catRequired;
-          const Icon = CATEGORY_ICONS[category] || FileStack;
-          const toggles = categoryConditionals.get(category);
+        const catUploaded = categoryItems.filter((i) => i.status === "uploaded").length;
+        const catRequired = categoryItems.filter(
+          (i) => i.required || (i.conditionalKey && conditionals[i.conditionalKey])
+        ).length;
+        const catComplete = catRequired > 0 && catUploaded >= catRequired;
+        const Icon = CATEGORY_ICONS[category] || FileStack;
+        const iconColor = CATEGORY_COLORS[category] || "text-muted-foreground";
+        const toggles = categoryConditionals.get(category);
 
-          return (
-            <div key={category} className="overflow-hidden rounded-xl border border-border/40 bg-card/20">
-              {/* Category header */}
-              <div className="flex items-center gap-2.5 border-b border-border/30 px-3 py-2">
-                <Icon
-                  className={cn(
-                    "h-3.5 w-3.5",
-                    catComplete ? "text-emerald-500" : "text-muted-foreground/50"
-                  )}
-                />
-                <span className="flex-1 text-xs font-semibold">
-                  {category}
-                </span>
-                {catComplete && (
-                  <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                )}
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    "h-4 px-1.5 text-[9px]",
-                    catComplete && "bg-emerald-500/10 text-emerald-600"
-                  )}
-                >
+        return (
+          <div key={category}>
+            {/* Category header */}
+            <div className="mb-2 flex items-center gap-2">
+              <Icon className={cn("h-4 w-4", catComplete ? "text-emerald-500" : iconColor)} />
+              <span className="text-sm font-semibold tracking-tight">{category}</span>
+              {catComplete ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              ) : (
+                <span className="text-[11px] tabular-nums text-muted-foreground/50">
                   {catUploaded}/{catRequired}
-                </Badge>
-              </div>
-
-              {/* Conditionals grouped at top */}
-              {toggles && toggles.length > 0 && (
-                <div className="flex flex-wrap gap-x-4 gap-y-1.5 border-b border-border/20 bg-muted/20 px-3 py-2">
-                  {toggles.map((toggle) => (
-                    <div key={toggle.key} className="flex items-center gap-1.5">
-                      <Checkbox
-                        id={`cond-${toggle.key}`}
-                        checked={conditionals[toggle.key] || false}
-                        onCheckedChange={() => onConditionalToggle(toggle.key)}
-                        className="h-3.5 w-3.5"
-                      />
-                      <Label
-                        htmlFor={`cond-${toggle.key}`}
-                        className="cursor-pointer text-[10px] text-muted-foreground"
-                      >
-                        {toggle.label}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
+                </span>
               )}
-
-              {/* Items */}
-              <div className="divide-y divide-border/10">
-                {categoryItems.map((item) => {
-                  // Skip section headers as separate elements — they become part of the items
-                  if (item.sectionHeader) {
-                    const isEnabled = !item.conditionalKey || conditionals[item.conditionalKey!];
-                    if (!isEnabled) return null;
-                    return (
-                      <div key={`sh-${item.id}`}>
-                        <div className="bg-muted/20 px-3 py-1">
-                          <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/50">
-                            {item.sectionHeader}
-                          </span>
-                        </div>
-                        {renderItem(item)}
-                      </div>
-                    );
-                  }
-                  return renderItem(item);
-                })}
-              </div>
             </div>
-          );
-        })}
-      </div>
+
+            {/* Conditional toggles */}
+            {toggles && toggles.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-3 rounded-lg bg-muted/20 px-3 py-2">
+                {toggles.map((toggle) => (
+                  <div key={toggle.key} className="flex items-center gap-2">
+                    <Switch
+                      id={`cond-${toggle.key}`}
+                      checked={conditionals[toggle.key] || false}
+                      onCheckedChange={() => onConditionalToggle(toggle.key)}
+                      className="scale-75"
+                    />
+                    <Label
+                      htmlFor={`cond-${toggle.key}`}
+                      className="cursor-pointer text-[11px] leading-tight text-muted-foreground"
+                    >
+                      {toggle.label}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Document items */}
+            <div className="space-y-1.5">
+              {categoryItems.map((item) => {
+                const isConditional = !!item.conditionalKey;
+                const isEnabled = !isConditional || conditionals[item.conditionalKey!];
+                const isUploaded = item.status === "uploaded";
+                const hasDocTypeWarning = docTypeWarnings?.get(item.id)?.suggestion;
+                const hasDuplicateFile = item.files.some((f) => duplicateFileNames?.has(f.name));
+                const isDragging = dragOver === item.id;
+
+                if (!isEnabled) return null;
+
+                // Section sub-header
+                const sectionHeader = item.sectionHeader ? (
+                  <div key={`hdr-${item.id}`} className="mt-3 mb-1 pl-1">
+                    <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/40">
+                      {item.sectionHeader}
+                    </span>
+                  </div>
+                ) : null;
+
+                return (
+                  <div key={item.id}>
+                    {sectionHeader}
+                    <div
+                      data-item-id={item.id}
+                      data-label={item.label}
+                      data-category={item.category}
+                      className={cn(
+                        "group relative cursor-pointer rounded-xl border transition-all duration-200",
+                        isUploaded
+                          ? "border-emerald-500/20 bg-emerald-500/[0.03]"
+                          : "border-border/30 bg-card/30 hover:border-border/60 hover:bg-card/50",
+                        isDragging && "border-primary/40 bg-primary/5 ring-2 ring-primary/10"
+                      )}
+                      onClick={() => {
+                        if (!isUploaded || item.multiFile) {
+                          document.getElementById(`file-${item.id}`)?.click();
+                        }
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOver(item.id);
+                      }}
+                      onDragLeave={() => setDragOver(null)}
+                      onDrop={(e) => handleFileDrop(item.id, e)}
+                    >
+                      <input
+                        type="file"
+                        id={`file-${item.id}`}
+                        className="hidden"
+                        multiple={item.multiFile}
+                        onChange={(e) => handleFileInput(item.id, e)}
+                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.gif,.bmp,.tiff"
+                      />
+
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        {/* Left: status indicator */}
+                        <div className="shrink-0">
+                          {isUploaded ? (
+                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
+                              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                            </div>
+                          ) : (
+                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/30 transition-colors group-hover:bg-primary/10">
+                              <Upload className="h-4 w-4 text-muted-foreground/40 transition-colors group-hover:text-primary/60" />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Center: label + file info */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={cn(
+                                "text-[13px] leading-tight",
+                                isUploaded
+                                  ? "font-medium text-emerald-600 dark:text-emerald-400"
+                                  : "text-foreground/80"
+                              )}
+                            >
+                              {item.label}
+                            </span>
+                            {item.required && !isUploaded && (
+                              <span className="text-[9px] font-bold text-destructive">*</span>
+                            )}
+                            {hasDocTypeWarning && (
+                              <Tooltip delayDuration={0}>
+                                <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p className="text-xs">{hasDocTypeWarning}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            {hasDuplicateFile && (
+                              <Tooltip delayDuration={0}>
+                                <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                                  <Info className="h-3.5 w-3.5 text-blue-400" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p className="text-xs">Duplicate file in another slot</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+
+                          {/* Notes preview */}
+                          {item.notes && item.notes.length > 0 && !isUploaded && (
+                            <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground/40">
+                              {item.notes[0]}
+                            </p>
+                          )}
+
+                          {/* File chips */}
+                          {item.files.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {item.files.map((f) => (
+                                <div
+                                  key={f.id}
+                                  className="flex items-center gap-1.5 rounded-lg bg-emerald-500/8 px-2.5 py-1 text-[11px]"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <span className="text-emerald-600 dark:text-emerald-400">
+                                    {getFileIcon(f.type)}
+                                  </span>
+                                  <span className="max-w-[160px] truncate font-medium text-foreground/70">
+                                    {f.name}
+                                  </span>
+                                  <span className="text-muted-foreground/40">
+                                    {formatSize(f.size)}
+                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onFileRemove(item.id, f.id);
+                                    }}
+                                    className="rounded-full p-0.5 text-muted-foreground/30 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Right: action hint */}
+                        {!isUploaded && (
+                          <span className="hidden shrink-0 text-[11px] text-muted-foreground/30 sm:block">
+                            Click or drop
+                          </span>
+                        )}
+                        {isUploaded && item.multiFile && (
+                          <span className="shrink-0 text-[11px] text-emerald-500/40">
+                            + more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

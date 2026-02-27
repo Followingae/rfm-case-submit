@@ -354,12 +354,20 @@ export default function NewCasePage() {
         fileStoreRef.current.set(itemId, existing);
       }
 
-      // Clear doc type warning for this slot if no files remain
+      // Clear doc type warning for this slot
       setDocTypeWarnings((prev) => {
         const next = new Map(prev);
         next.delete(itemId);
         return next;
       });
+
+      // Clear MDF validation when MDF file is removed and no files remain
+      if (itemId === "mdf") {
+        const remaining = fileStoreRef.current.get("mdf") || [];
+        if (remaining.length === 0) {
+          setMdfValidation(null);
+        }
+      }
 
       // Re-check duplicates
       setTimeout(() => runDuplicateCheck(), 100);

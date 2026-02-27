@@ -2,6 +2,8 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { ChecklistItem, MerchantInfo, ShareholderKYC } from "./types";
 import { DOCUMENT_TYPE_MAP, FOLDER_MAP } from "./checklist-config";
+import { MDFValidationResult } from "./mdf-validation";
+import { ValidationWarning } from "./validation";
 
 function sanitizeName(name: string): string {
   return name
@@ -106,7 +108,9 @@ export async function createCaseZip(
   merchantInfo: MerchantInfo,
   checklist: ChecklistItem[],
   fileMap: Map<string, File[]>,
-  shareholders?: ShareholderKYC[]
+  shareholders?: ShareholderKYC[],
+  mdfValidation?: MDFValidationResult | null,
+  warnings?: ValidationWarning[]
 ): Promise<void> {
   const zip = new JSZip();
   const merchantName = sanitizeName(merchantInfo.legalName || merchantInfo.dba || "Merchant");
@@ -183,7 +187,92 @@ export async function createCaseZip(
     });
   }
 
+  // ── PROCESSING TEAM INTELLIGENCE RUNDOWN ──
   summaryLines.push(``);
+  summaryLines.push(`${"═".repeat(50)}`);
+  summaryLines.push(`PROCESSING TEAM NOTES`);
+  summaryLines.push(`${"═".repeat(50)}`);
+  summaryLines.push(``);
+
+  const issues: string[] = [];
+
+  // Missing required documents
+  if (missing.length > 0) {
+    issues.push(`MISSING DOCUMENTS (${missing.length}):`);
+    missing.forEach((item) => {
+      issues.push(`  - ${item.label}`);
+    });
+    issues.push(``);
+  }
+
+  // MDF Field Validation
+  if (mdfValidation) {
+    issues.push(`MDF FIELD SCAN: ${mdfValidation.totalPresent}/${mdfValidation.totalChecked} fields detected (${mdfValidation.percentage}%)`);
+    if (mdfValidation.missingFields.length > 0) {
+      issues.push(`  Missing MDF fields:`);
+      mdfValidation.missingFields.forEach((f) => {
+        issues.push(`  - ${f.label} (${f.group})`);
+      });
+    }
+    issues.push(``);
+  } else {
+    issues.push(`MDF FIELD SCAN: Not performed (MDF not uploaded or OCR failed)`);
+    issues.push(``);
+  }
+
+  // Shareholder KYC completeness
+  if (shareholders && shareholders.length > 0) {
+    const incompleteKyc = shareholders.filter(
+      (s) => s.passportFiles.length === 0 || s.eidFiles.length === 0 || !s.name?.trim()
+    );
+    if (incompleteKyc.length > 0) {
+      issues.push(`INCOMPLETE SHAREHOLDER KYC (${incompleteKyc.length}):`);
+      incompleteKyc.forEach((s, idx) => {
+        const label = s.name?.trim() || `Shareholder ${idx + 1}`;
+        const missing: string[] = [];
+        if (!s.name?.trim()) missing.push("name");
+        if (s.passportFiles.length === 0) missing.push("passport");
+        if (s.eidFiles.length === 0) missing.push("EID");
+        issues.push(`  - ${label}: missing ${missing.join(", ")}`);
+      });
+      issues.push(``);
+    }
+  } else {
+    issues.push(`SHAREHOLDER KYC: No shareholders added — verify against Trade License`);
+    issues.push(``);
+  }
+
+  // Validation warnings (major/minor)
+  if (warnings && warnings.length > 0) {
+    const majors = warnings.filter((w) => w.type === "major");
+    const minors = warnings.filter((w) => w.type === "minor");
+
+    if (majors.length > 0) {
+      issues.push(`MAJOR ISSUES (${majors.length}):`);
+      majors.forEach((w) => issues.push(`  - ${w.message}`));
+      issues.push(``);
+    }
+    if (minors.length > 0) {
+      issues.push(`MINOR ISSUES (${minors.length}):`);
+      minors.forEach((w) => issues.push(`  - ${w.message}`));
+      issues.push(``);
+    }
+  }
+
+  // Summary verdict
+  const majorCount = (warnings || []).filter((w) => w.type === "major").length;
+  if (missing.length === 0 && majorCount === 0 && (!mdfValidation || mdfValidation.isAcceptable)) {
+    issues.push(`VERDICT: Case appears complete — standard processing recommended.`);
+  } else if (majorCount > 0 || missing.length > 3) {
+    issues.push(`VERDICT: Case has significant gaps — review with sales team before processing.`);
+  } else {
+    issues.push(`VERDICT: Case has minor gaps — may proceed with conditions noted above.`);
+  }
+
+  summaryLines.push(...issues);
+
+  summaryLines.push(``);
+  summaryLines.push(`${"─".repeat(50)}`);
   summaryLines.push(
     `Total Documents: ${uploaded.length} / ${checklist.filter((i) => i.required).length} required`
   );

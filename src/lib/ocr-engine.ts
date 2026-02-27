@@ -25,7 +25,57 @@ async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
   return allText.join("\n");
 }
 
-// ── Tesseract OCR (fallback for scanned images) ──
+// ── Render scanned PDF pages → canvas → Tesseract OCR ──
+
+async function ocrScannedPDF(arrayBuffer: ArrayBuffer): Promise<string> {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const Tesseract = await import("tesseract.js");
+  const worker = await Tesseract.createWorker("eng", undefined, {
+    logger: () => {},
+  });
+
+  const allText: string[] = [];
+  let totalConfidence = 0;
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    try {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2.0 }); // Higher scale = better OCR
+
+      // Create an offscreen canvas
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      await page.render({ canvas, viewport }).promise;
+
+      // Convert canvas to blob for Tesseract
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((b) => resolve(b!), "image/png");
+      });
+
+      const { data: { text, confidence } } = await worker.recognize(blob);
+      allText.push(text);
+      totalConfidence += confidence;
+
+      console.log(`[OCR] Page ${i}/${pdf.numPages}: ${text.length} chars, ${Math.round(confidence)}% confidence`);
+    } catch (err) {
+      console.warn(`[OCR] Failed to OCR page ${i}:`, err);
+    }
+  }
+
+  await worker.terminate();
+
+  const avgConfidence = pdf.numPages > 0 ? totalConfidence / pdf.numPages : 0;
+  (extractTextFromFile as any)._lastConfidence = avgConfidence;
+
+  return allText.join("\n");
+}
+
+// ── Tesseract OCR (for images) ──
 
 async function extractTextFromImage(file: File): Promise<string> {
   const Tesseract = await import("tesseract.js");
@@ -43,8 +93,8 @@ async function extractTextFromImage(file: File): Promise<string> {
 }
 
 // ── Main entry point ─────────────────────────
-// PDFs → extract text directly (fast, accurate)
-// Images → OCR with Tesseract (slower, for scanned docs)
+// PDFs → try text extraction first, fall back to OCR for scanned docs
+// Images → OCR with Tesseract
 
 export async function extractTextFromFile(file: File): Promise<string> {
   try {
@@ -52,14 +102,18 @@ export async function extractTextFromFile(file: File): Promise<string> {
       console.log("[OCR] Extracting text directly from PDF...");
       const arrayBuffer = await file.arrayBuffer();
       const text = await extractTextFromPDF(arrayBuffer);
+
       if (text.trim().length > 50) {
         console.log(`[OCR] PDF text extracted: ${text.length} chars`);
         return text;
       }
-      // If PDF has very little text, it's probably a scanned PDF
-      // In that case we can't OCR it easily, just return what we got
-      console.log("[OCR] PDF has minimal text (possibly scanned), returning what was found");
-      return text;
+
+      // Scanned PDF — render pages to canvas and OCR each one
+      console.log("[OCR] PDF has minimal text — running Tesseract OCR on rendered pages...");
+      const arrayBuffer2 = await file.arrayBuffer();
+      const ocrText = await ocrScannedPDF(arrayBuffer2);
+      console.log(`[OCR] Scanned PDF OCR complete: ${ocrText.length} chars`);
+      return ocrText;
     }
 
     if (file.type.startsWith("image/")) {

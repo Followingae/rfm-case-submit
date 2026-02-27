@@ -93,7 +93,7 @@ export function StepReview({
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      await createCaseZip(merchantInfo, items, fileStore, shareholders);
+      await createCaseZip(merchantInfo, items, fileStore, shareholders, mdfValidation, warnings);
       await updateCaseStatus(caseId, "exported");
       setExported(true);
     } catch (err) {
