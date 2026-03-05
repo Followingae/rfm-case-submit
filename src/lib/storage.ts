@@ -1,11 +1,23 @@
 import { supabase } from "./supabase";
-import { MerchantInfo, ShareholderKYC } from "./types";
-import type { ParsedMDF, ParsedTradeLicense } from "./ocr-engine";
+import {
+  MerchantInfo,
+  ShareholderKYC,
+  ParsedPassport,
+  ParsedEID,
+  ParsedMOA,
+  ParsedBankStatement,
+  ParsedVATCert,
+} from "./types";
+import type {
+  ParsedMDF,
+  ParsedTradeLicense,
+} from "./ocr-engine";
 
 // ── Helper: log Supabase errors ────────────────
 
 function logError(operation: string, error: unknown) {
-  console.error(`[Supabase] ${operation} failed:`, error);
+  // Use warn instead of error — some tables may not exist yet (Phase 1)
+  console.warn(`[Supabase] ${operation}:`, error);
 }
 
 // ── Cases ──────────────────────────────────────
@@ -16,7 +28,6 @@ export async function createCase(caseId: string, merchantInfo: MerchantInfo): Pr
     legal_name: merchantInfo.legalName,
     dba: merchantInfo.dba,
     case_type: merchantInfo.caseType,
-    branch_mode: merchantInfo.branchMode || null,
     status: "incomplete",
   });
   if (error) logError("createCase", error);
@@ -284,4 +295,103 @@ export async function saveShareholderDocument(
     file_type: fileType,
   });
   if (error) logError("saveShareholderDocument", error);
+}
+
+// ── OCR: Save Passport Data ──────────────────
+
+export async function savePassportData(
+  caseId: string,
+  shareholderId: string,
+  parsed: ParsedPassport,
+  confidence: number
+): Promise<void> {
+  const { error } = await supabase.from("ocr_passport_data").upsert({
+    case_id: caseId,
+    shareholder_id: shareholderId,
+    surname: parsed.surname || null,
+    given_names: parsed.givenNames || null,
+    passport_number: parsed.passportNumber || null,
+    nationality: parsed.nationality || null,
+    date_of_birth: parsed.dateOfBirth || null,
+    sex: parsed.sex || null,
+    expiry_date: parsed.expiryDate || null,
+    is_expired: parsed.isExpired || false,
+    mrz_valid: parsed.mrzValid || false,
+    confidence_score: confidence,
+  }, { onConflict: "case_id,shareholder_id" });
+  if (error) logError("savePassportData", error);
+}
+
+// ── OCR: Save EID Data ───────────────────────
+
+export async function saveEIDData(
+  caseId: string,
+  shareholderId: string,
+  parsed: ParsedEID,
+  confidence: number
+): Promise<void> {
+  const { error } = await supabase.from("ocr_eid_data").upsert({
+    case_id: caseId,
+    shareholder_id: shareholderId,
+    id_number: parsed.idNumber || null,
+    name: parsed.name || null,
+    nationality: parsed.nationality || null,
+    expiry_date: parsed.expiryDate || null,
+    is_expired: parsed.isExpired || false,
+    confidence_score: confidence,
+  }, { onConflict: "case_id,shareholder_id" });
+  if (error) logError("saveEIDData", error);
+}
+
+// ── OCR: Save Bank Statement Data ────────────
+
+export async function saveBankStatementData(
+  caseId: string,
+  parsed: ParsedBankStatement,
+  confidence: number
+): Promise<void> {
+  const { error } = await supabase.from("ocr_bank_statement").upsert({
+    case_id: caseId,
+    bank_name: parsed.bankName || null,
+    account_holder: parsed.accountHolder || null,
+    account_number: parsed.accountNumber || null,
+    period: parsed.period || null,
+    confidence_score: confidence,
+  }, { onConflict: "case_id" });
+  if (error) logError("saveBankStatementData", error);
+}
+
+// ── OCR: Save VAT Certificate Data ───────────
+
+export async function saveVATCertData(
+  caseId: string,
+  parsed: ParsedVATCert,
+  confidence: number
+): Promise<void> {
+  const { error } = await supabase.from("ocr_vat_certificate").upsert({
+    case_id: caseId,
+    trn_number: parsed.trnNumber || null,
+    business_name: parsed.businessName || null,
+    registration_date: parsed.registrationDate || null,
+    confidence_score: confidence,
+  }, { onConflict: "case_id" });
+  if (error) logError("saveVATCertData", error);
+}
+
+// ── OCR: Save MOA Data ───────────────────────
+
+export async function saveMOAData(
+  caseId: string,
+  parsed: ParsedMOA,
+  confidence: number
+): Promise<void> {
+  const { error } = await supabase.from("ocr_moa_data").upsert({
+    case_id: caseId,
+    company_name: parsed.companyName || null,
+    shareholders: parsed.shareholders || [],
+    share_percentages: parsed.sharePercentages || [],
+    signatories: parsed.signatories || [],
+    confidence_score: confidence,
+  }, { onConflict: "case_id" });
+  if (error) logError("saveMOAData", error);
 }

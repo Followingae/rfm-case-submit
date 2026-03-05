@@ -30,7 +30,7 @@ const navItems = [
   { href: "/case/new", icon: FilePlus2, label: "New Case", active: true },
   { href: "#", icon: Clock, label: "History", active: false },
   { href: "#", icon: BarChart3, label: "Analytics", active: false },
-  { href: "#", icon: Settings, label: "Settings", active: false },
+  { href: "/settings", icon: Settings, label: "Settings", active: true },
 ];
 
 export function Sidebar() {

@@ -1,9 +1,11 @@
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import { ChecklistItem, MerchantInfo, ShareholderKYC } from "./types";
+import { ChecklistItem, MerchantInfo, ShareholderKYC, ReadinessResult, CaseException, SubmissionDetails } from "./types";
 import { DOCUMENT_TYPE_MAP, FOLDER_MAP } from "./checklist-config";
 import { MDFValidationResult } from "./mdf-validation";
 import { ValidationWarning } from "./validation";
+import { generateCoverSheet } from "./cover-sheet";
+import { mergeMDFFiles, type MergePlan } from "./pdf-merger";
 
 function sanitizeName(name: string): string {
   return name
@@ -110,7 +112,12 @@ export async function createCaseZip(
   fileMap: Map<string, File[]>,
   shareholders?: ShareholderKYC[],
   mdfValidation?: MDFValidationResult | null,
-  warnings?: ValidationWarning[]
+  warnings?: ValidationWarning[],
+  readiness?: ReadinessResult | null,
+  exceptions?: CaseException[],
+  submissionDetails?: SubmissionDetails,
+  mdfMergePlan?: MergePlan | null,
+  skipMdfMerge?: boolean,
 ): Promise<void> {
   const zip = new JSZip();
   const merchantName = sanitizeName(merchantInfo.legalName || merchantInfo.dba || "Merchant");
@@ -127,7 +134,36 @@ export async function createCaseZip(
   root.folder("06_LegalDocuments");
   root.folder("07_Forms");
 
-  const mappings = generateRenameMappings(merchantInfo, checklist, fileMap, shareholders);
+  // Generate cover sheet PDF if readiness data available
+  if (readiness) {
+    try {
+      const coverBlob = await generateCoverSheet(
+        merchantInfo,
+        checklist,
+        readiness,
+        exceptions || [],
+        mdfValidation || null
+      );
+      const coverBuffer = await coverBlob.arrayBuffer();
+      root.file("00_CoverSheet.pdf", coverBuffer);
+    } catch (err) {
+      console.warn("[Export] Cover sheet generation failed:", err);
+    }
+  }
+
+  // Apply MDF merge if applicable
+  let effectiveFileMap = fileMap;
+  if (mdfMergePlan?.canMerge && !skipMdfMerge) {
+    try {
+      const mergedFile = await mergeMDFFiles(mdfMergePlan);
+      effectiveFileMap = new Map(fileMap);
+      effectiveFileMap.set("mdf", [mergedFile]);
+    } catch (err) {
+      console.warn("[Export] MDF merge failed, using original files:", err);
+    }
+  }
+
+  const mappings = generateRenameMappings(merchantInfo, checklist, effectiveFileMap, shareholders);
 
   for (const mapping of mappings) {
     let targetFolder = mapping.folder;
@@ -148,9 +184,17 @@ export async function createCaseZip(
     `Date: ${new Date().toLocaleDateString()}`,
     `Case Type: ${merchantInfo.caseType.toUpperCase()}`,
     ``,
-    `Documents Included:`,
-    `${"─".repeat(50)}`,
   ];
+
+  // Readiness score
+  if (readiness) {
+    summaryLines.push(`Readiness Score: ${readiness.score}% (${readiness.tier.toUpperCase()})`);
+    summaryLines.push(`  Green: ${readiness.greenCount} | Amber: ${readiness.amberCount} | Red: ${readiness.redCount}`);
+    summaryLines.push(``);
+  }
+
+  summaryLines.push(`Documents Included:`);
+  summaryLines.push(`${"─".repeat(50)}`);
 
   const uploaded = checklist.filter((i) => i.status === "uploaded");
   const missing = checklist.filter(
@@ -184,6 +228,20 @@ export async function createCaseZip(
     summaryLines.push(`${"─".repeat(50)}`);
     missing.forEach((item, idx) => {
       summaryLines.push(`  ${idx + 1}. ${item.label}`);
+    });
+  }
+
+  // ── EXCEPTIONS LOG ──
+  if (exceptions && exceptions.length > 0) {
+    summaryLines.push(``);
+    summaryLines.push(`${"═".repeat(50)}`);
+    summaryLines.push(`EXCEPTIONS LOG`);
+    summaryLines.push(`${"═".repeat(50)}`);
+    exceptions.forEach((ex) => {
+      const itemLabel = checklist.find((i) => i.id === ex.itemId)?.label || ex.itemId;
+      const date = ex.createdAt instanceof Date ? ex.createdAt.toLocaleDateString() : String(ex.createdAt);
+      summaryLines.push(`  - ${itemLabel}: "${ex.reason}" (${date})`);
+      if (ex.notes) summaryLines.push(`    Notes: ${ex.notes}`);
     });
   }
 
@@ -229,11 +287,11 @@ export async function createCaseZip(
       issues.push(`INCOMPLETE SHAREHOLDER KYC (${incompleteKyc.length}):`);
       incompleteKyc.forEach((s, idx) => {
         const label = s.name?.trim() || `Shareholder ${idx + 1}`;
-        const missing: string[] = [];
-        if (!s.name?.trim()) missing.push("name");
-        if (s.passportFiles.length === 0) missing.push("passport");
-        if (s.eidFiles.length === 0) missing.push("EID");
-        issues.push(`  - ${label}: missing ${missing.join(", ")}`);
+        const missingDocs: string[] = [];
+        if (!s.name?.trim()) missingDocs.push("name");
+        if (s.passportFiles.length === 0) missingDocs.push("passport");
+        if (s.eidFiles.length === 0) missingDocs.push("EID");
+        issues.push(`  - ${label}: missing ${missingDocs.join(", ")}`);
       });
       issues.push(``);
     }
@@ -261,7 +319,15 @@ export async function createCaseZip(
 
   // Summary verdict
   const majorCount = (warnings || []).filter((w) => w.type === "major").length;
-  if (missing.length === 0 && majorCount === 0 && (!mdfValidation || mdfValidation.isAcceptable)) {
+  if (readiness) {
+    if (readiness.tier === "green") {
+      issues.push(`VERDICT: Case appears complete (${readiness.score}% readiness) — standard processing recommended.`);
+    } else if (readiness.tier === "amber") {
+      issues.push(`VERDICT: Case has exceptions (${readiness.score}% readiness) — review exceptions before processing.`);
+    } else {
+      issues.push(`VERDICT: Case has significant gaps (${readiness.score}% readiness) — review with sales team before processing.`);
+    }
+  } else if (missing.length === 0 && majorCount === 0 && (!mdfValidation || mdfValidation.isAcceptable)) {
     issues.push(`VERDICT: Case appears complete — standard processing recommended.`);
   } else if (majorCount > 0 || missing.length > 3) {
     issues.push(`VERDICT: Case has significant gaps — review with sales team before processing.`);
@@ -277,6 +343,12 @@ export async function createCaseZip(
     `Total Documents: ${uploaded.length} / ${checklist.filter((i) => i.required).length} required`
   );
   summaryLines.push(`Generated by RFM Case Submit Portal`);
+
+  // Generate submission table if details provided
+  if (submissionDetails) {
+    const { buildSubmissionTableTxt } = await import("@/components/wizard/step-review");
+    root.file("SubmissionTable.txt", buildSubmissionTableTxt(merchantInfo, submissionDetails));
+  }
 
   root.file("CaseSummary.txt", summaryLines.join("\n"));
 

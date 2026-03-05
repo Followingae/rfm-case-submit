@@ -242,14 +242,39 @@ create policy "Allow all on ocr_shareholders" on ocr_shareholders for all using 
 create policy "Allow all on ocr_kyc_profile" on ocr_kyc_profile for all using (true) with check (true);
 create policy "Allow all on ocr_trade_license" on ocr_trade_license for all using (true) with check (true);
 
+-- 11. Reference Documents (ideal/standard form copies for template matching)
+create table if not exists reference_documents (
+  id uuid primary key default gen_random_uuid(),
+  template_id text not null unique,
+  file_name text not null,
+  file_size bigint default 0,
+  file_type text default '',
+  file_path text not null,
+  extracted_text text,
+  uploaded_at timestamptz default now()
+);
+
+create index if not exists idx_reference_docs_template on reference_documents(template_id);
+
+alter table reference_documents enable row level security;
+create policy "Allow all on reference_documents" on reference_documents for all using (true) with check (true);
+
 -- =============================================
--- STORAGE BUCKET
+-- STORAGE BUCKETS
 -- =============================================
 
 insert into storage.buckets (id, name, public)
 values ('case-documents', 'case-documents', true)
 on conflict (id) do nothing;
 
+insert into storage.buckets (id, name, public)
+values ('reference-documents', 'reference-documents', true)
+on conflict (id) do nothing;
+
 create policy "Allow public uploads" on storage.objects for insert with check (bucket_id = 'case-documents');
 create policy "Allow public reads" on storage.objects for select using (bucket_id = 'case-documents');
 create policy "Allow public deletes" on storage.objects for delete using (bucket_id = 'case-documents');
+
+create policy "Allow public uploads ref" on storage.objects for insert with check (bucket_id = 'reference-documents');
+create policy "Allow public reads ref" on storage.objects for select using (bucket_id = 'reference-documents');
+create policy "Allow public deletes ref" on storage.objects for delete using (bucket_id = 'reference-documents');

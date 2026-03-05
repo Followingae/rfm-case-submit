@@ -144,65 +144,16 @@ export function validateCase(
     }
   }
 
-  // No bank account → POH needed
-  if (conditionals["noBankAccount"]) {
-    const poh = checklist.find((i) => i.id === "poh-email");
-    if (!poh || poh.status === "missing") {
-      warnings.push({
-        type: "minor",
-        message:
-          "No bank account indicated but POH Email (Proof of Holding) not uploaded — common discrepancy",
-        itemId: "poh-email",
-      });
-    }
-  }
 
-  // Non-resident → address proof + MDF mention
-  if (conditionals["nonResidentPartner"]) {
-    const addr = checklist.find((i) => i.id === "non-resident-address");
-    if (!addr || addr.status === "missing") {
-      warnings.push({
-        type: "minor",
-        message:
-          "Non-resident partner indicated but home country address proof not uploaded",
-        itemId: "non-resident-address",
-      });
-    }
-    const mdfNote = checklist.find((i) => i.id === "non-resident-mdf-note");
-    if (mdfNote && mdfNote.status === "missing") {
-      warnings.push({
-        type: "minor",
-        message:
-          "Non-resident status should be mentioned in the MDF",
-        itemId: "non-resident-mdf-note",
-      });
-    }
-  }
 
-  // Sanction country partners → UAE address proof mandatory
-  if (conditionals["sanctionCountryPartner"]) {
-    const proof = checklist.find((i) => i.id === "uae-address-proof");
-    if (!proof || proof.status === "missing") {
-      warnings.push({
-        type: "major",
-        message:
-          "Partners from Sanction Countries — UAE address proof / DEWA bill is mandatory",
-        itemId: "uae-address-proof",
-      });
-    }
-  }
-
-  // Freezone → all 4 docs needed
+  // Freezone → docs needed
   if (conditionals["isFreezone"]) {
-    const freezoneDocs = ["articles-assoc", "share-cert", "cert-incumbency", "board-resolution"];
-    const missing = freezoneDocs.filter((id) => {
-      const item = checklist.find((i) => i.id === id);
-      return !item || item.status === "missing";
-    });
-    if (missing.length > 0) {
+    const fzDocs = checklist.find((i) => i.id === "freezone-docs");
+    if (!fzDocs || fzDocs.status === "missing") {
       warnings.push({
         type: "minor",
-        message: `Freezone company: ${missing.length} Freezone document(s) still missing`,
+        message: "Freezone company: Articles of Association, Share Certificate, Certificate of Incumbency, BOR still missing",
+        itemId: "freezone-docs",
       });
     }
   }

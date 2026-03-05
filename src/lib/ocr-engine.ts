@@ -1,5 +1,15 @@
 "use client";
 
+import type {
+  ParsedPassport,
+  ParsedEID,
+  ParsedMOA,
+  ParsedBankStatement,
+  ParsedVATCert,
+} from "./types";
+import { parseMRZ } from "./mrz-reader";
+import { parseEID } from "./eid-reader";
+
 // ── PDF text extraction (direct — fast & accurate) ──
 
 async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
@@ -40,19 +50,28 @@ async function ocrScannedPDF(arrayBuffer: ArrayBuffer): Promise<string> {
   const allText: string[] = [];
   let totalConfidence = 0;
 
-  for (let i = 1; i <= pdf.numPages; i++) {
+  // Cap at 6 pages — useful content is in the first few pages;
+  // OCR'ing 30+ page PDFs wastes time and causes pdfjs worker conflicts
+  const maxPages = Math.min(pdf.numPages, 6);
+
+  for (let i = 1; i <= maxPages; i++) {
     try {
       const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 2.0 }); // Higher scale = better OCR
+      // Render at 300 DPI (A4 @ 72 DPI default → scale ~4.17 for 300 DPI)
+      // Higher resolution significantly improves Tesseract accuracy
+      const viewport = page.getViewport({ scale: 3.0 });
 
-      // Create an offscreen canvas
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width;
       canvas.height = viewport.height;
+      const ctx = canvas.getContext("2d")!;
+
+      // White background (helps OCR with transparent areas)
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       await page.render({ canvas, viewport }).promise;
 
-      // Convert canvas to blob for Tesseract
       const blob = await new Promise<Blob>((resolve) => {
         canvas.toBlob((b) => resolve(b!), "image/png");
       });
@@ -61,15 +80,15 @@ async function ocrScannedPDF(arrayBuffer: ArrayBuffer): Promise<string> {
       allText.push(text);
       totalConfidence += confidence;
 
-      console.log(`[OCR] Page ${i}/${pdf.numPages}: ${text.length} chars, ${Math.round(confidence)}% confidence`);
-    } catch (err) {
-      console.warn(`[OCR] Failed to OCR page ${i}:`, err);
+    } catch {
+      // Skip unreadable pages silently
     }
   }
 
   await worker.terminate();
 
-  const avgConfidence = pdf.numPages > 0 ? totalConfidence / pdf.numPages : 0;
+  const pagesProcessed = allText.length || 1;
+  const avgConfidence = totalConfidence / pagesProcessed;
   (extractTextFromFile as any)._lastConfidence = avgConfidence;
 
   return allText.join("\n");
@@ -99,31 +118,24 @@ async function extractTextFromImage(file: File): Promise<string> {
 export async function extractTextFromFile(file: File): Promise<string> {
   try {
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-      console.log("[OCR] Extracting text directly from PDF...");
       const arrayBuffer = await file.arrayBuffer();
       const text = await extractTextFromPDF(arrayBuffer);
 
       if (text.trim().length > 50) {
-        console.log(`[OCR] PDF text extracted: ${text.length} chars`);
         return text;
       }
 
       // Scanned PDF — render pages to canvas and OCR each one
-      console.log("[OCR] PDF has minimal text — running Tesseract OCR on rendered pages...");
       const arrayBuffer2 = await file.arrayBuffer();
       const ocrText = await ocrScannedPDF(arrayBuffer2);
-      console.log(`[OCR] Scanned PDF OCR complete: ${ocrText.length} chars`);
       return ocrText;
     }
 
     if (file.type.startsWith("image/")) {
-      console.log("[OCR] Running Tesseract OCR on image...");
       const text = await extractTextFromImage(file);
-      console.log(`[OCR] Image OCR complete: ${text.length} chars`);
       return text;
     }
 
-    console.log(`[OCR] Unsupported file type: ${file.type}`);
     return "";
   } catch (err) {
     console.error("[OCR] Extraction failed:", err);
@@ -562,6 +574,15 @@ export function parseMDFText(text: string): ParsedMDF {
   return data;
 }
 
+// ── Template-Aware MDF Version Detection ──
+
+export function detectMDFVersion(text: string): "v1" | "v2" | "unknown" {
+  const lower = text.toLowerCase();
+  if (lower.includes("merchant details form")) return "v1";
+  if (lower.includes("merchant application") || lower.includes("merchant onboarding")) return "v2";
+  return "unknown";
+}
+
 // ── Trade License Parser ─────────────────────
 
 export interface ParsedTradeLicense {
@@ -635,6 +656,194 @@ export function parseTradeLicenseText(text: string): ParsedTradeLicense {
       if (partnerLines.length > 0) {
         data.partnersListed = partnerLines.join("; ");
       }
+    }
+  }
+
+  return data;
+}
+
+// ── Date parsing helper ─────────────────────
+
+function parseFlexDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const dmyMatch = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch;
+    const year = y.length === 2 ? (parseInt(y) < 50 ? 2000 + parseInt(y) : 1900 + parseInt(y)) : parseInt(y);
+    return new Date(year, parseInt(m) - 1, parseInt(d));
+  }
+  const isoDate = new Date(dateStr);
+  return isNaN(isoDate.getTime()) ? null : isoDate;
+}
+
+// ── Passport Parser ─────────────────────────
+
+export function parsePassportText(text: string): ParsedPassport {
+  const data: ParsedPassport = { rawText: text };
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  // Try MRZ first (most reliable)
+  const mrz = parseMRZ(text);
+  if (mrz) {
+    data.surname = mrz.surname;
+    data.givenNames = mrz.givenNames;
+    data.passportNumber = mrz.passportNumber;
+    data.nationality = mrz.nationality;
+    data.dateOfBirth = mrz.dateOfBirth;
+    data.sex = mrz.sex;
+    data.expiryDate = mrz.expiryDate;
+    data.mrzValid = mrz.isValid;
+  }
+
+  // Fallback: regex extraction from visual text
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const nextLine = lines[i + 1] || "";
+
+    if (!data.surname && /surname/i.test(line)) {
+      data.surname = extractField(lines, i, /surname/i);
+    }
+    if (!data.givenNames && /given.*name/i.test(line)) {
+      data.givenNames = extractField(lines, i, /given.*name/i);
+    }
+    if (!data.passportNumber && /passport.*(?:no|number)/i.test(line)) {
+      const match = line.match(/[A-Z0-9]{6,9}/) || nextLine.match(/[A-Z0-9]{6,9}/);
+      if (match) data.passportNumber = match[0];
+    }
+    if (!data.nationality && /nationality/i.test(line)) {
+      data.nationality = extractField(lines, i, /nationality/i);
+    }
+    if (!data.dateOfBirth && /date.*birth/i.test(line)) {
+      data.dateOfBirth = extractDate(lines, i);
+    }
+    if (!data.expiryDate && /expir/i.test(line)) {
+      data.expiryDate = extractDate(lines, i);
+    }
+    if (!data.sex && /\bsex\b/i.test(line)) {
+      const sexMatch = line.match(/\b([MF])\b/) || nextLine.match(/\b([MF])\b/);
+      if (sexMatch) data.sex = sexMatch[1];
+    }
+  }
+
+  // Check expiry
+  if (data.expiryDate) {
+    const parsed = parseFlexDate(data.expiryDate);
+    if (parsed) data.isExpired = parsed < new Date();
+  }
+
+  return data;
+}
+
+// ── Emirates ID Parser ──────────────────────
+
+export function parseEIDText(text: string): ParsedEID {
+  const result = parseEID(text);
+  if (result) return result;
+  return { rawText: text };
+}
+
+// ── MOA Parser ──────────────────────────────
+
+export function parseMOAText(text: string): ParsedMOA {
+  const data: ParsedMOA = { rawText: text, shareholders: [], sharePercentages: [], signatories: [] };
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (!data.companyName && /(?:company|business).*name/i.test(line)) {
+      data.companyName = extractField(lines, i, /(?:company|business).*name/i);
+    }
+
+    // Shareholders section
+    if (/(?:shareholder|partner|member)/i.test(line) && /(?:name|detail)/i.test(line)) {
+      for (let j = i + 1; j < Math.min(i + 20, lines.length); j++) {
+        const sl = lines[j];
+        if (/article|section|clause|capital/i.test(sl)) break;
+        const percMatch = sl.match(/(\d+\.?\d*)\s*%/);
+        if (percMatch) {
+          const name = sl.substring(0, sl.indexOf(percMatch[0])).trim();
+          if (name) data.shareholders!.push(name);
+          data.sharePercentages!.push(percMatch[1] + "%");
+        } else if (sl.length > 3 && sl.length < 80 && /^[A-Za-z\s.]+$/.test(sl)) {
+          data.shareholders!.push(sl);
+        }
+      }
+    }
+
+    // Authorized signatory
+    if (/authorized.*signator/i.test(line) || /signatory.*authoriz/i.test(line)) {
+      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+        const sl = lines[j];
+        if (sl.length > 3 && sl.length < 80 && /^[A-Za-z\s.]+$/.test(sl)) {
+          data.signatories!.push(sl);
+        }
+        if (/article|section|clause/i.test(sl)) break;
+      }
+    }
+  }
+
+  return data;
+}
+
+// ── Bank Statement Parser ───────────────────
+
+export function parseBankStatementText(text: string): ParsedBankStatement {
+  const data: ParsedBankStatement = { rawText: text };
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const nextLine = lines[i + 1] || "";
+
+    if (!data.bankName) {
+      const banks = ["Emirates NBD", "ADCB", "FAB", "Mashreq", "RAKBANK", "DIB", "ENBD", "CBD", "NBF", "UAB", "ADIB"];
+      for (const bank of banks) {
+        if (new RegExp(bank, "i").test(line)) {
+          data.bankName = bank;
+          break;
+        }
+      }
+    }
+
+    if (!data.accountHolder && /account.*(?:holder|name|title)/i.test(line)) {
+      data.accountHolder = extractField(lines, i, /account.*(?:holder|name|title)/i);
+    }
+    if (!data.accountNumber && /account.*(?:no|number)/i.test(line) && !/iban/i.test(line)) {
+      const accMatch = line.match(/\d{8,}/) || nextLine.match(/\d{8,}/);
+      if (accMatch) data.accountNumber = accMatch[0];
+    }
+    if (!data.period && /statement.*period/i.test(line)) {
+      data.period = extractField(lines, i, /statement.*period/i);
+    }
+    if (!data.period && /from\s+\d/i.test(line)) {
+      const dateRange = line.match(/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\s*(?:to|[-–])\s*\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/i);
+      if (dateRange) data.period = dateRange[0];
+    }
+  }
+
+  return data;
+}
+
+// ── VAT Certificate Parser ──────────────────
+
+export function parseVATCertText(text: string): ParsedVATCert {
+  const data: ParsedVATCert = { rawText: text };
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const nextLine = lines[i + 1] || "";
+
+    if (!data.trnNumber && /(?:TRN|tax.*registration.*number)/i.test(line)) {
+      const trnMatch = line.match(/\d{15}/) || nextLine.match(/\d{15}/);
+      if (trnMatch) data.trnNumber = trnMatch[0];
+    }
+    if (!data.businessName && /(?:business|company|taxpayer).*name/i.test(line)) {
+      data.businessName = extractField(lines, i, /(?:business|company|taxpayer).*name/i);
+    }
+    if (!data.registrationDate && /(?:registration|effective).*date/i.test(line)) {
+      data.registrationDate = extractDate(lines, i);
     }
   }
 

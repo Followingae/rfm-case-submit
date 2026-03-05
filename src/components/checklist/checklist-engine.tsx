@@ -17,6 +17,13 @@ import {
   Store,
   ScrollText,
   Plus,
+  ArrowRightLeft,
+  ShieldAlert,
+  HelpCircle,
+  Trash2,
+  Layers,
+  Link2,
+  ChevronDown,
 } from "lucide-react";
 import {
   Tooltip,
@@ -24,9 +31,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { ChecklistItem, UploadedFile } from "@/lib/types";
+import { ChecklistItem, UploadedFile, UploadProgress } from "@/lib/types";
+import type { UploadValidation } from "@/lib/upload-validator";
 import { CATEGORIES_ORDER } from "@/lib/checklist-config";
 import { v4 as uuid } from "uuid";
+import { toast } from "sonner";
+import { classifyFilePages, shouldRunClassification } from "@/lib/page-classifier";
+import { splitPdfByMappings } from "@/lib/pdf-splitter";
+import { DocumentMappingModal } from "@/components/inbox/document-mapping-modal";
+import type { FileClassificationResult, ConfirmedMapping } from "@/lib/types";
+import type { MergePlan } from "@/lib/pdf-merger";
+import type { MDFValidationResult } from "@/lib/mdf-validation";
+import type { TemplateMatchResult } from "@/lib/types";
 
 /* ───────────────────────── Types ───────────────────────── */
 
@@ -37,8 +53,19 @@ interface ChecklistEngineProps {
   conditionals: Record<string, boolean>;
   onConditionalToggle: (key: string) => void;
   onRawFilesAdded: (itemId: string, files: File[]) => void;
+  onMultiSlotFulfill?: (results: Array<{ slotId: string; files: File[] }>) => void;
+  onClassificationProgress?: (msg: string | null) => void;
   docTypeWarnings?: Map<string, { suggestion: string | null }>;
   duplicateFileNames?: Set<string>;
+  uploadValidations?: Map<string, UploadValidation>;
+  uploadProgress?: Map<string, UploadProgress>;
+  onCancelUpload?: (itemId: string) => void;
+  onMoveFile?: (fromSlotId: string, toSlotId: string, files: File[]) => void;
+  mdfMergePlan?: MergePlan | null;
+  skipMdfMerge?: boolean;
+  onSkipMdfMergeChange?: (skip: boolean) => void;
+  mdfValidation?: MDFValidationResult | null;
+  templateWarnings?: Map<string, TemplateMatchResult>;
 }
 
 interface CategoryStat {
@@ -80,6 +107,38 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* ───────────────────── Upload Progress Bar ────────────────── */
+
+function UploadProgressBar({ progress, onCancel }: { progress: UploadProgress; onCancel: () => void }) {
+  return (
+    <div
+      className="mt-2 overflow-hidden rounded-lg border border-primary/20 bg-primary/[0.03] px-3 py-2"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-2 text-[11px]">
+        <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <span className="flex-1 text-primary/70">{progress.message}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onCancel(); }}
+          className="rounded-full p-0.5 text-muted-foreground/40 hover:bg-destructive/10 hover:text-destructive transition-colors"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </div>
+      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-primary/10">
+        <div className={cn(
+          "h-full rounded-full bg-primary/50",
+          progress.phase === "scanning"
+            ? "w-full animate-pulse"
+            : progress.phase === "uploading"
+            ? "w-1/3 transition-all duration-1000"
+            : "w-4/5 transition-all duration-500"
+        )} />
+      </div>
+    </div>
+  );
 }
 
 /* ───────────────────── SVG Progress Ring ─────────────────── */
@@ -258,6 +317,259 @@ function QuestionCard({
   );
 }
 
+/* ───────────────── Validation Indicator ──────────────────── */
+
+function ValidationIndicator({
+  validation,
+  itemId,
+  onMove,
+  onKeep,
+}: {
+  validation: UploadValidation;
+  itemId: string;
+  onMove?: (fromSlotId: string, toSlotId: string) => void;
+  onKeep?: () => void;
+}) {
+  const [confirmStep, setConfirmStep] = useState<"initial" | "confirming">("initial");
+
+  if (validation.status === "mismatch" && validation.suggestedSlotId) {
+    return (
+      <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 text-[11px]">
+          <ArrowRightLeft className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+          <span className="flex-1 text-amber-600 dark:text-amber-400">
+            This looks like a <strong>{validation.detectedLabel}</strong>. Move to that slot?
+          </span>
+        </div>
+        <div className="mt-1.5 flex gap-2">
+          <button
+            onClick={() => onMove?.(itemId, validation.suggestedSlotId!)}
+            className="rounded-md bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary hover:bg-primary/20 transition-colors"
+          >
+            Move to {validation.suggestedSlotLabel}
+          </button>
+          <button
+            onClick={() => onKeep?.()}
+            className="rounded-md bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
+          >
+            Keep Here
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // mismatch without suggestion OR unknown
+  return (
+    <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-2 text-[11px]">
+        {validation.status === "mismatch" ? (
+          <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-red-500" />
+        ) : (
+          <HelpCircle className="h-3.5 w-3.5 shrink-0 text-red-500" />
+        )}
+        <span className="flex-1 text-red-600 dark:text-red-400">
+          {validation.status === "mismatch"
+            ? `This doesn't look like a ${validation.expectedLabel}.`
+            : "This document couldn't be identified. Please double-check it's the correct file."}
+        </span>
+      </div>
+      {confirmStep === "initial" ? (
+        <div className="mt-1.5 flex gap-2">
+          <button
+            onClick={() => setConfirmStep("confirming")}
+            className="rounded-md bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
+          >
+            Keep Here
+          </button>
+          <button
+            onClick={() => onKeep?.()}
+            className="rounded-md bg-red-500/10 px-2.5 py-1 text-[10px] text-red-500 hover:bg-red-500/20 transition-colors"
+          >
+            Remove
+          </button>
+        </div>
+      ) : (
+        <div className="mt-1.5">
+          <p className="mb-1.5 text-[10px] text-red-500/70">
+            Are you sure? This may cause the case to be returned.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setConfirmStep("initial"); onKeep?.(); }}
+              className="rounded-md bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold text-amber-600 hover:bg-amber-500/20 transition-colors"
+            >
+              Yes, I&apos;m sure
+            </button>
+            <button
+              onClick={() => setConfirmStep("initial")}
+              className="rounded-md bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── Category Intelligence Bar (ONE summary) ───── */
+
+function CategoryIntelligence({
+  items,
+  mdfValidation,
+  templateWarnings,
+  uploadValidations,
+  dismissedValidations,
+}: {
+  items: ChecklistItem[];
+  mdfValidation?: MDFValidationResult | null;
+  templateWarnings?: Map<string, TemplateMatchResult>;
+  uploadValidations?: Map<string, UploadValidation>;
+  dismissedValidations: Set<string>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const uploadedItems = items.filter((i) => i.status === "uploaded");
+  if (uploadedItems.length === 0) return null;
+
+  // MDF field data (only if MDF is in this category)
+  const hasMdf = uploadedItems.some((i) => i.id === "mdf") && !!mdfValidation;
+  const fieldPct = mdfValidation ? mdfValidation.percentage : 0;
+
+  // Count validation statuses
+  let passCount = 0;
+  let warnCount = 0;
+  for (const item of uploadedItems) {
+    if (dismissedValidations.has(item.id)) continue;
+    const v = uploadValidations?.get(item.id);
+    if (v?.status === "pass") passCount++;
+    else if (v?.status === "warn") warnCount++;
+  }
+
+  // Template matches with issues
+  let sectionIssues = 0;
+  for (const item of uploadedItems) {
+    const tm = templateWarnings?.get(item.id);
+    if (tm?.matched && tm.missingSections.length > 0) sectionIssues++;
+  }
+
+  const hasAnything = hasMdf || passCount > 0 || warnCount > 0 || sectionIssues > 0;
+  if (!hasAnything) return null;
+
+  // Summary color
+  const isAllGood = (!hasMdf || fieldPct >= 80) && warnCount === 0 && sectionIssues === 0;
+
+  return (
+    <div className="rounded-xl border border-border/15 bg-card/20">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        {isAllGood ? (
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+        ) : (
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+        )}
+        <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
+          {hasMdf && mdfValidation && (
+            <span className={cn(
+              "font-medium",
+              fieldPct >= 80 ? "text-emerald-600" : fieldPct >= 50 ? "text-amber-600" : "text-red-500"
+            )}>
+              {mdfValidation.totalPresent}/{mdfValidation.totalChecked} fields
+            </span>
+          )}
+          {passCount > 0 && (
+            <span className="text-emerald-600 font-medium">
+              {passCount} verified
+            </span>
+          )}
+          {warnCount > 0 && (
+            <span className="text-amber-600 font-medium">
+              {warnCount} uncertain
+            </span>
+          )}
+          {sectionIssues > 0 && (
+            <span className="text-amber-600 font-medium">
+              {sectionIssues} section{sectionIssues > 1 ? "s" : ""} incomplete
+            </span>
+          )}
+        </div>
+        <ChevronDown className={cn(
+          "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform",
+          expanded && "rotate-180"
+        )} />
+      </button>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-border/10 px-3 py-2 space-y-2">
+              {/* MDF field grid */}
+              {hasMdf && mdfValidation && (
+                <div>
+                  <p className="mb-1 text-[10px] font-medium text-muted-foreground/60">MDF Fields</p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 sm:grid-cols-3">
+                    {mdfValidation.allFields.map((field) => (
+                      <div key={field.field} className="flex items-center gap-1 text-[10px]">
+                        {field.present ? (
+                          <CheckCircle2 className="h-2.5 w-2.5 shrink-0 text-emerald-500" />
+                        ) : (
+                          <X className="h-2.5 w-2.5 shrink-0 text-red-400" />
+                        )}
+                        <span className={cn(field.present ? "text-muted-foreground" : "text-foreground")}>
+                          {field.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Per-slot validation results */}
+              {uploadedItems.map((item) => {
+                const v = uploadValidations?.get(item.id);
+                const tm = templateWarnings?.get(item.id);
+                if (!v && !tm?.matched) return null;
+                if (dismissedValidations.has(item.id)) return null;
+
+                return (
+                  <div key={item.id} className="flex items-center gap-2 text-[10px]">
+                    {v?.status === "pass" && <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />}
+                    {v?.status === "warn" && <AlertTriangle className="h-2.5 w-2.5 text-amber-500" />}
+                    {!v && tm?.matched && (
+                      tm.missingSections.length === 0
+                        ? <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
+                        : <AlertTriangle className="h-2.5 w-2.5 text-amber-500" />
+                    )}
+                    <span className="text-muted-foreground">{item.label}</span>
+                    {v?.status === "warn" && (
+                      <span className="text-amber-500/60">verify manually</span>
+                    )}
+                    {tm?.matched && tm.missingSections.length > 0 && (
+                      <span className="text-amber-500/60">
+                        {tm.missingSections.length} section{tm.missingSections.length > 1 ? "s" : ""} missing
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 /* ───────────────────── Document Upload Slot ──────────────── */
 
 function UploadSlot({
@@ -265,23 +577,46 @@ function UploadSlot({
   isDragging,
   docTypeWarning,
   hasDuplicateFile,
+  isRecentlyFulfilled,
+  uploadValidation,
   onDragOver,
   onDragLeave,
   onDrop,
   onFileInput,
   onFileRemove,
+  onMoveFile,
+  onDismissValidation,
+  onAnalyzePages,
+  isMultiPagePdf,
+  pageCount,
+  slotProgress,
+  onCancelUpload,
+  mdfValidation,
+  templateMatch,
 }: {
   item: ChecklistItem;
   isDragging: boolean;
   docTypeWarning: string | null | undefined;
   hasDuplicateFile: boolean;
+  isRecentlyFulfilled?: boolean;
+  uploadValidation?: UploadValidation;
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent) => void;
   onFileInput: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onFileRemove: (fileId: string) => void;
+  onMoveFile?: (fromSlotId: string, toSlotId: string) => void;
+  onDismissValidation?: () => void;
+  onAnalyzePages?: () => void;
+  isMultiPagePdf?: boolean;
+  pageCount?: number;
+  slotProgress?: UploadProgress;
+  onCancelUpload?: () => void;
+  mdfValidation?: MDFValidationResult | null;
+  templateMatch?: TemplateMatchResult | null;
 }) {
   const isUploaded = item.status === "uploaded";
+  const isProcessing = !!slotProgress;
 
   return (
     <div
@@ -290,10 +625,13 @@ function UploadSlot({
       data-category={item.category}
       className={cn(
         "group relative cursor-pointer rounded-xl border-2 border-dashed transition-all duration-200",
-        isUploaded
+        isProcessing
+          ? "border-primary/40 bg-primary/[0.03]"
+          : isUploaded
           ? "border-emerald-500/40 bg-emerald-500/[0.03]"
           : "border-border/30 bg-card/20 hover:border-primary/30 hover:bg-card/40",
-        isDragging && "border-primary/50 bg-primary/5 ring-2 ring-primary/10"
+        isDragging && "border-primary/50 bg-primary/5 ring-2 ring-primary/10",
+        !isProcessing && isRecentlyFulfilled && "ring-2 ring-emerald-400/50 animate-pulse"
       )}
       onClick={() => {
         if (!isUploaded || item.multiFile) {
@@ -316,12 +654,22 @@ function UploadSlot({
       {isUploaded ? (
         /* ── Uploaded state ── */
         <div className="flex items-start gap-3 px-5 py-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10">
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+          <div className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+            isProcessing ? "bg-primary/10" : "bg-emerald-500/10"
+          )}>
+            {isProcessing ? (
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            ) : (
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+              <span className={cn(
+                "text-sm font-medium",
+                isProcessing ? "text-primary" : "text-emerald-600 dark:text-emerald-400"
+              )}>
                 {item.label}
               </span>
               {docTypeWarning && (
@@ -350,16 +698,40 @@ function UploadSlot({
               {item.files.map((f) => (
                 <div
                   key={f.id}
-                  className="flex items-center gap-1.5 rounded-lg bg-emerald-500/8 px-2.5 py-1 text-[11px]"
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px]",
+                    isProcessing ? "bg-primary/8" : "bg-emerald-500/8"
+                  )}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <span className="text-emerald-600 dark:text-emerald-400">
+                  <span className={isProcessing ? "text-primary" : "text-emerald-600 dark:text-emerald-400"}>
                     {getFileIcon(f.type)}
                   </span>
                   <span className="max-w-[160px] truncate font-medium text-foreground/70">
                     {f.name}
                   </span>
+                  {pageCount && pageCount > 1 && item.files.length === 1 && (
+                    <span className="text-muted-foreground/40">{pageCount}p</span>
+                  )}
                   <span className="text-muted-foreground/40">{formatSize(f.size)}</span>
+                  {isMultiPagePdf && item.files.length === 1 && onAnalyzePages && (
+                    <Tooltip delayDuration={0}>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAnalyzePages();
+                          }}
+                          className="rounded-full p-0.5 text-muted-foreground/30 transition-colors hover:bg-primary/10 hover:text-primary"
+                        >
+                          <Layers className="h-3 w-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">Analyze pages — check if this file contains multiple documents</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -383,6 +755,19 @@ function UploadSlot({
                 <Plus className="h-3.5 w-3.5" />
                 Add more
               </button>
+            )}
+            {/* Upload progress */}
+            {slotProgress && onCancelUpload && (
+              <UploadProgressBar progress={slotProgress} onCancel={onCancelUpload} />
+            )}
+            {/* Validation action card (mismatch/unknown only — pass/warn in CategoryIntelligence) */}
+            {uploadValidation && (uploadValidation.status === "mismatch" || uploadValidation.status === "unknown") && (
+              <ValidationIndicator
+                validation={uploadValidation}
+                itemId={item.id}
+                onMove={onMoveFile}
+                onKeep={onDismissValidation}
+              />
             )}
           </div>
         </div>
@@ -414,12 +799,55 @@ function UploadSlot({
                 {item.notes[0]}
               </p>
             )}
+            {/* Upload progress in empty state */}
+            {slotProgress && onCancelUpload && (
+              <UploadProgressBar progress={slotProgress} onCancel={onCancelUpload} />
+            )}
           </div>
-          <span className="hidden shrink-0 text-[11px] text-muted-foreground/25 sm:block">
-            Tap or drop file
-          </span>
+          {!slotProgress && (
+            <span className="hidden shrink-0 text-[11px] text-muted-foreground/25 sm:block">
+              Tap or drop file
+            </span>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ───────────────── MDF Merge Indicator ──────────────────── */
+
+function MDFMergeIndicator({
+  plan,
+  skip,
+  onSkipChange,
+}: {
+  plan: MergePlan;
+  skip: boolean;
+  onSkipChange: (skip: boolean) => void;
+}) {
+  return (
+    <div className="mt-2 rounded-lg border border-primary/20 bg-primary/[0.03] px-3 py-2" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center gap-2 text-[11px]">
+        <Link2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+        <span className="flex-1 text-primary/80">
+          Smart merge: {plan.reason}
+        </span>
+      </div>
+      <div className="mt-1 flex items-center gap-3 text-[10px] text-muted-foreground/60">
+        <span>{plan.mainPageCount}p main + {plan.stampPageCount}p stamp → {plan.resultPageCount}p merged</span>
+        <button
+          onClick={() => onSkipChange(!skip)}
+          className={cn(
+            "rounded-md px-2 py-0.5 text-[10px] transition-colors",
+            skip
+              ? "bg-muted/30 text-muted-foreground hover:bg-muted/50"
+              : "bg-primary/10 text-primary hover:bg-primary/20"
+          )}
+        >
+          {skip ? "Enable merge" : "Don't merge"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -433,14 +861,34 @@ export function ChecklistEngine({
   conditionals,
   onConditionalToggle,
   onRawFilesAdded,
+  onMultiSlotFulfill,
+  onClassificationProgress,
   docTypeWarnings,
   duplicateFileNames,
+  uploadValidations,
+  uploadProgress,
+  onCancelUpload,
+  onMoveFile,
+  mdfMergePlan,
+  skipMdfMerge,
+  onSkipMdfMergeChange,
+  mdfValidation,
+  templateWarnings,
 }: ChecklistEngineProps) {
   const [activeCategoryIndex, setActiveCategoryIndex] = useState<number | null>(null);
   const [flashingCategory, setFlashingCategory] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const prevCompleteRef = useRef<Record<string, boolean>>({});
   const hasInitialized = useRef(false);
+
+  // Multi-page PDF classification state
+  const [mappingModalOpen, setMappingModalOpen] = useState(false);
+  const [classificationResult, setClassificationResult] = useState<FileClassificationResult | null>(null);
+  const [classifyingFile, setClassifyingFile] = useState<File | null>(null);
+  const [recentlyFulfilled, setRecentlyFulfilled] = useState<Set<string>>(new Set());
+  const [dismissedValidations, setDismissedValidations] = useState<Set<string>>(new Set());
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   /* ── Group items by category ── */
   const grouped = useMemo(() => {
@@ -564,43 +1012,223 @@ export function ChecklistEngine({
     }
   }, [categoryStats, visibleCategories]);
 
+  /* ── Multi-page PDF classification ── */
+  const processUploadedFile = useCallback(
+    async (slotId: string, file: File): Promise<boolean> => {
+      // Quick page count check using pdf-lib
+      let pageCount = 1;
+      try {
+        const { PDFDocument } = await import("pdf-lib");
+        const bytes = await file.arrayBuffer();
+        const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        pageCount = pdf.getPageCount();
+      } catch {
+        return false;
+      }
+
+      if (pageCount <= 1) return false;
+
+      // Reference pre-check: if source slot has a reference doc that matches,
+      // skip classification entirely — the file IS what the user uploaded it as
+      if (slotId && slotId !== "unassigned") {
+        try {
+          const needsClassification = await shouldRunClassification(file, slotId);
+          if (!needsClassification) return false; // Reference confirms this IS the expected doc
+        } catch {
+          // On error, fall through to classification
+        }
+      }
+
+      // Multi-page PDF — run page-level classification
+      onClassificationProgress?.(`Analyzing ${pageCount} pages...`);
+
+      try {
+        const currentItems = itemsRef.current;
+        const availableItems = currentItems.map((i) => ({
+          id: i.id,
+          label: i.label,
+          status: i.status,
+        }));
+
+        const result = await classifyFilePages(
+          file,
+          slotId,
+          availableItems,
+          (p) => {
+            onClassificationProgress?.(
+              `Page ${p.currentPage}/${p.totalPages}: ${p.phase}`
+            );
+          }
+        );
+
+        onClassificationProgress?.(null);
+
+        // Determine the source slot's doc type for comparison
+        const sourceDocTypes = (await import("@/lib/doc-type-detector")).SLOT_TO_DOCTYPE[slotId] || [];
+        const sourceDocType = sourceDocTypes[0] || null;
+
+        // Only show modal if at least 1 segment has confidence > 50
+        // AND maps to a different doc type than the source slot
+        const confidentDifferentSegments = result.segments.filter(
+          (s) => s.confidence > 50 && s.docType !== sourceDocType
+        );
+
+        if (
+          result.segments.length <= 1 ||
+          confidentDifferentSegments.length < 1
+        ) {
+          return false;
+        }
+
+        // Multiple types detected — show mapping modal
+        setClassificationResult(result);
+        setClassifyingFile(file);
+        setMappingModalOpen(true);
+        return true;
+      } catch {
+        onClassificationProgress?.(null);
+        return false;
+      }
+    },
+    [onClassificationProgress]
+  );
+
+  const handleMappingConfirm = useCallback(
+    async (mappings: ConfirmedMapping[]) => {
+      if (!classifyingFile || !onMultiSlotFulfill) return;
+
+      try {
+        const splits = await splitPdfByMappings(classifyingFile, mappings);
+
+        // Group by slotId
+        const slotFiles = new Map<string, File[]>();
+        for (const { slotId, file } of splits) {
+          const existing = slotFiles.get(slotId) || [];
+          existing.push(file);
+          slotFiles.set(slotId, existing);
+        }
+
+        const results = Array.from(slotFiles.entries()).map(([slotId, files]) => ({
+          slotId,
+          files,
+        }));
+
+        onMultiSlotFulfill(results);
+
+        // Track recently fulfilled items for glow animation
+        const fulfilledIds = new Set(results.map((r) => r.slotId));
+        setRecentlyFulfilled(fulfilledIds);
+        setTimeout(() => setRecentlyFulfilled(new Set()), 1500);
+
+        toast.success(`${results.length} documents auto-detected from your upload`);
+      } catch {
+        toast.error("Failed to split PDF");
+      }
+
+      setMappingModalOpen(false);
+      setClassificationResult(null);
+      setClassifyingFile(null);
+    },
+    [classifyingFile, onMultiSlotFulfill]
+  );
+
+  // Track file store ref for manual analysis
+  const fileStoreRef = useRef<Map<string, File[]> | null>(null);
+
+  // Sync file store from parent on file changes
+  const updateFileStoreRef = useCallback((itemId: string, files: File[]) => {
+    if (!fileStoreRef.current) fileStoreRef.current = new Map();
+    const existing = fileStoreRef.current.get(itemId) || [];
+    fileStoreRef.current.set(itemId, [...existing, ...files]);
+  }, []);
+
   /* ── File handlers ── */
   const handleFileDrop = useCallback(
-    (itemId: string, e: React.DragEvent) => {
+    async (itemId: string, e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       setDragOver(null);
       const fileList = e.dataTransfer.files;
       if (fileList.length === 0) return;
       const rawFiles = Array.from(fileList);
-      const uploadedFiles: UploadedFile[] = rawFiles.map((f) => ({
-        id: uuid(),
-        name: f.name,
-        size: f.size,
-        type: f.type,
-      }));
+
+      // Intercept multi-page PDFs for page-level classification
+      if (rawFiles.length === 1 && rawFiles[0].type === "application/pdf" && onMultiSlotFulfill) {
+        const intercepted = await processUploadedFile(itemId, rawFiles[0]);
+        if (intercepted) return;
+      }
+
+      // Get page count for PDFs
+      const uploadedFiles: UploadedFile[] = await Promise.all(
+        rawFiles.map(async (f) => {
+          let pc: number | undefined;
+          if (f.type === "application/pdf") {
+            try {
+              const { PDFDocument } = await import("pdf-lib");
+              const bytes = await f.arrayBuffer();
+              const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+              pc = pdf.getPageCount();
+            } catch { /* ignore */ }
+          }
+          return {
+            id: uuid(),
+            name: f.name,
+            size: f.size,
+            type: f.type,
+            pageCount: pc,
+          };
+        })
+      );
+      updateFileStoreRef(itemId, rawFiles);
       onRawFilesAdded(itemId, rawFiles);
       onItemUpdate(itemId, uploadedFiles);
     },
-    [onItemUpdate, onRawFilesAdded]
+    [onItemUpdate, onRawFilesAdded, onMultiSlotFulfill, processUploadedFile, updateFileStoreRef]
   );
 
   const handleFileInput = useCallback(
-    (itemId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    async (itemId: string, e: React.ChangeEvent<HTMLInputElement>) => {
       const fileList = e.target.files;
       if (!fileList || fileList.length === 0) return;
       const rawFiles = Array.from(fileList);
-      const uploadedFiles: UploadedFile[] = rawFiles.map((f) => ({
-        id: uuid(),
-        name: f.name,
-        size: f.size,
-        type: f.type,
-      }));
+      const inputEl = e.target;
+
+      // Intercept multi-page PDFs for page-level classification
+      if (rawFiles.length === 1 && rawFiles[0].type === "application/pdf" && onMultiSlotFulfill) {
+        const intercepted = await processUploadedFile(itemId, rawFiles[0]);
+        if (intercepted) {
+          inputEl.value = "";
+          return;
+        }
+      }
+
+      // Get page count for PDFs
+      const uploadedFiles: UploadedFile[] = await Promise.all(
+        rawFiles.map(async (f) => {
+          let pc: number | undefined;
+          if (f.type === "application/pdf") {
+            try {
+              const { PDFDocument } = await import("pdf-lib");
+              const bytes = await f.arrayBuffer();
+              const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+              pc = pdf.getPageCount();
+            } catch { /* ignore */ }
+          }
+          return {
+            id: uuid(),
+            name: f.name,
+            size: f.size,
+            type: f.type,
+            pageCount: pc,
+          };
+        })
+      );
+      updateFileStoreRef(itemId, rawFiles);
       onRawFilesAdded(itemId, rawFiles);
       onItemUpdate(itemId, uploadedFiles);
-      e.target.value = "";
+      inputEl.value = "";
     },
-    [onItemUpdate, onRawFilesAdded]
+    [onItemUpdate, onRawFilesAdded, onMultiSlotFulfill, processUploadedFile, updateFileStoreRef]
   );
 
   /* ── Toggle category (tap grid card) ── */
@@ -615,31 +1243,123 @@ export function ChecklistEngine({
   const activeCategory =
     activeCategoryIndex !== null ? visibleCategories[activeCategoryIndex] : null;
 
+  const handleMoveFileLocal = useCallback(
+    (fromSlotId: string, toSlotId: string) => {
+      // Parent's onMoveFile handles file extraction from its own fileStoreRef
+      onMoveFile?.(fromSlotId, toSlotId, []);
+    },
+    [onMoveFile]
+  );
+
+  // Manual "Analyze Pages" handler — runs full classification on demand
+  const handleAnalyzePages = useCallback(
+    async (itemId: string) => {
+      const files = fileStoreRef.current?.get(itemId);
+      if (!files || files.length === 0) return;
+      const file = files[0];
+      if (file.type !== "application/pdf") return;
+
+      // Force full classification (bypass pre-check)
+      onClassificationProgress?.("Analyzing pages...");
+      try {
+        const currentItems = itemsRef.current;
+        const availableItems = currentItems.map((i) => ({
+          id: i.id,
+          label: i.label,
+          status: i.status,
+        }));
+
+        const result = await classifyFilePages(
+          file,
+          itemId,
+          availableItems,
+          (p) => {
+            onClassificationProgress?.(
+              `Page ${p.currentPage}/${p.totalPages}: ${p.phase}`
+            );
+          }
+        );
+
+        onClassificationProgress?.(null);
+
+        // Show modal if there are multiple segments
+        if (result.segments.length > 1) {
+          setClassificationResult(result);
+          setClassifyingFile(file);
+          setMappingModalOpen(true);
+        } else {
+          toast.info("All pages appear to be the same document type");
+        }
+      } catch {
+        onClassificationProgress?.(null);
+        toast.error("Page analysis failed");
+      }
+    },
+    [onClassificationProgress]
+  );
+
   const renderUploadSlot = (item: ChecklistItem) => {
     const hasWarning = docTypeWarnings?.get(item.id)?.suggestion ?? null;
     const hasDupe = item.files.some((f) => duplicateFileNames?.has(f.name));
+    const validation = uploadValidations?.get(item.id);
+    const isDismissed = dismissedValidations.has(item.id);
+    const slotProgress = uploadProgress?.get(item.id);
+
+    // Check if the item has a multi-page PDF
+    const hasMultiPagePdf = item.files.length === 1 &&
+      item.files[0].type === "application/pdf" &&
+      (item.files[0].pageCount ?? 0) > 1;
+
+    // Show MDF merge indicator when MDF slot has a merge plan
+    const showMerge = item.id === "mdf" && mdfMergePlan?.canMerge && onSkipMdfMergeChange;
+
+    // Slot-specific intelligence data
+    const slotMdfValidation = item.id === "mdf" ? mdfValidation : undefined;
+    const slotTemplateMatch = templateWarnings?.get(item.id) ?? undefined;
 
     return (
-      <UploadSlot
-        key={item.id}
-        item={item}
-        isDragging={dragOver === item.id}
-        docTypeWarning={hasWarning}
-        hasDuplicateFile={hasDupe}
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setDragOver(item.id);
-        }}
-        onDragLeave={() => setDragOver(null)}
-        onDrop={(e) => handleFileDrop(item.id, e)}
-        onFileInput={(e) => handleFileInput(item.id, e)}
-        onFileRemove={(fileId) => onFileRemove(item.id, fileId)}
-      />
+      <div key={item.id}>
+        <UploadSlot
+          item={item}
+          isDragging={dragOver === item.id}
+          docTypeWarning={hasWarning}
+          hasDuplicateFile={hasDupe}
+          isRecentlyFulfilled={recentlyFulfilled.has(item.id)}
+          uploadValidation={!isDismissed ? validation : undefined}
+          isMultiPagePdf={hasMultiPagePdf}
+          pageCount={item.files.length === 1 ? item.files[0].pageCount : undefined}
+          slotProgress={slotProgress}
+          onCancelUpload={onCancelUpload ? () => onCancelUpload(item.id) : undefined}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDragOver(item.id);
+          }}
+          onDragLeave={() => setDragOver(null)}
+          onDrop={(e) => handleFileDrop(item.id, e)}
+          onFileInput={(e) => handleFileInput(item.id, e)}
+          onFileRemove={(fileId) => onFileRemove(item.id, fileId)}
+          onMoveFile={onMoveFile ? handleMoveFileLocal : undefined}
+          onDismissValidation={() => {
+            setDismissedValidations((prev) => new Set(prev).add(item.id));
+          }}
+          onAnalyzePages={hasMultiPagePdf && onMultiSlotFulfill ? () => handleAnalyzePages(item.id) : undefined}
+          mdfValidation={slotMdfValidation}
+          templateMatch={slotTemplateMatch}
+        />
+        {showMerge && (
+          <MDFMergeIndicator
+            plan={mdfMergePlan}
+            skip={skipMdfMerge ?? false}
+            onSkipChange={onSkipMdfMergeChange}
+          />
+        )}
+      </div>
     );
   };
 
   return (
+    <>
     <div className="space-y-5">
       {/* ── Overall progress bar ── */}
       <div className="flex items-center gap-3">
@@ -694,6 +1414,15 @@ export function ChecklistEngine({
                 {categoryStats[activeCategory].uploaded}/{categoryStats[activeCategory].total}
               </span>
             </div>
+
+            {/* Single consolidated intelligence bar for this category */}
+            <CategoryIntelligence
+              items={grouped.get(activeCategory) || []}
+              mdfValidation={activeCategory === "Forms" ? mdfValidation : undefined}
+              templateWarnings={templateWarnings}
+              uploadValidations={uploadValidations}
+              dismissedValidations={dismissedValidations}
+            />
 
             {/* Conditional question cards + their nested doc slots */}
             {(() => {
@@ -770,5 +1499,19 @@ export function ChecklistEngine({
         )}
       </AnimatePresence>
     </div>
+
+    {/* Document Mapping Modal for multi-page PDFs */}
+    {classificationResult && (
+      <DocumentMappingModal
+        open={mappingModalOpen}
+        onOpenChange={setMappingModalOpen}
+        segments={classificationResult.segments}
+        availableItems={items}
+        suggestedMappings={classificationResult.suggestedMappings}
+        onConfirm={handleMappingConfirm}
+        fileName={classifyingFile?.name || ""}
+      />
+    )}
+    </>
   );
 }

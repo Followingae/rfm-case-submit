@@ -4,6 +4,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Globe,
+  FilePlus2,
   GitBranch,
   ArrowRight,
 } from "lucide-react";
@@ -11,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { CaseType, BranchMode, MerchantInfo } from "@/lib/types";
+import { CaseType, MerchantInfo } from "@/lib/types";
 
 interface StepMerchantProps {
   merchantInfo: MerchantInfo;
@@ -43,16 +44,23 @@ const caseTypes: {
   {
     value: "ecom",
     label: "E-Commerce",
-    description: "Online merchant",
+    description: "Online / payment link",
     icon: Globe,
     color: "blue",
   },
   {
-    value: "branch",
-    label: "Branch",
-    description: "Additional location",
-    icon: GitBranch,
+    value: "additional-mid",
+    label: "Additional MID",
+    description: "Additional merchant ID",
+    icon: FilePlus2,
     color: "violet",
+  },
+  {
+    value: "additional-branch",
+    label: "Additional Branch",
+    description: "New branch for existing merchant",
+    icon: GitBranch,
+    color: "teal",
   },
 ];
 
@@ -81,6 +89,12 @@ const colorMap: Record<string, { bg: string; border: string; text: string; shado
     text: "text-violet-500",
     shadow: "shadow-violet-500/20",
   },
+  teal: {
+    bg: "bg-teal-500/10",
+    border: "border-teal-500",
+    text: "text-teal-500",
+    shadow: "shadow-teal-500/20",
+  },
 };
 
 export function StepMerchant({
@@ -91,7 +105,7 @@ export function StepMerchant({
   const canProceed =
     merchantInfo.legalName.trim() !== "" &&
     merchantInfo.caseType !== undefined &&
-    (merchantInfo.caseType !== "branch" || merchantInfo.branchMode !== undefined);
+    (merchantInfo.caseType !== "additional-branch" || merchantInfo.existingMid.trim() !== "");
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -128,7 +142,7 @@ export function StepMerchant({
         <Label className="text-xs font-medium">
           Case Type <span className="text-destructive">*</span>
         </Label>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {caseTypes.map((ct) => {
             const selected = merchantInfo.caseType === ct.value;
             const colors = colorMap[ct.color];
@@ -136,12 +150,7 @@ export function StepMerchant({
             return (
               <button
                 key={ct.value}
-                onClick={() =>
-                  onUpdate({
-                    caseType: ct.value,
-                    branchMode: ct.value !== "branch" ? undefined : merchantInfo.branchMode,
-                  })
-                }
+                onClick={() => onUpdate({ caseType: ct.value })}
                 className={cn(
                   "flex flex-col items-center gap-1.5 rounded-xl border-2 px-3 py-3 text-center transition-all duration-200",
                   selected
@@ -174,30 +183,18 @@ export function StepMerchant({
         </div>
       </div>
 
-      {merchantInfo.caseType === "branch" && (
-        <div className="flex gap-2">
-          <button
-            onClick={() => onUpdate({ branchMode: "with-main" })}
-            className={cn(
-              "flex-1 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all",
-              merchantInfo.branchMode === "with-main"
-                ? "border-violet-500 bg-violet-500/10 text-violet-500"
-                : "border-border/50 text-muted-foreground hover:border-border"
-            )}
-          >
-            With Main Location
-          </button>
-          <button
-            onClick={() => onUpdate({ branchMode: "separate" })}
-            className={cn(
-              "flex-1 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all",
-              merchantInfo.branchMode === "separate"
-                ? "border-violet-500 bg-violet-500/10 text-violet-500"
-                : "border-border/50 text-muted-foreground hover:border-border"
-            )}
-          >
-            Separate Submission
-          </button>
+      {merchantInfo.caseType === "additional-branch" && (
+        <div className="space-y-1.5">
+          <Label htmlFor="existingMid" className="text-xs font-medium">
+            Existing MID & Merchant Name <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="existingMid"
+            value={merchantInfo.existingMid}
+            onChange={(e) => onUpdate({ existingMid: e.target.value })}
+            placeholder="e.g. 1234567890 – MERCHANT NAME LLC"
+            className="h-10 rounded-xl"
+          />
         </div>
       )}
 

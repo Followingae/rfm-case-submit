@@ -22,14 +22,13 @@ const CRITICAL_FIELDS: { field: string; label: string; group: string }[] = [
   { field: "merchantLegalName", label: "Legal Name", group: "Merchant Info" },
   { field: "dba", label: "DBA / Trading Name", group: "Merchant Info" },
   { field: "emirate", label: "Emirate", group: "Merchant Info" },
-  { field: "country", label: "Country", group: "Merchant Info" },
   { field: "address", label: "Address", group: "Merchant Info" },
   { field: "mobileNo", label: "Mobile Number", group: "Merchant Info" },
   { field: "email1", label: "Email Address", group: "Merchant Info" },
 
   // Contact Person
   { field: "contactName", label: "Contact Name", group: "Contact" },
-  { field: "contactTitle", label: "Contact Title", group: "Contact" },
+  { field: "contactTitle", label: "Contact Title / Designation", group: "Contact" },
   { field: "contactMobile", label: "Contact Mobile", group: "Contact" },
 
   // Settlement
@@ -38,8 +37,6 @@ const CRITICAL_FIELDS: { field: string; label: string; group: string }[] = [
 
   // KYC
   { field: "shareholders", label: "Shareholders", group: "KYC" },
-  { field: "projectedMonthlyVolume", label: "Projected Monthly Volume", group: "KYC" },
-  { field: "sourceOfIncome", label: "Source of Income", group: "KYC" },
 
   // Fees
   { field: "feeSchedule", label: "Fee Schedule", group: "Fees" },
