@@ -90,7 +90,73 @@ const SHAREHOLDER_FIELDS = [
   { name: "Merchant No 115", pct: "Merchant No 113", nationality: "Merchant No 129" },
   // Second shareholder row (if present in the template)
   { name: "Merchant No 82", pct: "Merchant No 114", nationality: "Merchant No 130" },
+  // Third shareholder row
+  { name: "Merchant No 83", pct: "Merchant No 116", nationality: "Merchant No 131" },
+  // Fourth shareholder row
+  { name: "Merchant No 84", pct: "Merchant No 117", nationality: "Merchant No 132" },
+  // Fifth shareholder row
+  { name: "Merchant No 85", pct: "Merchant No 118", nationality: "Merchant No 133" },
 ];
+
+// ── Value-pattern fallback matching ──
+// When FIELD_MAP doesn't cover a field, inspect the VALUE to guess what it is.
+
+interface PDFField {
+  name: string;
+  value: string;
+}
+
+const UAE_EMIRATES = [
+  "abu dhabi", "dubai", "sharjah", "ajman", "umm al quwain",
+  "umm al-quwain", "ras al khaimah", "ras al-khaimah", "fujairah",
+];
+
+const COMPANY_INDICATORS = [
+  "llc", "l.l.c", "l.l.c.", "trading", "fz-llc", "fze", "fzc",
+  "est", "establishment", "company", "co.", "corp", "corporation",
+  "inc", "enterprises", "group", "holdings", "limited", "ltd",
+  "partners", "services", "solutions", "industries", "international",
+];
+
+function fallbackFieldMatching(fields: PDFField[], data: ParsedMDF): void {
+  for (const { value } of fields) {
+    if (!value) continue;
+
+    // IBAN pattern
+    if (!data.iban && /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(value.replace(/\s/g, "").toUpperCase())) {
+      data.iban = value.replace(/\s/g, "").toUpperCase();
+      continue;
+    }
+
+    // Email pattern
+    if (!data.email1 && /\S+@\S+\.\S+/.test(value)) {
+      data.email1 = value;
+      continue;
+    }
+
+    // Phone pattern
+    if (!data.mobileNo && /^[\d\s\+\-()]{7,15}$/.test(value.trim())) {
+      data.mobileNo = value.trim();
+      continue;
+    }
+
+    // UAE Emirate
+    if (!data.emirate && UAE_EMIRATES.some((e) => value.toLowerCase().includes(e))) {
+      data.emirate = value.trim();
+      continue;
+    }
+
+    // Company name (contains LLC, Trading, etc.)
+    const valueLower = value.toLowerCase();
+    if (COMPANY_INDICATORS.some((ind) => valueLower.includes(ind.toLowerCase()))) {
+      if (!data.merchantLegalName) {
+        data.merchantLegalName = value.trim();
+      } else if (!data.dba) {
+        data.dba = value.trim();
+      }
+    }
+  }
+}
 
 /**
  * Extract ParsedMDF from a PDF with AcroForm fields (fillable PDF).
@@ -103,7 +169,7 @@ export async function extractMDFFormFields(arrayBuffer: ArrayBuffer): Promise<Pa
     const form = pdf.getForm();
     const fields = form.getFields();
 
-    if (fields.length < 50) return null; // Not a fillable MDF
+    if (fields.length < 20) return null; // Not a fillable MDF
 
     // Read all text field values
     const values = new Map<string, string>();
@@ -163,6 +229,13 @@ export async function extractMDFFormFields(arrayBuffer: ArrayBuffer): Promise<Pa
         }
       }
     }
+
+    // Value-pattern fallback: scan field values for IBAN, email, phone, emirate, company names
+    const allFields: PDFField[] = [];
+    for (const [name, value] of values) {
+      allFields.push({ name, value });
+    }
+    fallbackFieldMatching(allFields, data);
 
     // mobileNo — use contactMobile if mobileNo not set separately
     if (!data.mobileNo && data.contactMobile) {
@@ -244,7 +317,7 @@ export async function isFillablePDF(arrayBuffer: ArrayBuffer): Promise<boolean> 
     const { PDFDocument } = await import("pdf-lib");
     const pdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
     const form = pdf.getForm();
-    return form.getFields().length > 50;
+    return form.getFields().length > 20;
   } catch {
     return false;
   }

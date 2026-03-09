@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx next:*)",
+      "WebSearch",
+      "WebFetch(domain:portfolio.chsmc.org)",
+      "WebFetch(domain:docs.stripe.com)",
+      "WebFetch(domain:codepen.io)",
+      "WebFetch(domain:stripe.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:www.colorsandfonts.com)",
+      "WebFetch(domain:htmlcolors.com)",
+      "WebFetch(domain:www.brandcolorcode.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:mobbin.com)",
+      "WebFetch(domain:fontsinuse.com)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:betanet.net)",
+      "WebFetch(domain:blog.logrocket.com)",
+      "Bash(grep:*)"
+    ]
+  }
+}

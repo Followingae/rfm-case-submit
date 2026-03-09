@@ -1,11 +1,14 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { Upload, X, FileText, Image, File } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { UploadedFile } from "@/lib/types";
 import { v4 as uuid } from "uuid";
+import { toast } from "sonner";
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 interface DropzoneProps {
   onFilesAdded: (files: UploadedFile[]) => void;
@@ -36,10 +39,33 @@ export function Dropzone({
   compact = false,
 }: DropzoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const inputId = useId();
+  const fileInputId = `file-input-${inputId}`;
 
   const handleFiles = useCallback(
     (fileList: FileList) => {
-      const files: UploadedFile[] = Array.from(fileList).map((f) => ({
+      const allFiles = Array.from(fileList);
+      const validFiles: globalThis.File[] = [];
+      const oversized: string[] = [];
+
+      for (const f of allFiles) {
+        if (f.size > MAX_FILE_SIZE) {
+          oversized.push(f.name);
+        } else {
+          validFiles.push(f);
+        }
+      }
+
+      if (oversized.length > 0) {
+        toast.error(
+          `${oversized.length === 1 ? "File" : "Files"} too large (max 50MB)`,
+          { description: oversized.join(", ") }
+        );
+      }
+
+      if (validFiles.length === 0) return;
+
+      const files: UploadedFile[] = validFiles.map((f) => ({
         id: uuid(),
         name: f.name,
         size: f.size,
@@ -88,11 +114,11 @@ export function Dropzone({
             : "border-border/50 hover:border-primary/50 hover:bg-accent/50"
         )}
         onClick={() =>
-          document.getElementById(`file-input-${compact ? "c" : "f"}`)?.click()
+          document.getElementById(fileInputId)?.click()
         }
       >
         <input
-          id={`file-input-${compact ? "c" : "f"}`}
+          id={fileInputId}
           type="file"
           className="hidden"
           multiple={multiple}
@@ -111,7 +137,7 @@ export function Dropzone({
               Drop files here or click to browse
             </p>
             <p className="text-xs text-muted-foreground/60">
-              PDF, Images, Word, Excel
+              PDF, Images, Word, Excel (max 50MB)
             </p>
           </>
         )}
@@ -147,6 +173,7 @@ export function Dropzone({
                     e.stopPropagation();
                     onRemoveFile(file.id);
                   }}
+                  aria-label={`Remove file ${file.name}`}
                 >
                   <X className="h-3 w-3" />
                 </Button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AlertTriangle, FileText, MessageSquare } from "lucide-react";
+import { AlertTriangle, MessageSquare } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -23,7 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { ReadinessItem, ExceptionOption, CaseException } from "@/lib/types";
 
-/* ─── Reason label to category mapping ─── */
+/* --- Reason label to category mapping --- */
 
 const REASON_CATEGORY_MAP: Record<CaseException["reasonCategory"], string[]> = {
   "combined-doc": ["Combined doc"],
@@ -43,7 +42,7 @@ function mapReasonCategory(label: string): CaseException["reasonCategory"] {
   return "other";
 }
 
-/* ─── Component ─── */
+/* --- Component --- */
 
 interface ExceptionModalProps {
   open: boolean;
@@ -101,39 +100,43 @@ export function ExceptionModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
+          <DialogTitle className="flex items-center gap-2.5 text-base font-semibold">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+            </div>
             Add Exception
           </DialogTitle>
-          <DialogDescription>{item.label}</DialogDescription>
+          <DialogDescription className="text-sm">{item.label}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
-          {/* Issue section */}
-          <div className="flex items-start gap-3 rounded-md border border-border/50 bg-muted/30 p-3">
-            <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="flex-1 space-y-1">
-              <p className="text-sm font-medium">Detected Issue</p>
-              <p className="text-sm text-muted-foreground">{item.reason}</p>
+        <div className="space-y-5 py-2">
+          {/* Issue description */}
+          <div className="rounded-xl border border-border/50 p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-1 space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Detected Issue
+                </p>
+                <p className="text-sm text-foreground">{item.reason}</p>
+              </div>
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium",
+                  isRed
+                    ? "bg-red-500/10 text-red-500"
+                    : "bg-amber-500/10 text-amber-500"
+                )}
+              >
+                {isRed ? "Red" : "Amber"}
+              </span>
             </div>
-            <Badge
-              variant="outline"
-              className={cn(
-                "shrink-0",
-                isRed
-                  ? "border-red-500/40 bg-red-500/10 text-red-400"
-                  : "border-amber-500/40 bg-amber-500/10 text-amber-400",
-              )}
-            >
-              {isRed ? "Red" : "Amber"}
-            </Badge>
           </div>
 
-          {/* Reason dropdown */}
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Reason</label>
+          {/* Reason selector */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Reason</label>
             <Select value={selectedReason} onValueChange={setSelectedReason}>
-              <SelectTrigger>
+              <SelectTrigger className="rounded-lg">
                 <SelectValue placeholder="Select a reason..." />
               </SelectTrigger>
               <SelectContent>
@@ -146,15 +149,14 @@ export function ExceptionModal({
             </Select>
           </div>
 
-          {/* Notes field */}
-          <div className="space-y-1.5">
+          {/* Notes textarea */}
+          <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
-              <label className="text-sm font-medium">
+              <label className="text-sm font-medium text-foreground">
                 Notes
                 {notesRequired && (
-                  <span className="ml-1 text-xs text-red-400">
-                    (required)
+                  <span className="ml-1.5 text-xs font-normal text-destructive">
+                    Required
                   </span>
                 )}
               </label>
@@ -165,28 +167,31 @@ export function ExceptionModal({
               placeholder="Add any additional context..."
               rows={3}
               className={cn(
-                notesRequired && notes.trim().length === 0 && "border-red-500/50",
+                "rounded-lg resize-none",
+                notesRequired && notes.trim().length === 0 && "border-red-500/50 focus-visible:ring-red-500/20",
               )}
             />
           </div>
 
-          {/* Preview */}
           <p className="text-xs text-muted-foreground">
-            This item will be marked as an exception and included in the export
-            package.
+            This item will be marked as an exception and included in the export package.
           </p>
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            className="rounded-lg"
+          >
             Cancel
           </Button>
           <Button
             disabled={!canSubmit}
             onClick={handleSubmit}
-            className="bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+            className="rounded-lg bg-amber-600 text-white hover:bg-amber-700 focus-visible:ring-amber-600 disabled:opacity-50"
           >
-            Proceed with Exception
+            Submit Exception
           </Button>
         </DialogFooter>
       </DialogContent>

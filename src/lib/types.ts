@@ -184,7 +184,7 @@ export interface EnhancedDuplicateWarning {
 // ── Cross-Document Consistency ──
 
 export interface ConsistencyWarning {
-  type: "name-mismatch" | "expired" | "shareholder-mismatch" | "iban-invalid";
+  type: "name-mismatch" | "expired" | "shareholder-mismatch" | "iban-invalid" | "iban-checksum-failed" | "bank-name-missing" | "passport-shareholder-mismatch";
   severity: "major" | "minor";
   message: string;
   docs: string[];

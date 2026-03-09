@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 interface WizardShellProps {
   currentStep: number;
   children: React.ReactNode;
+  onStepClick?: (step: number) => void;
 }
 
 const steps = [
@@ -15,63 +16,95 @@ const steps = [
   { label: "Review & Export", number: 3 },
 ];
 
-export function WizardShell({ currentStep, children }: WizardShellProps) {
+export function WizardShell({ currentStep, children, onStepClick }: WizardShellProps) {
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-center">
-        <div className="inline-flex items-center gap-0 rounded-full bg-muted/30 px-2 py-1.5">
+    <div className="space-y-8">
+      {/* Stripe-style horizontal stepper */}
+      <nav className="flex items-center justify-center" aria-label="Progress">
+        <ol className="flex items-center gap-0" role="list">
           {steps.map((step, index) => {
             const isCompleted = index < currentStep;
             const isCurrent = index === currentStep;
+            const isClickable = isCompleted && !!onStepClick;
 
             return (
-              <div key={step.label} className="flex items-center">
-                <div className="flex items-center gap-1.5">
+              <li
+                key={step.label}
+                className="flex items-center"
+                role="listitem"
+                {...(isCurrent ? { "aria-current": "step" as const } : {})}
+              >
+                <div
+                  className={cn(
+                    "flex items-center gap-2.5",
+                    isClickable && "cursor-pointer group"
+                  )}
+                  onClick={isClickable ? () => onStepClick(index) : undefined}
+                  role={isClickable ? "button" : undefined}
+                  tabIndex={isClickable ? 0 : undefined}
+                  onKeyDown={
+                    isClickable
+                      ? (e: React.KeyboardEvent) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onStepClick(index);
+                          }
+                        }
+                      : undefined
+                  }
+                >
+                  {/* Step circle */}
                   <div
                     className={cn(
-                      "flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-all duration-300",
+                      "flex h-8 w-8 items-center justify-center rounded-full border-2 text-sm font-medium transition-all duration-200",
                       isCompleted &&
-                        "bg-emerald-500 text-white",
+                        "border-primary bg-primary text-primary-foreground",
                       isCurrent &&
-                        "bg-primary text-primary-foreground shadow-md shadow-primary/25",
+                        "border-primary text-primary",
                       !isCompleted &&
                         !isCurrent &&
-                        "bg-muted/50 text-muted-foreground/40"
+                        "border-border text-muted-foreground",
+                      isClickable &&
+                        "group-hover:border-primary/80 group-hover:bg-primary/90 group-hover:text-primary-foreground"
                     )}
                   >
                     {isCompleted ? (
-                      <Check className="h-3.5 w-3.5" />
+                      <Check className="h-4 w-4" strokeWidth={2.5} />
                     ) : (
                       step.number
                     )}
                   </div>
+
+                  {/* Step label */}
                   <span
                     className={cn(
-                      "hidden text-xs font-medium transition-colors sm:inline",
+                      "text-sm transition-colors",
                       isCurrent
-                        ? "text-foreground"
+                        ? "text-foreground font-medium"
                         : isCompleted
-                        ? "text-emerald-500"
-                        : "text-muted-foreground/40"
+                        ? "text-foreground"
+                        : "text-muted-foreground",
+                      !isCurrent && "hidden sm:inline"
                     )}
                   >
                     {step.label}
                   </span>
                 </div>
 
+                {/* Connector line */}
                 {index < steps.length - 1 && (
                   <div
                     className={cn(
-                      "mx-2 h-[2px] w-6 rounded-full transition-colors duration-300 sm:mx-3 sm:w-12",
-                      isCompleted ? "bg-emerald-500" : "bg-border/40"
+                      "mx-4 h-px w-12 transition-colors duration-300 sm:mx-6 sm:w-16",
+                      isCompleted ? "bg-primary" : "bg-border"
                     )}
                   />
                 )}
-              </div>
+              </li>
             );
           })}
-        </div>
-      </div>
+        </ol>
+      </nav>
 
       <AnimatePresence mode="wait">
         <motion.div

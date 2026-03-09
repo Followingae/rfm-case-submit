@@ -6,7 +6,7 @@ import { getReferenceDoc } from "@/lib/reference-store";
 function normalizeForMatch(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")   // strip punctuation / OCR artifacts
+    .replace(/[^a-z0-9\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/g, " ")   // strip punctuation / OCR artifacts, preserve Arabic
     .replace(/\s+/g, " ")            // collapse whitespace
     .trim();
 }
@@ -184,7 +184,7 @@ export const TEMPLATES: DocumentTemplate[] = [
   // ─────── Site Visit Report (SVR) ───────
   {
     id: "svr",
-    docTypeId: "signed-svr",
+    docTypeId: "svr",
     label: "Site Visit Report (SVR)",
     sections: [
       {

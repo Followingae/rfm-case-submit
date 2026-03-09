@@ -28,7 +28,7 @@ export interface UploadValidation {
 function normalizeText(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^a-z0-9\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

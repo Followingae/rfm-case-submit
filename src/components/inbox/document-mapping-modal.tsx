@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
-import { FileText, ChevronDown, Check, X, AlertTriangle } from "lucide-react";
+import { FileText, Check, X, AlertTriangle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -50,14 +49,14 @@ function confidenceTier(confidence: number) {
   return "low";
 }
 
-function confidenceColors(tier: "high" | "medium" | "low") {
+function confidenceColor(tier: "high" | "medium" | "low") {
   switch (tier) {
     case "high":
-      return "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+      return "text-emerald-500";
     case "medium":
-      return "bg-amber-500/10 text-amber-400 border-amber-500/30";
+      return "text-amber-500";
     case "low":
-      return "bg-red-500/10 text-red-400 border-red-500/30";
+      return "text-red-500";
   }
 }
 
@@ -179,23 +178,25 @@ export function DocumentMappingModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-hidden">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <FileText className="size-5 text-primary" />
+          <DialogTitle className="flex items-center gap-2.5 text-base font-semibold">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+              <FileText className="h-4 w-4 text-primary" />
+            </div>
             Map Document Segments
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-sm">
             <span className="font-medium text-foreground">{fileName}</span>
             {" "}was classified into{" "}
             <span className="font-medium text-foreground">
               {segments.length}
             </span>{" "}
             document segment{segments.length !== 1 ? "s" : ""}. Confirm or
-            adjust the page-to-slot assignments below.
+            adjust the assignments below.
           </DialogDescription>
         </DialogHeader>
 
-        {/* ---- two-column body ---- */}
-        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 min-h-0 flex-1 overflow-hidden">
+        {/* Two-column body */}
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-5 min-h-0 flex-1 overflow-hidden">
           {/* LEFT: segment cards (60%) */}
           <div className="sm:col-span-3 overflow-y-auto pr-1 -mr-1 max-h-[calc(85vh-220px)] space-y-3">
             {segments.map((segment, idx) => {
@@ -209,23 +210,23 @@ export function DocumentMappingModal({
               return (
                 <motion.div
                   key={idx}
-                  initial={{ opacity: 0, y: 20 }}
+                  initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.05 * idx, duration: 0.3 }}
+                  transition={{ delay: 0.04 * idx, duration: 0.25 }}
                   className={cn(
-                    "rounded-lg border p-4 transition-colors",
+                    "rounded-xl border p-4 transition-colors",
                     isUnclassified
-                      ? "bg-amber-500/5 border-amber-500/20"
-                      : "bg-card border-border",
+                      ? "border-amber-500/30 bg-amber-500/[0.03]"
+                      : "border-border/50",
                   )}
                 >
-                  {/* thumbnails row */}
-                  <div className="flex items-start gap-3 mb-3">
+                  {/* Thumbnails row */}
+                  <div className="flex items-start gap-4 mb-3">
                     <div className="flex gap-1.5 flex-wrap">
                       {segment.pages.map((page) => (
                         <div
                           key={page.pageNumber}
-                          className="relative size-[60px] rounded border border-border overflow-hidden bg-muted/20 shrink-0"
+                          className="relative size-[56px] rounded-lg border border-border/50 overflow-hidden bg-muted/20 shrink-0"
                         >
                           {page.thumbnail ? (
                             <img
@@ -235,10 +236,10 @@ export function DocumentMappingModal({
                             />
                           ) : (
                             <div className="size-full flex items-center justify-center">
-                              <FileText className="size-4 text-muted-foreground" />
+                              <FileText className="size-3.5 text-muted-foreground/50" />
                             </div>
                           )}
-                          <span className="absolute bottom-0 inset-x-0 bg-black/60 text-[10px] text-center text-white leading-tight py-px">
+                          <span className="absolute bottom-0 inset-x-0 bg-black/50 text-[10px] text-center text-white leading-tight py-px">
                             {page.pageNumber}
                           </span>
                         </div>
@@ -246,38 +247,30 @@ export function DocumentMappingModal({
                     </div>
 
                     <div className="flex-1 min-w-0 space-y-2">
-                      {/* doc type badge + confidence */}
+                      {/* Doc type + confidence */}
                       <div className="flex items-center gap-2 flex-wrap">
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "text-xs",
-                            confidenceColors(tier),
-                          )}
-                        >
+                        <span className="text-sm font-medium text-foreground">
                           {segment.docTypeLabel ?? "Unclassified"}
-                        </Badge>
+                        </span>
                         <span
                           className={cn(
                             "text-xs font-mono",
-                            tier === "high" && "text-emerald-400",
-                            tier === "medium" && "text-amber-400",
-                            tier === "low" && "text-red-400",
+                            confidenceColor(tier),
                           )}
                         >
                           {Math.round(segment.confidence)}%
                         </span>
                         {isUnclassified && (
-                          <AlertTriangle className="size-3.5 text-amber-400" />
+                          <AlertTriangle className="size-3.5 text-amber-500" />
                         )}
                       </div>
 
-                      {/* pages range */}
+                      {/* Page range */}
                       <p className="text-xs text-muted-foreground">
                         {formatPageRange(pageNumbers)}
                       </p>
 
-                      {/* slot select */}
+                      {/* Slot select */}
                       <div className="flex items-center gap-2">
                         <Select
                           value={mapping?.slotId ?? UNASSIGNED}
@@ -285,7 +278,7 @@ export function DocumentMappingModal({
                             handleSlotChange(idx, val)
                           }
                         >
-                          <SelectTrigger className="h-8 w-full text-xs">
+                          <SelectTrigger className="h-9 w-full text-sm rounded-lg">
                             <SelectValue placeholder="Assign to slot..." />
                           </SelectTrigger>
                           <SelectContent>
@@ -299,13 +292,13 @@ export function DocumentMappingModal({
                                 <span className="flex items-center gap-1.5">
                                   {item.label}
                                   {item.required && (
-                                    <span className="text-red-400 text-[10px]">
+                                    <span className="text-red-500 text-xs">
                                       *
                                     </span>
                                   )}
                                   {assignedSlotIds.has(item.id) &&
                                     mapping?.slotId !== item.id && (
-                                      <Check className="size-3 text-emerald-400" />
+                                      <Check className="size-3 text-emerald-500" />
                                     )}
                                 </span>
                               </SelectItem>
@@ -316,12 +309,12 @@ export function DocumentMappingModal({
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 px-2 text-muted-foreground hover:text-red-400 shrink-0"
+                          className="h-9 w-9 px-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0 rounded-lg"
                           onClick={() => handleDismiss(idx)}
                           disabled={!isAssigned}
                           aria-label="Dismiss segment"
                         >
-                          <X className="size-3.5" />
+                          <X className="size-4" />
                         </Button>
                       </div>
                     </div>
@@ -331,7 +324,7 @@ export function DocumentMappingModal({
                   {(() => {
                     const qualityIssues = getSegmentQualityIssues(segment);
                     return qualityIssues.length > 0 && !dismissedQuality.has(idx) ? (
-                      <div className="mt-2">
+                      <div className="mt-3 pt-3 border-t border-border/30">
                         <ScanGuidance
                           issues={qualityIssues}
                           onRescan={() => onOpenChange(false)}
@@ -349,8 +342,8 @@ export function DocumentMappingModal({
 
           {/* RIGHT: checklist preview (40%) */}
           <div className="sm:col-span-2 overflow-y-auto max-h-[calc(85vh-220px)]">
-            <div className="sticky top-0 bg-background pb-2 z-10">
-              <h3 className="text-sm font-medium text-muted-foreground">
+            <div className="sticky top-0 bg-background pb-3 z-10">
+              <h3 className="text-sm font-medium text-foreground">
                 Checklist Preview
               </h3>
             </div>
@@ -362,23 +355,23 @@ export function DocumentMappingModal({
                   <div
                     key={item.id}
                     className={cn(
-                      "flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
+                      "flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm transition-colors",
                       status === "mapped" &&
-                        "bg-primary/10 border-primary/30",
+                        "bg-primary/5 border-primary/20",
                       status === "already-uploaded" &&
                         "bg-emerald-500/5 border-emerald-500/20",
                       status === "missing" &&
-                        "bg-muted/10 border-border",
+                        "bg-transparent border-border/50",
                     )}
                   >
                     {status === "mapped" && (
                       <Check className="size-3.5 text-primary shrink-0" />
                     )}
                     {status === "already-uploaded" && (
-                      <Check className="size-3.5 text-emerald-400 shrink-0" />
+                      <Check className="size-3.5 text-emerald-500 shrink-0" />
                     )}
                     {status === "missing" && (
-                      <div className="size-3.5 rounded-full border border-muted-foreground/30 shrink-0" />
+                      <div className="size-3.5 rounded-full border border-border shrink-0" />
                     )}
 
                     <span
@@ -391,17 +384,17 @@ export function DocumentMappingModal({
                     </span>
 
                     {item.required && status === "missing" && (
-                      <span className="ml-auto text-[10px] text-red-400 shrink-0">
+                      <span className="ml-auto text-xs text-red-500 shrink-0">
                         Required
                       </span>
                     )}
                     {status === "already-uploaded" && (
-                      <span className="ml-auto text-[10px] text-emerald-400 shrink-0">
+                      <span className="ml-auto text-xs text-emerald-500 shrink-0">
                         Uploaded
                       </span>
                     )}
                     {status === "mapped" && (
-                      <span className="ml-auto text-[10px] text-primary shrink-0">
+                      <span className="ml-auto text-xs text-primary shrink-0">
                         Will assign
                       </span>
                     )}
@@ -412,16 +405,16 @@ export function DocumentMappingModal({
           </div>
         </div>
 
-        {/* ---- footer ---- */}
-        <DialogFooter className="flex-col sm:flex-row items-center gap-3 border-t border-border pt-4">
-          <p className="text-xs text-muted-foreground mr-auto">
+        {/* Footer */}
+        <DialogFooter className="flex-col sm:flex-row items-center gap-3 border-t border-border/30 pt-4">
+          <p className="text-sm text-muted-foreground mr-auto">
             <span className="font-medium text-foreground">
               {assignedCount}
             </span>{" "}
-            document{assignedCount !== 1 ? "s" : ""} will be assigned
+            document{assignedCount !== 1 ? "s" : ""} assigned
             {dismissedCount > 0 && (
               <>
-                ,{" "}
+                {" · "}
                 <span className="font-medium text-foreground">
                   {dismissedCount}
                 </span>{" "}
@@ -434,13 +427,14 @@ export function DocumentMappingModal({
             <Button
               variant="ghost"
               onClick={() => onOpenChange(false)}
+              className="rounded-lg"
             >
               Cancel
             </Button>
             <Button
               onClick={handleConfirm}
               disabled={assignedCount === 0}
-              className="gap-1.5"
+              className="gap-1.5 rounded-lg"
             >
               <Check className="size-4" />
               Confirm &amp; Split

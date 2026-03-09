@@ -344,54 +344,32 @@ export async function saveEIDData(
 }
 
 // ── OCR: Save Bank Statement Data ────────────
+// Table may not exist yet — no-op until migration is run
 
 export async function saveBankStatementData(
-  caseId: string,
-  parsed: ParsedBankStatement,
-  confidence: number
+  _caseId: string,
+  _parsed: ParsedBankStatement,
+  _confidence: number
 ): Promise<void> {
-  const { error } = await supabase.from("ocr_bank_statement").upsert({
-    case_id: caseId,
-    bank_name: parsed.bankName || null,
-    account_holder: parsed.accountHolder || null,
-    account_number: parsed.accountNumber || null,
-    period: parsed.period || null,
-    confidence_score: confidence,
-  }, { onConflict: "case_id" });
-  if (error) logError("saveBankStatementData", error);
+  // TODO: Enable after running migration to create ocr_bank_statement table
 }
 
 // ── OCR: Save VAT Certificate Data ───────────
 
 export async function saveVATCertData(
-  caseId: string,
-  parsed: ParsedVATCert,
-  confidence: number
+  _caseId: string,
+  _parsed: ParsedVATCert,
+  _confidence: number
 ): Promise<void> {
-  const { error } = await supabase.from("ocr_vat_certificate").upsert({
-    case_id: caseId,
-    trn_number: parsed.trnNumber || null,
-    business_name: parsed.businessName || null,
-    registration_date: parsed.registrationDate || null,
-    confidence_score: confidence,
-  }, { onConflict: "case_id" });
-  if (error) logError("saveVATCertData", error);
+  // TODO: Enable after running migration to create ocr_vat_certificate table
 }
 
 // ── OCR: Save MOA Data ───────────────────────
 
 export async function saveMOAData(
-  caseId: string,
-  parsed: ParsedMOA,
-  confidence: number
+  _caseId: string,
+  _parsed: ParsedMOA,
+  _confidence: number
 ): Promise<void> {
-  const { error } = await supabase.from("ocr_moa_data").upsert({
-    case_id: caseId,
-    company_name: parsed.companyName || null,
-    shareholders: parsed.shareholders || [],
-    share_percentages: parsed.sharePercentages || [],
-    signatories: parsed.signatories || [],
-    confidence_score: confidence,
-  }, { onConflict: "case_id" });
-  if (error) logError("saveMOAData", error);
+  // TODO: Enable after running migration to create ocr_moa_data table
 }

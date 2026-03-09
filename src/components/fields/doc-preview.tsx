@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, FileX } from "lucide-react";
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, FileX, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ExtractedField } from "@/lib/types";
@@ -27,6 +27,7 @@ export function DocPreview({
   const [pageIndex, setPageIndex] = useState(0);
   const [pageCount, setPageCount] = useState(1);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -48,6 +49,7 @@ export function DocPreview({
   const renderPdfPage = useCallback(
     async (page: number) => {
       if (!file || !isPdf || !canvasRef.current) return;
+      setPdfLoading(true);
       try {
         const pdfjsLib = await import("pdfjs-dist");
         pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
@@ -64,6 +66,8 @@ export function DocPreview({
         await pdfPage.render({ canvasContext: ctx, viewport, canvas } as never).promise;
       } catch {
         // PDF loading failed silently
+      } finally {
+        setPdfLoading(false);
       }
     },
     [file, isPdf]
@@ -88,7 +92,7 @@ export function DocPreview({
           className
         )}
       >
-        <FileX className="h-10 w-10 text-muted-foreground/40" />
+        <FileX className="h-10 w-10 text-muted-foreground/60" />
         <p className="text-sm text-muted-foreground/60">No document selected</p>
       </div>
     );
@@ -107,22 +111,24 @@ export function DocPreview({
       <div className="flex items-center justify-end gap-1">
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-sm"
           onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - ZOOM_STEP))}
           disabled={zoom <= MIN_ZOOM}
+          aria-label="Zoom out"
         >
-          <ZoomOut className="h-3.5 w-3.5" />
+          <ZoomOut className="h-4 w-4" />
         </Button>
-        <span className="min-w-[3ch] text-center text-[10px] text-muted-foreground">
+        <span className="min-w-[3ch] text-center text-xs text-muted-foreground">
           {Math.round(zoom * 100)}%
         </span>
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-sm"
           onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + ZOOM_STEP))}
           disabled={zoom >= MAX_ZOOM}
+          aria-label="Zoom in"
         >
-          <ZoomIn className="h-3.5 w-3.5" />
+          <ZoomIn className="h-4 w-4" />
         </Button>
       </div>
 
@@ -131,6 +137,16 @@ export function DocPreview({
         ref={containerRef}
         className="relative flex-1 overflow-auto rounded-lg bg-black/20"
       >
+        {/* PDF loading state */}
+        {isPdf && pdfLoading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/10">
+            <div className="flex items-center gap-2 rounded-lg bg-card/90 px-4 py-3 shadow-lg">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span className="text-xs text-muted-foreground">Rendering PDF...</span>
+            </div>
+          </div>
+        )}
+
         <div
           className="relative origin-top-left transition-transform duration-150"
           style={{ transform: `scale(${zoom})` }}
@@ -177,24 +193,26 @@ export function DocPreview({
         <div className="flex items-center justify-center gap-2">
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon-sm"
             onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
             disabled={pageIndex <= 0}
+            aria-label="Previous page"
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronLeft className="h-4 w-4" />
           </Button>
           <span className="text-xs text-muted-foreground">
             {pageIndex + 1} / {pageCount}
           </span>
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon-sm"
             onClick={() =>
               setPageIndex((p) => Math.min(pageCount - 1, p + 1))
             }
             disabled={pageIndex >= pageCount - 1}
+            aria-label="Next page"
           >
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
       )}

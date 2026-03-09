@@ -27,18 +27,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider>
           <TooltipProvider delayDuration={0}>
-            <div className="flex min-h-screen">
+            <div className="flex min-h-screen bg-background">
               <Sidebar />
-              <main className="flex-1 pt-14 md:pt-0 md:pl-[72px]">
-                <div className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
-                  {children}
-                </div>
+              <main className="flex-1 pt-14 md:pt-0 md:pl-[var(--sidebar-width)]">
+                {children}
               </main>
             </div>
           </TooltipProvider>

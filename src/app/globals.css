@@ -48,72 +48,101 @@
 }
 
 :root {
+  /* Typography scale */
+  --text-2xs: 0.6875rem; /* 11px - badges only, never body text */
+  --text-xs: 0.75rem;    /* 12px - minimum readable */
+  --text-sm: 0.8125rem;  /* 13px - labels, secondary */
+  --text-base: 0.875rem; /* 14px - body, inputs */
+
+  /* Spacing scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  /* Semantic status colors */
+  --success: oklch(0.65 0.18 155);
+  --warning: oklch(0.75 0.15 75);
+  --info: oklch(0.62 0.18 265);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+
+  /* Layout */
+  --sidebar-width: 220px;
+
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.995 0.002 280);
+  --foreground: oklch(0.16 0.02 280);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.16 0.02 280);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.45 0.2 260);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.16 0.02 280);
+  --primary: oklch(0.53 0.24 285);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.965 0.012 280);
+  --secondary-foreground: oklch(0.22 0.02 280);
+  --muted: oklch(0.965 0.008 280);
+  --muted-foreground: oklch(0.48 0.02 280);
+  --accent: oklch(0.95 0.025 285);
+  --accent-foreground: oklch(0.35 0.15 285);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --border: oklch(0.88 0.012 280);
+  --input: oklch(0.93 0.008 280);
+  --ring: oklch(0.53 0.24 285);
+  --chart-1: oklch(0.53 0.24 285);
+  --chart-2: oklch(0.65 0.18 155);
+  --chart-3: oklch(0.58 0.18 255);
+  --chart-4: oklch(0.72 0.16 55);
+  --chart-5: oklch(0.55 0.22 300);
+  --sidebar: oklch(0.99 0.003 280);
+  --sidebar-foreground: oklch(0.16 0.02 280);
+  --sidebar-primary: oklch(0.53 0.24 285);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.95 0.025 285);
+  --sidebar-accent-foreground: oklch(0.35 0.15 285);
+  --sidebar-border: oklch(0.88 0.012 280);
+  --sidebar-ring: oklch(0.53 0.24 285);
 }
 
 .dark {
-  --background: oklch(0.13 0.005 260);
-  --foreground: oklch(0.96 0 0);
-  --card: oklch(0.17 0.005 260);
-  --card-foreground: oklch(0.96 0 0);
-  --popover: oklch(0.17 0.005 260);
-  --popover-foreground: oklch(0.96 0 0);
-  --primary: oklch(0.65 0.18 260);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.22 0.008 260);
-  --secondary-foreground: oklch(0.96 0 0);
-  --muted: oklch(0.22 0.008 260);
-  --muted-foreground: oklch(0.65 0 0);
-  --accent: oklch(0.22 0.01 260);
-  --accent-foreground: oklch(0.96 0 0);
+  --background: oklch(0.13 0.01 280);
+  --foreground: oklch(0.93 0.005 280);
+  --card: oklch(0.17 0.012 280);
+  --card-foreground: oklch(0.93 0.005 280);
+  --popover: oklch(0.17 0.012 280);
+  --popover-foreground: oklch(0.93 0.005 280);
+  --primary: oklch(0.58 0.16 285);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.21 0.012 280);
+  --secondary-foreground: oklch(0.90 0.005 280);
+  --muted: oklch(0.20 0.01 280);
+  --muted-foreground: oklch(0.55 0.01 280);
+  --accent: oklch(0.23 0.02 285);
+  --accent-foreground: oklch(0.80 0.10 285);
   --destructive: oklch(0.65 0.2 25);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.65 0.18 260);
-  --chart-1: oklch(0.65 0.18 260);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.15 0.005 260);
-  --sidebar-foreground: oklch(0.96 0 0);
-  --sidebar-primary: oklch(0.65 0.18 260);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.22 0.008 260);
-  --sidebar-accent-foreground: oklch(0.96 0 0);
-  --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: oklch(0.65 0.18 260);
+  --border: oklch(1 0 280 / 8%);
+  --input: oklch(1 0 280 / 10%);
+  --ring: oklch(0.58 0.16 285);
+  --chart-1: oklch(0.65 0.22 285);
+  --chart-2: oklch(0.72 0.17 160);
+  --chart-3: oklch(0.66 0.17 255);
+  --chart-4: oklch(0.75 0.16 55);
+  --chart-5: oklch(0.62 0.2 300);
+  --sidebar: oklch(0.14 0.01 280);
+  --sidebar-foreground: oklch(0.93 0.005 280);
+  --sidebar-primary: oklch(0.58 0.16 285);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.23 0.02 285);
+  --sidebar-accent-foreground: oklch(0.80 0.10 285);
+  --sidebar-border: oklch(1 0 280 / 8%);
+  --sidebar-ring: oklch(0.58 0.16 285);
 }
 
 @layer base {
@@ -122,13 +151,30 @@
   }
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
-/* Custom scrollbar */
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Theme transition on key elements only */
+body,
+[data-slot="card"],
+[data-slot="button"],
+[data-slot="badge"],
+aside,
+nav {
+  transition: background-color var(--duration-normal) ease, border-color var(--duration-normal) ease, color var(--duration-normal) ease;
+}
+
+/* Custom scrollbar — thin and subtle, Stripe-style */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -136,15 +182,16 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.5 0 0 / 20%);
-  border-radius: 3px;
+  background: oklch(0.5 0 0 / 15%);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.5 0 0 / 40%);
+  background: oklch(0.5 0 0 / 30%);
 }
 
-/* Smooth transitions for theme switching */
-html {
-  transition: background-color 0.3s ease, color 0.3s ease;
+/* Firefox thin scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.5 0 0 / 15%) transparent;
 }

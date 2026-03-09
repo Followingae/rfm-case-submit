@@ -4,12 +4,10 @@ import { useMemo, useCallback, useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2,
-  Upload,
   X,
   FileText,
   Image as ImageIcon,
   File as FileIcon,
-  Info,
   AlertTriangle,
   FileStack,
   Scale,
@@ -20,10 +18,12 @@ import {
   ArrowRightLeft,
   ShieldAlert,
   HelpCircle,
-  Trash2,
+
   Layers,
   Link2,
   ChevronDown,
+  Check,
+  CloudUpload,
 } from "lucide-react";
 import {
   Tooltip,
@@ -85,22 +85,14 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
   Shop: Store,
 };
 
-const CATEGORY_COLORS: Record<string, { ring: string; text: string; bg: string }> = {
-  Forms: { ring: "stroke-blue-400", text: "text-blue-400", bg: "bg-blue-500/10" },
-  Legal: { ring: "stroke-violet-400", text: "text-violet-400", bg: "bg-violet-500/10" },
-  KYC:   { ring: "stroke-rose-400", text: "text-rose-400", bg: "bg-rose-500/10" },
-  Bank:  { ring: "stroke-emerald-400", text: "text-emerald-400", bg: "bg-emerald-500/10" },
-  Shop:  { ring: "stroke-amber-400", text: "text-amber-400", bg: "bg-amber-500/10" },
-};
-
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.gif,.bmp,.tiff";
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
 function getFileIcon(type: string) {
-  if (type.startsWith("image/")) return <ImageIcon className="h-3.5 w-3.5" />;
-  if (type.includes("pdf")) return <FileText className="h-3.5 w-3.5" />;
-  return <FileIcon className="h-3.5 w-3.5" />;
+  if (type.startsWith("image/")) return <ImageIcon className="h-4 w-4" />;
+  if (type.includes("pdf")) return <FileText className="h-4 w-4" />;
+  return <FileIcon className="h-4 w-4" />;
 }
 
 function formatSize(bytes: number): string {
@@ -114,72 +106,36 @@ function formatSize(bytes: number): string {
 function UploadProgressBar({ progress, onCancel }: { progress: UploadProgress; onCancel: () => void }) {
   return (
     <div
-      className="mt-2 overflow-hidden rounded-lg border border-primary/20 bg-primary/[0.03] px-3 py-2"
+      className="mt-3 space-y-2"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center gap-2 text-[11px]">
-        <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <span className="flex-1 text-primary/70">{progress.message}</span>
+      {/* Thin shimmer bar */}
+      <div className="h-0.5 w-full overflow-hidden rounded-full bg-primary/10">
+        <div
+          className="h-full rounded-full"
+          style={{
+            animation: "checklist-shimmer 1.5s ease-in-out infinite",
+            background: "linear-gradient(90deg, hsl(var(--primary) / 0.2) 0%, hsl(var(--primary) / 0.7) 50%, hsl(var(--primary) / 0.2) 100%)",
+            backgroundSize: "200% 100%",
+          }}
+        />
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">{progress.message}</span>
         <button
           onClick={(e) => { e.stopPropagation(); onCancel(); }}
-          className="rounded-full p-0.5 text-muted-foreground/40 hover:bg-destructive/10 hover:text-destructive transition-colors"
+          className="rounded-full p-1 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
         >
-          <X className="h-3 w-3" />
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
-      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-primary/10">
-        <div className={cn(
-          "h-full rounded-full bg-primary/50",
-          progress.phase === "scanning"
-            ? "w-full animate-pulse"
-            : progress.phase === "uploading"
-            ? "w-1/3 transition-all duration-1000"
-            : "w-4/5 transition-all duration-500"
-        )} />
-      </div>
+      <style>{`
+        @keyframes checklist-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
     </div>
-  );
-}
-
-/* ───────────────────── SVG Progress Ring ─────────────────── */
-
-function ProgressRing({
-  progress,
-  size = 44,
-  strokeWidth = 3,
-  colorClass,
-}: {
-  progress: number;
-  size?: number;
-  strokeWidth?: number;
-  colorClass: string;
-}) {
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (progress / 100) * circumference;
-
-  return (
-    <svg width={size} height={size} className="-rotate-90">
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        strokeWidth={strokeWidth}
-        className="stroke-muted/20"
-      />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={offset}
-        className={cn("transition-all duration-500", colorClass)}
-      />
-    </svg>
   );
 }
 
@@ -199,49 +155,67 @@ function CategoryCard({
   onClick: () => void;
 }) {
   const Icon = CATEGORY_ICONS[category] || FileStack;
-  const colors = CATEGORY_COLORS[category] || CATEGORY_COLORS.Forms;
-  const progress = stat.total > 0 ? (stat.uploaded / stat.total) * 100 : 0;
 
   return (
     <motion.button
       onClick={onClick}
       whileTap={{ scale: 0.97 }}
       className={cn(
-        "relative flex flex-col items-center gap-1.5 rounded-2xl border-2 px-3 py-4 transition-all duration-300",
+        "relative flex flex-col items-center gap-2 rounded-xl border px-3 py-4 transition-all duration-200",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         stat.complete
-          ? "border-emerald-500/50 bg-emerald-500/[0.04]"
+          ? "border-emerald-500/20 bg-emerald-500/5"
           : isActive
-          ? "border-primary/50 bg-primary/[0.04] shadow-lg shadow-primary/5"
-          : "border-border/30 bg-card/30 hover:border-border/50 hover:bg-card/50",
-        isFlashing && "animate-pulse border-emerald-400 bg-emerald-500/10"
+          ? "border-primary/30 bg-primary/5 shadow-sm"
+          : "border-border/40 bg-card hover:border-border/60 hover:bg-muted/30",
+        isActive && "ring-1 ring-primary/20",
+        isFlashing && "animate-pulse border-emerald-500/40 bg-emerald-500/10"
       )}
     >
-      {/* Progress ring with icon/check */}
-      <div className="relative flex items-center justify-center">
-        <ProgressRing
-          progress={progress}
-          colorClass={stat.complete ? "stroke-emerald-500" : colors.ring}
-        />
-        <div className="absolute inset-0 flex items-center justify-center">
-          {stat.complete ? (
-            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-          ) : (
-            <Icon className={cn("h-5 w-5", colors.text)} />
-          )}
-        </div>
+      {/* Left accent bar for active state */}
+      {isActive && !stat.complete && (
+        <div className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-primary" />
+      )}
+
+      {/* Icon */}
+      <div className={cn(
+        "flex h-10 w-10 items-center justify-center rounded-lg",
+        stat.complete
+          ? "bg-emerald-500/10"
+          : isActive
+          ? "bg-primary/10"
+          : "bg-muted/50"
+      )}>
+        {stat.complete ? (
+          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+        ) : (
+          <Icon className={cn(
+            "h-5 w-5",
+            isActive ? "text-primary" : "text-muted-foreground"
+          )} />
+        )}
       </div>
 
-      {/* Label + fraction */}
+      {/* Label */}
       <span className={cn(
-        "text-xs font-semibold tracking-tight",
-        stat.complete ? "text-emerald-500" : "text-foreground/80"
+        "text-sm font-medium tracking-tight",
+        stat.complete
+          ? "text-emerald-600 dark:text-emerald-400"
+          : isActive
+          ? "text-foreground"
+          : "text-foreground/80"
       )}>
         {category}
       </span>
+
+      {/* Simple fraction */}
       <span className={cn(
-        "text-[11px] tabular-nums",
-        stat.complete ? "text-emerald-500/60" : "text-muted-foreground/50"
+        "text-sm font-medium tabular-nums",
+        stat.complete
+          ? "text-emerald-500/60"
+          : isActive
+          ? "text-primary/70"
+          : "text-muted-foreground/50"
       )}>
         {stat.uploaded}/{stat.total}
       </span>
@@ -267,9 +241,9 @@ function QuestionCard({
   return (
     <div className={cn(
       "rounded-xl border transition-all duration-200",
-      isActive ? "border-primary/30 bg-primary/[0.02]" : "border-border/20 bg-card/20"
+      isActive ? "border-primary/20 bg-primary/[0.02]" : "border-border/30 bg-card/40"
     )}>
-      <div className="flex items-center gap-3 px-4 py-3.5">
+      <div className="flex items-center gap-3 px-4 py-4">
         <p className="flex-1 text-sm leading-snug text-foreground/80">{label}</p>
         <div className="flex shrink-0 gap-2">
           <button
@@ -307,7 +281,7 @@ function QuestionCard({
             transition={{ duration: 0.25, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            <div className="border-t border-border/10 px-4 pb-3 pt-3 space-y-2">
+            <div className="border-t border-border/20 px-4 pb-4 pt-4 space-y-4">
               {children}
             </div>
           </motion.div>
@@ -334,26 +308,30 @@ function ValidationIndicator({
 
   if (validation.status === "mismatch" && validation.suggestedSlotId) {
     return (
-      <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 text-[11px]">
-          <ArrowRightLeft className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-          <span className="flex-1 text-amber-600 dark:text-amber-400">
-            This looks like a <strong>{validation.detectedLabel}</strong>. Move to that slot?
-          </span>
-        </div>
-        <div className="mt-1.5 flex gap-2">
-          <button
-            onClick={() => onMove?.(itemId, validation.suggestedSlotId!)}
-            className="rounded-md bg-primary/10 px-2.5 py-1 text-[10px] font-semibold text-primary hover:bg-primary/20 transition-colors"
-          >
-            Move to {validation.suggestedSlotLabel}
-          </button>
-          <button
-            onClick={() => onKeep?.()}
-            className="rounded-md bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
-          >
-            Keep Here
-          </button>
+      <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+            <ArrowRightLeft className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-2">
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              This looks like a <strong>{validation.detectedLabel}</strong>.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onMove?.(itemId, validation.suggestedSlotId!)}
+                className="text-xs font-medium text-primary hover:underline transition-colors"
+              >
+                Move to {validation.suggestedSlotLabel}
+              </button>
+              <button
+                onClick={() => onKeep?.()}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Keep here
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -361,55 +339,59 @@ function ValidationIndicator({
 
   // mismatch without suggestion OR unknown
   return (
-    <div className="mt-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center gap-2 text-[11px]">
-        {validation.status === "mismatch" ? (
-          <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-red-500" />
-        ) : (
-          <HelpCircle className="h-3.5 w-3.5 shrink-0 text-red-500" />
-        )}
-        <span className="flex-1 text-red-600 dark:text-red-400">
-          {validation.status === "mismatch"
-            ? `This doesn't look like a ${validation.expectedLabel}.`
-            : "This document couldn't be identified. Please double-check it's the correct file."}
-        </span>
-      </div>
-      {confirmStep === "initial" ? (
-        <div className="mt-1.5 flex gap-2">
-          <button
-            onClick={() => setConfirmStep("confirming")}
-            className="rounded-md bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
-          >
-            Keep Here
-          </button>
-          <button
-            onClick={() => onKeep?.()}
-            className="rounded-md bg-red-500/10 px-2.5 py-1 text-[10px] text-red-500 hover:bg-red-500/20 transition-colors"
-          >
-            Remove
-          </button>
+    <div className="mt-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
+          {validation.status === "mismatch" ? (
+            <ShieldAlert className="h-4 w-4 text-destructive" />
+          ) : (
+            <HelpCircle className="h-4 w-4 text-destructive" />
+          )}
         </div>
-      ) : (
-        <div className="mt-1.5">
-          <p className="mb-1.5 text-[10px] text-red-500/70">
-            Are you sure? This may cause the case to be returned.
+        <div className="min-w-0 flex-1 space-y-2">
+          <p className="text-sm text-destructive">
+            {validation.status === "mismatch"
+              ? `This doesn't look like a ${validation.expectedLabel}.`
+              : "This document couldn't be identified. Please double-check it's the correct file."}
           </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setConfirmStep("initial"); onKeep?.(); }}
-              className="rounded-md bg-amber-500/10 px-2.5 py-1 text-[10px] font-semibold text-amber-600 hover:bg-amber-500/20 transition-colors"
-            >
-              Yes, I&apos;m sure
-            </button>
-            <button
-              onClick={() => setConfirmStep("initial")}
-              className="rounded-md bg-muted/30 px-2.5 py-1 text-[10px] text-muted-foreground hover:bg-muted/50 transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
+          {confirmStep === "initial" ? (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setConfirmStep("confirming")}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Keep here
+              </button>
+              <button
+                onClick={() => onKeep?.()}
+                className="text-xs text-destructive hover:underline transition-colors"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <p className="text-xs text-destructive/70">
+                Are you sure? This may cause the case to be returned.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => { setConfirmStep("initial"); onKeep?.(); }}
+                  className="text-xs font-medium text-amber-600 hover:underline transition-colors"
+                >
+                  Yes, I&apos;m sure
+                </button>
+                <button
+                  onClick={() => setConfirmStep("initial")}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -462,46 +444,58 @@ function CategoryIntelligence({
   const isAllGood = (!hasMdf || fieldPct >= 80) && warnCount === 0 && sectionIssues === 0;
 
   return (
-    <div className="rounded-xl border border-border/15 bg-card/20">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
-      >
-        {isAllGood ? (
-          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-        ) : (
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-        )}
-        <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
-          {hasMdf && mdfValidation && (
-            <span className={cn(
-              "font-medium",
-              fieldPct >= 80 ? "text-emerald-600" : fieldPct >= 50 ? "text-amber-600" : "text-red-500"
-            )}>
-              {mdfValidation.totalPresent}/{mdfValidation.totalChecked} fields
-            </span>
+    <div className="rounded-xl border border-border/30 bg-card/50">
+      {/* Left accent */}
+      <div className="relative">
+        <div className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-primary" />
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex w-full items-center gap-3 px-4 py-3 text-left"
+        >
+          {isAllGood ? (
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/10">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            </div>
+          ) : (
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/10">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+            </div>
           )}
-          {passCount > 0 && (
-            <span className="text-emerald-600 font-medium">
-              {passCount} verified
-            </span>
-          )}
-          {warnCount > 0 && (
-            <span className="text-amber-600 font-medium">
-              {warnCount} uncertain
-            </span>
-          )}
-          {sectionIssues > 0 && (
-            <span className="text-amber-600 font-medium">
-              {sectionIssues} section{sectionIssues > 1 ? "s" : ""} incomplete
-            </span>
-          )}
-        </div>
-        <ChevronDown className={cn(
-          "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform",
-          expanded && "rotate-180"
-        )} />
-      </button>
+          <div className="flex flex-1 flex-wrap items-center gap-2">
+            {hasMdf && mdfValidation && (
+              <span className={cn(
+                "rounded-full px-2.5 py-0.5 text-xs font-medium",
+                fieldPct >= 80
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : fieldPct >= 50
+                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                  : "bg-destructive/10 text-destructive"
+              )}>
+                {mdfValidation.totalPresent}/{mdfValidation.totalChecked} fields
+              </span>
+            )}
+            {passCount > 0 && (
+              <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                {passCount} verified
+              </span>
+            )}
+            {warnCount > 0 && (
+              <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                {warnCount} uncertain
+              </span>
+            )}
+            {sectionIssues > 0 && (
+              <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                {sectionIssues} section{sectionIssues > 1 ? "s" : ""} incomplete
+              </span>
+            )}
+          </div>
+          <ChevronDown className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground/40 transition-transform duration-200",
+            expanded && "rotate-180"
+          )} />
+        </button>
+      </div>
 
       <AnimatePresence>
         {expanded && (
@@ -512,25 +506,27 @@ function CategoryIntelligence({
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="border-t border-border/10 px-3 py-2 space-y-2">
+            <div className="border-t border-border/20 px-4 py-4 space-y-4">
               {/* MDF field grid */}
               {hasMdf && mdfValidation && (
                 <div>
-                  <p className="mb-1 text-[10px] font-medium text-muted-foreground/60">MDF Fields</p>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 sm:grid-cols-3">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">MDF Fields</p>
+                  <ul className="space-y-1.5">
                     {mdfValidation.allFields.map((field) => (
-                      <div key={field.field} className="flex items-center gap-1 text-[10px]">
+                      <li key={field.field} className="flex items-center gap-2 text-sm">
                         {field.present ? (
-                          <CheckCircle2 className="h-2.5 w-2.5 shrink-0 text-emerald-500" />
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
                         ) : (
-                          <X className="h-2.5 w-2.5 shrink-0 text-red-400" />
+                          <X className="h-4 w-4 shrink-0 text-muted-foreground/40" />
                         )}
-                        <span className={cn(field.present ? "text-muted-foreground" : "text-foreground")}>
+                        <span className={cn(
+                          field.present ? "text-muted-foreground" : "text-foreground"
+                        )}>
                           {field.label}
                         </span>
-                      </div>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 </div>
               )}
 
@@ -542,20 +538,22 @@ function CategoryIntelligence({
                 if (dismissedValidations.has(item.id)) return null;
 
                 return (
-                  <div key={item.id} className="flex items-center gap-2 text-[10px]">
-                    {v?.status === "pass" && <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />}
-                    {v?.status === "warn" && <AlertTriangle className="h-2.5 w-2.5 text-amber-500" />}
+                  <div key={item.id} className="flex items-center gap-2.5 text-sm">
+                    {v?.status === "pass" && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+                    {v?.status === "warn" && <AlertTriangle className="h-4 w-4 text-amber-500" />}
                     {!v && tm?.matched && (
                       tm.missingSections.length === 0
-                        ? <CheckCircle2 className="h-2.5 w-2.5 text-emerald-500" />
-                        : <AlertTriangle className="h-2.5 w-2.5 text-amber-500" />
+                        ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                        : <AlertTriangle className="h-4 w-4 text-amber-500" />
                     )}
-                    <span className="text-muted-foreground">{item.label}</span>
+                    <span className="text-foreground/80">{item.label}</span>
                     {v?.status === "warn" && (
-                      <span className="text-amber-500/60">verify manually</span>
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                        verify manually
+                      </span>
                     )}
                     {tm?.matched && tm.missingSections.length > 0 && (
-                      <span className="text-amber-500/60">
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
                         {tm.missingSections.length} section{tm.missingSections.length > 1 ? "s" : ""} missing
                       </span>
                     )}
@@ -617,31 +615,61 @@ function UploadSlot({
 }) {
   const isUploaded = item.status === "uploaded";
   const isProcessing = !!slotProgress;
+  const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
+
+  // Auto-dismiss remove confirmation after 2 seconds
+  useEffect(() => {
+    if (!removeConfirm) return;
+    const timer = setTimeout(() => setRemoveConfirm(null), 2000);
+    return () => clearTimeout(timer);
+  }, [removeConfirm]);
 
   return (
     <div
       data-item-id={item.id}
       data-label={item.label}
       data-category={item.category}
+      role="button"
+      tabIndex={0}
+      aria-label={isUploaded ? `${item.label} uploaded` : `Upload ${item.label}`}
       className={cn(
-        "group relative cursor-pointer rounded-xl border-2 border-dashed transition-all duration-200",
+        "group relative cursor-pointer rounded-xl border transition-all duration-200",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         isProcessing
-          ? "border-primary/40 bg-primary/[0.03]"
+          ? "border-primary/30 bg-primary/[0.03]"
           : isUploaded
-          ? "border-emerald-500/40 bg-emerald-500/[0.03]"
-          : "border-border/30 bg-card/20 hover:border-primary/30 hover:bg-card/40",
-        isDragging && "border-primary/50 bg-primary/5 ring-2 ring-primary/10",
-        !isProcessing && isRecentlyFulfilled && "ring-2 ring-emerald-400/50 animate-pulse"
+          ? "border-emerald-500/20 bg-emerald-500/5"
+          : "border-border/40 bg-muted/30 hover:border-border/60 hover:bg-muted/40",
+        isDragging && "border-primary bg-primary/5 ring-2 ring-primary/20",
+        !isProcessing && isRecentlyFulfilled && "ring-2 ring-emerald-400/40"
       )}
       onClick={() => {
         if (!isUploaded || item.multiFile) {
           document.getElementById(`file-${item.id}`)?.click();
         }
       }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (!isUploaded || item.multiFile) {
+            document.getElementById(`file-${item.id}`)?.click();
+          }
+        }
+      }}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-primary/5 backdrop-blur-[1px]">
+          <div className="flex flex-col items-center gap-1.5">
+            <CloudUpload className="h-6 w-6 text-primary" />
+            <span className="text-sm font-medium text-primary">Drop file here</span>
+          </div>
+        </div>
+      )}
+
       <input
         type="file"
         id={`file-${item.id}`}
@@ -653,161 +681,201 @@ function UploadSlot({
 
       {isUploaded ? (
         /* ── Uploaded state ── */
-        <div className="flex items-start gap-3 px-5 py-4">
-          <div className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-            isProcessing ? "bg-primary/10" : "bg-emerald-500/10"
-          )}>
-            {isProcessing ? (
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-            ) : (
-              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-            )}
+        <div className="p-4">
+          <div className="flex items-start gap-3">
+            <div className={cn(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+              isProcessing ? "bg-primary/10" : "bg-emerald-500/10"
+            )}>
+              {isProcessing ? (
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  "text-sm font-medium",
+                  isProcessing ? "text-primary" : "text-foreground"
+                )}>
+                  {item.label}
+                </span>
+                {docTypeWarning && (
+                  <Tooltip delayDuration={0}>
+                    <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                        <AlertTriangle className="inline h-3 w-3 -mt-0.5 mr-0.5" />
+                        Check
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">{docTypeWarning}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                {hasDuplicateFile && (
+                  <Tooltip delayDuration={0}>
+                    <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                        Duplicate
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Duplicate file in another slot</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <span className={cn(
-                "text-sm font-medium",
-                isProcessing ? "text-primary" : "text-emerald-600 dark:text-emerald-400"
-              )}>
-                {item.label}
-              </span>
-              {docTypeWarning && (
-                <Tooltip delayDuration={0}>
-                  <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">{docTypeWarning}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-              {hasDuplicateFile && (
-                <Tooltip delayDuration={0}>
-                  <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                    <Info className="h-3.5 w-3.5 text-blue-400" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">Duplicate file in another slot</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            {/* File chips */}
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {item.files.map((f) => (
-                <div
-                  key={f.id}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px]",
-                    isProcessing ? "bg-primary/8" : "bg-emerald-500/8"
-                  )}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <span className={isProcessing ? "text-primary" : "text-emerald-600 dark:text-emerald-400"}>
-                    {getFileIcon(f.type)}
-                  </span>
-                  <span className="max-w-[160px] truncate font-medium text-foreground/70">
-                    {f.name}
-                  </span>
-                  {pageCount && pageCount > 1 && item.files.length === 1 && (
-                    <span className="text-muted-foreground/40">{pageCount}p</span>
-                  )}
-                  <span className="text-muted-foreground/40">{formatSize(f.size)}</span>
-                  {isMultiPagePdf && item.files.length === 1 && onAnalyzePages && (
-                    <Tooltip delayDuration={0}>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onAnalyzePages();
-                          }}
-                          className="rounded-full p-0.5 text-muted-foreground/30 transition-colors hover:bg-primary/10 hover:text-primary"
-                        >
-                          <Layers className="h-3 w-3" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="text-xs">Analyze pages — check if this file contains multiple documents</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onFileRemove(f.id);
-                    }}
-                    className="rounded-full p-0.5 text-muted-foreground/30 transition-colors hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            {item.multiFile && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  document.getElementById(`file-${item.id}`)?.click();
-                }}
-                className="mt-2 flex items-center gap-1 text-xs text-emerald-500/60 hover:text-emerald-500 transition-colors"
+
+          {/* File list — stacked vertically */}
+          <div className="mt-3 space-y-2">
+            {item.files.map((f) => (
+              <div
+                key={f.id}
+                className="group/file flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2"
+                onClick={(e) => e.stopPropagation()}
               >
-                <Plus className="h-3.5 w-3.5" />
-                Add more
-              </button>
-            )}
-            {/* Upload progress */}
-            {slotProgress && onCancelUpload && (
-              <UploadProgressBar progress={slotProgress} onCancel={onCancelUpload} />
-            )}
-            {/* Validation action card (mismatch/unknown only — pass/warn in CategoryIntelligence) */}
-            {uploadValidation && (uploadValidation.status === "mismatch" || uploadValidation.status === "unknown") && (
-              <ValidationIndicator
-                validation={uploadValidation}
-                itemId={item.id}
-                onMove={onMoveFile}
-                onKeep={onDismissValidation}
-              />
-            )}
+                <span className="shrink-0 text-muted-foreground">
+                  {getFileIcon(f.type)}
+                </span>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                      {f.name}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">{f.name}</p>
+                  </TooltipContent>
+                </Tooltip>
+                {pageCount && pageCount > 1 && item.files.length === 1 && (
+                  <span className="shrink-0 text-xs text-muted-foreground">{pageCount}p</span>
+                )}
+                <span className="shrink-0 text-xs text-muted-foreground">{formatSize(f.size)}</span>
+                {isMultiPagePdf && item.files.length === 1 && onAnalyzePages && (
+                  <Tooltip delayDuration={0}>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onAnalyzePages();
+                        }}
+                        className="shrink-0 rounded-md p-1 text-muted-foreground/40 transition-colors hover:bg-primary/10 hover:text-primary"
+                      >
+                        <Layers className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">Analyze pages — check if this file contains multiple documents</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (removeConfirm === f.id) {
+                      // Second click — actually remove
+                      setRemoveConfirm(null);
+                      onFileRemove(f.id);
+                      toast("File removed");
+                    } else {
+                      // First click — enter confirm state
+                      setRemoveConfirm(f.id);
+                    }
+                  }}
+                  className={cn(
+                    "shrink-0 rounded-md p-1 transition-all",
+                    removeConfirm === f.id
+                      ? "bg-destructive/10 text-destructive"
+                      : "text-muted-foreground/0 group-hover/file:text-muted-foreground/40 hover:!bg-destructive/10 hover:!text-destructive"
+                  )}
+                >
+                  {removeConfirm === f.id ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <X className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+            ))}
           </div>
+
+          {item.multiFile && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                document.getElementById(`file-${item.id}`)?.click();
+              }}
+              className="mt-3 flex items-center gap-1.5 text-xs font-medium text-primary hover:underline transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add more files
+            </button>
+          )}
+
+          {/* Upload progress */}
+          {slotProgress && onCancelUpload && (
+            <UploadProgressBar progress={slotProgress} onCancel={onCancelUpload} />
+          )}
+
+          {/* Validation action card (mismatch/unknown only — pass/warn in CategoryIntelligence) */}
+          {uploadValidation && (uploadValidation.status === "mismatch" || uploadValidation.status === "unknown") && (
+            <ValidationIndicator
+              validation={uploadValidation}
+              itemId={item.id}
+              onMove={onMoveFile}
+              onKeep={onDismissValidation}
+            />
+          )}
         </div>
       ) : (
         /* ── Empty state ── */
-        <div className="flex items-center gap-4 px-5 py-4">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/20 transition-colors group-hover:bg-primary/10">
-            <Upload className="h-5 w-5 text-muted-foreground/30 transition-colors group-hover:text-primary/60" />
+        <div className="flex flex-col items-center justify-center px-4 py-6">
+          <div className={cn(
+            "mb-3 flex h-12 w-12 items-center justify-center rounded-xl transition-colors",
+            "bg-muted/40 group-hover:bg-primary/10"
+          )}>
+            <CloudUpload className={cn(
+              "h-6 w-6 transition-colors",
+              "text-muted-foreground/40 group-hover:text-primary/60"
+            )} />
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm text-foreground/80">{item.label}</span>
-              {item.required && (
-                <span className="text-[9px] font-bold text-destructive">*</span>
-              )}
-              {docTypeWarning && (
-                <Tooltip delayDuration={0}>
-                  <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">{docTypeWarning}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-            {item.notes && item.notes.length > 0 && (
-              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground/40">
-                {item.notes[0]}
-              </p>
-            )}
-            {/* Upload progress in empty state */}
-            {slotProgress && onCancelUpload && (
-              <UploadProgressBar progress={slotProgress} onCancel={onCancelUpload} />
-            )}
-          </div>
+          <span className="text-sm font-medium text-foreground">{item.label}</span>
+          {item.required && (
+            <span className="mt-0.5 text-xs text-muted-foreground">Required</span>
+          )}
+          {item.notes && item.notes.length > 0 && (
+            <p className="mt-1 text-center text-xs leading-relaxed text-muted-foreground">
+              {item.notes[0]}
+            </p>
+          )}
           {!slotProgress && (
-            <span className="hidden shrink-0 text-[11px] text-muted-foreground/25 sm:block">
-              Tap or drop file
-            </span>
+            <p className="mt-2 text-xs text-muted-foreground/60">
+              <span className="sm:hidden">Tap to upload</span>
+              <span className="hidden sm:inline">Drop file or click to upload</span>
+            </p>
+          )}
+          {docTypeWarning && (
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="h-3 w-3" />
+                  Note
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">{docTypeWarning}</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {/* Upload progress in empty state */}
+          {slotProgress && onCancelUpload && (
+            <div className="mt-3 w-full">
+              <UploadProgressBar progress={slotProgress} onCancel={onCancelUpload} />
+            </div>
           )}
         </div>
       )}
@@ -827,26 +895,25 @@ function MDFMergeIndicator({
   onSkipChange: (skip: boolean) => void;
 }) {
   return (
-    <div className="mt-2 rounded-lg border border-primary/20 bg-primary/[0.03] px-3 py-2" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center gap-2 text-[11px]">
-        <Link2 className="h-3.5 w-3.5 shrink-0 text-primary" />
-        <span className="flex-1 text-primary/80">
-          Smart merge: {plan.reason}
-        </span>
-      </div>
-      <div className="mt-1 flex items-center gap-3 text-[10px] text-muted-foreground/60">
-        <span>{plan.mainPageCount}p main + {plan.stampPageCount}p stamp → {plan.resultPageCount}p merged</span>
-        <button
-          onClick={() => onSkipChange(!skip)}
-          className={cn(
-            "rounded-md px-2 py-0.5 text-[10px] transition-colors",
-            skip
-              ? "bg-muted/30 text-muted-foreground hover:bg-muted/50"
-              : "bg-primary/10 text-primary hover:bg-primary/20"
-          )}
-        >
-          {skip ? "Enable merge" : "Don't merge"}
-        </button>
+    <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+          <Link2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+            Smart merge available
+          </p>
+          <p className="text-xs text-blue-600/70 dark:text-blue-400/70">
+            {plan.reason} ({plan.mainPageCount}p main + {plan.stampPageCount}p stamp = {plan.resultPageCount}p merged)
+          </p>
+          <button
+            onClick={() => onSkipChange(!skip)}
+            className="text-sm text-primary hover:underline transition-colors"
+          >
+            {skip ? "Enable merge" : "Don't merge"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1360,21 +1427,26 @@ export function ChecklistEngine({
 
   return (
     <>
-    <div className="space-y-5">
-      {/* ── Overall progress bar ── */}
-      <div className="flex items-center gap-3">
-        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted/50">
+    <div className="space-y-6">
+      {/* ── Overall progress bar — Stripe-style thin line ── */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-foreground">
+            Documents
+          </span>
+          <span className="text-sm font-medium tabular-nums text-muted-foreground">
+            {uploaded} of {total}
+          </span>
+        </div>
+        <div className="relative h-1 w-full overflow-hidden rounded-full bg-muted/50">
           <div
             className={cn(
-              "h-full rounded-full transition-all duration-500",
+              "h-full rounded-full transition-all duration-500 ease-out",
               progress === 100 ? "bg-emerald-500" : "bg-primary"
             )}
             style={{ width: `${progress}%` }}
           />
         </div>
-        <span className="text-xs font-medium tabular-nums text-muted-foreground">
-          {uploaded}/{total}
-        </span>
       </div>
 
       {/* ── Category Grid ── */}
@@ -1400,19 +1472,27 @@ export function ChecklistEngine({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="space-y-3"
+            className="space-y-4"
           >
+            {/* Section divider */}
+            <div className="border-t border-border/30" />
+
             {/* Section header */}
-            <div className="flex items-center gap-2 px-1">
+            <div className="flex items-center gap-3">
               {(() => {
                 const Icon = CATEGORY_ICONS[activeCategory] || FileStack;
-                const colors = CATEGORY_COLORS[activeCategory] || CATEGORY_COLORS.Forms;
-                return <Icon className={cn("h-4.5 w-4.5", colors.text)} />;
+                return (
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+                    <Icon className="h-4 w-4 text-primary" />
+                  </div>
+                );
               })()}
-              <h3 className="text-base font-semibold tracking-tight">{activeCategory}</h3>
-              <span className="text-xs tabular-nums text-muted-foreground/50">
-                {categoryStats[activeCategory].uploaded}/{categoryStats[activeCategory].total}
-              </span>
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-foreground">{activeCategory}</h3>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {categoryStats[activeCategory].uploaded} of {categoryStats[activeCategory].total} uploaded
+                </span>
+              </div>
             </div>
 
             {/* Single consolidated intelligence bar for this category */}
@@ -1438,7 +1518,7 @@ export function ChecklistEngine({
               let lastSectionHeader: string | null = null;
 
               return (
-                <>
+                <div className="space-y-4">
                   {/* Required items first */}
                   {requiredItems.map((item) => {
                     const header = item.sectionHeader && item.sectionHeader !== lastSectionHeader
@@ -1448,8 +1528,8 @@ export function ChecklistEngine({
                     return (
                       <div key={item.id}>
                         {header && (
-                          <div className="mt-2 mb-1 pl-1">
-                            <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/40">
+                          <div className="mb-2 mt-2">
+                            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">
                               {header}
                             </span>
                           </div>
@@ -1475,8 +1555,8 @@ export function ChecklistEngine({
                     return (
                       <div key={toggle.key}>
                         {sectionHdr && (
-                          <div className="mt-3 mb-1 pl-1">
-                            <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/40">
+                          <div className="mb-2 mt-2">
+                            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">
                               {sectionHdr}
                             </span>
                           </div>
@@ -1492,7 +1572,7 @@ export function ChecklistEngine({
                       </div>
                     );
                   })}
-                </>
+                </div>
               );
             })()}
           </motion.div>

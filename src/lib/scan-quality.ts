@@ -40,10 +40,10 @@ function detectBlur(gray: Float32Array, w: number, h: number): ScanIssue | null 
   const mean = sum / count;
   const variance = sumSq / count - mean * mean;
 
-  if (variance < 100) {
+  if (variance < 30) {
     return { type: "blur", severity: "critical", message: `Image is blurry (sharpness ${Math.round(variance)})` };
   }
-  if (variance < 300) {
+  if (variance < 80) {
     return { type: "blur", severity: "warning", message: `Image is slightly blurry (sharpness ${Math.round(variance)})` };
   }
   return null;
@@ -70,10 +70,10 @@ function checkOverexposure(gray: Float32Array): ScanIssue | null {
     if (gray[i] > 230) bright++;
   }
   const ratio = bright / gray.length;
-  if (ratio > 0.6) {
+  if (ratio > 0.85) {
     return { type: "overexposure", severity: "critical", message: `Severe glare/overexposure (${Math.round(ratio * 100)}% bright)` };
   }
-  if (ratio > 0.4) {
+  if (ratio > 0.7) {
     return { type: "overexposure", severity: "warning", message: `Possible glare/overexposure (${Math.round(ratio * 100)}% bright)` };
   }
   return null;

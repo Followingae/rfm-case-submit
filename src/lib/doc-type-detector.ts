@@ -20,7 +20,7 @@ export interface DocTypeDetectionResult {
 export function normalizeText(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/[^a-z0-9\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -32,7 +32,7 @@ function textHasKeyword(normalizedText: string, keyword: string): boolean {
   // Direct substring match
   if (normalizedText.includes(kw)) return true;
 
-  // Word-proximity fallback — tighter window (50 chars) and words must appear in ORDER
+  // Word-proximity fallback — 120-char window (matches template-registry) and words must appear in ORDER
   const words = kw.split(" ").filter((w) => w.length >= 3);
   if (words.length < 2) return false;
 
@@ -41,8 +41,8 @@ function textHasKeyword(normalizedText: string, keyword: string): boolean {
     const idx = normalizedText.indexOf(words[0], pos);
     if (idx === -1) break;
 
-    // Check remaining words appear in ORDER within 50-char window
-    const windowEnd = Math.min(normalizedText.length, idx + 50);
+    // Check remaining words appear in ORDER within 120-char window
+    const windowEnd = Math.min(normalizedText.length, idx + 120);
     const window = normalizedText.slice(idx, windowEnd);
 
     let allInOrder = true;
@@ -299,6 +299,66 @@ export const DOC_TYPES: DocTypeKeywords[] = [
       { text: "monthly statement", weight: 2 },
     ],
   },
+  {
+    id: "iban-letter",
+    label: "IBAN Confirmation Letter",
+    keywords: [
+      { text: "account confirmation", weight: 5 },
+      { text: "iban", weight: 4 },
+      { text: "swift", weight: 3 },
+      { text: "bic", weight: 3 },
+      { text: "routing code", weight: 3 },
+      { text: "account holder", weight: 3 },
+      { text: "account currency", weight: 2 },
+      { text: "account number", weight: 2 },
+      { text: "bank account", weight: 2 },
+    ],
+  },
+  {
+    id: "tenancy",
+    label: "Tenancy Contract",
+    keywords: [
+      { text: "tenancy contract", weight: 5 },
+      { text: "lease agreement", weight: 5 },
+      { text: "lessor", weight: 4 },
+      { text: "lessee", weight: 4 },
+      { text: "tenant", weight: 4 },
+      { text: "ejari", weight: 5 },
+      { text: "rental", weight: 2 },
+      { text: "security deposit", weight: 3 },
+      { text: "leased unit", weight: 3 },
+      { text: "municipality", weight: 2 },
+      { text: "annual rent", weight: 3 },
+    ],
+  },
+  {
+    id: "vat-declaration",
+    label: "VAT Declaration",
+    keywords: [
+      { text: "vat registration", weight: 4 },
+      { text: "declaration", weight: 3 },
+      { text: "do not have", weight: 2 },
+      { text: "375000", weight: 4 },
+      { text: "375,000", weight: 4 },
+      { text: "tax registration", weight: 3 },
+      { text: "vat certificate", weight: 3 },
+      { text: "threshold", weight: 2 },
+      { text: "exempt", weight: 2 },
+    ],
+  },
+  {
+    id: "shop-photo",
+    label: "Shop / Premises Photo",
+    keywords: [
+      { text: "gps map camera", weight: 5 },
+      { text: "latitude", weight: 3 },
+      { text: "longitude", weight: 3 },
+      { text: "shop", weight: 1 },
+      { text: "premises", weight: 2 },
+      { text: "signboard", weight: 3 },
+      { text: "storefront", weight: 3 },
+    ],
+  },
 ];
 
 // ── Slot-to-DocType Mapping ──
@@ -321,6 +381,19 @@ export const SLOT_TO_DOCTYPE: Record<string, string[]> = {
   "pg-questionnaire": ["pg-questionnaire"],
   "passport-eid": ["passport", "emirates-id"],
   "payment-proof": ["payment-proof"],
+  "iban-proof": ["iban-letter", "bank-statement"],
+  "tenancy-ejari": ["tenancy"],
+  "vat-declaration": ["vat-declaration", "vat-certificate"],
+  "shop-photos": ["shop-photo"],
+  "colored-photos": ["shop-photo"],
+  "poa": ["moa"],
+  "trademark-cert": ["trade-license"],
+  "freezone-docs": ["moa"],
+  "org-structure": ["moa"],
+  "letter-of-intent": ["moa"],
+  "justification-letter": ["moa"],
+  "ubo-confirmation": ["moa"],
+  "merchant-risk-assessment": ["aml-questionnaire"],
 };
 
 // ── Score a page against a reference document (2-word phrase matching) ──

@@ -7,6 +7,57 @@ import { ValidationWarning } from "./validation";
 import { generateCoverSheet } from "./cover-sheet";
 import { mergeMDFFiles, type MergePlan } from "./pdf-merger";
 
+/* ───────── Submission-table helpers (shared with step-review) ───────── */
+
+export const SUBMISSION_FIELDS: { key: keyof SubmissionDetails; label: string }[] = [
+  { key: "requestDate", label: "Request Date" },
+  { key: "groupName", label: "Group Name" },
+  { key: "existingOrNew", label: "Existing or New" },
+  { key: "existingRateRent", label: "Existing Rate & Rent" },
+  { key: "existingMidMerchantName", label: "Existing MID & Merchant Name" },
+  { key: "currentAcquirer", label: "Current Acquirer" },
+  { key: "mcc", label: "MCC" },
+  { key: "noOfLocations", label: "No. of Locations" },
+  { key: "merchantLocation", label: "Merchant Location" },
+  { key: "mobileNumber", label: "Mobile Number" },
+  { key: "contactPersonName", label: "Contact Person Name" },
+  { key: "emailAddress", label: "Email Address" },
+  { key: "natureOfBusiness", label: "Nature of Business" },
+  { key: "avgTransactionSize", label: "Avg. Transaction Size" },
+  { key: "expectedMonthlySpend", label: "Expected Monthly Spend" },
+  { key: "websiteUrl", label: "Website URL" },
+  { key: "rentalFee", label: "Rental Fee" },
+  { key: "mso", label: "MSO" },
+  { key: "noOfTerminalsAndType", label: "No. of Terminals & Type" },
+  { key: "proposedRateStandard", label: "Proposed Rate – Standard" },
+  { key: "proposedRatePremium", label: "Proposed Rate – Premium" },
+  { key: "proposedRateInternational", label: "Proposed Rate – International" },
+  { key: "proposedRateDCC", label: "Proposed Rate – DCC" },
+];
+
+export function buildSubmissionText(merchant: MerchantInfo, d: SubmissionDetails): string {
+  const rows = [
+    ["Name of Merchant", merchant.legalName || "N/A"],
+    ...SUBMISSION_FIELDS.map(({ key, label }) => [label, d[key] || "N/A"]),
+  ];
+  const maxLabel = Math.max(...rows.map(([k]) => k.length));
+  return rows.map(([k, v]) => `${k.padEnd(maxLabel + 2)} | ${v}`).join("\n");
+}
+
+export function buildSubmissionTableTxt(merchant: MerchantInfo, d: SubmissionDetails): string {
+  return [
+    "SUBMISSION DETAILS",
+    "\u2550".repeat(60),
+    "",
+    buildSubmissionText(merchant, d),
+    "",
+    "\u2550".repeat(60),
+    `Generated: ${new Date().toLocaleDateString("en-GB")}`,
+  ].join("\n");
+}
+
+/* ───────────────────────────────────────────────────────────────────── */
+
 function sanitizeName(name: string): string {
   return name
     .replace(/[^a-zA-Z0-9\s]/g, "")
@@ -346,7 +397,6 @@ export async function createCaseZip(
 
   // Generate submission table if details provided
   if (submissionDetails) {
-    const { buildSubmissionTableTxt } = await import("@/components/wizard/step-review");
     root.file("SubmissionTable.txt", buildSubmissionTableTxt(merchantInfo, submissionDetails));
   }
 

@@ -25,6 +25,7 @@ const MAX_PAGES = 50;
 const RENDER_SCALE = 3.0;
 const THUMB_WIDTH = 200;
 const MIN_DIRECT_TEXT_LENGTH = 30;
+const SUFFICIENT_TEXT_LENGTH = 200; // Pages with this much text skip canvas rendering entirely
 
 // ── Resolve the doc type & label for a source slot ──
 
@@ -129,8 +130,17 @@ export async function classifyFilePages(
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const totalPages = Math.min(pdf.numPages, MAX_PAGES);
 
+  // Lazy Tesseract worker — only created when OCR is actually needed
   const Tesseract = await import("tesseract.js");
-  const tesseractWorker = await Tesseract.createWorker("eng");
+  type TesseractWorker = Awaited<ReturnType<typeof Tesseract.createWorker>>;
+  let tesseractWorker: TesseractWorker | null = null;
+
+  async function getTesseractWorker(): Promise<TesseractWorker> {
+    if (!tesseractWorker) {
+      tesseractWorker = await Tesseract.createWorker("eng+ara");
+    }
+    return tesseractWorker;
+  }
 
   const pages: PageClassification[] = [];
 
@@ -156,19 +166,8 @@ export async function classifyFilePages(
     });
 
     const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: RENDER_SCALE });
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext("2d")!;
 
-    // White background — improves OCR on transparent / dark areas
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    await page.render({ canvasContext: ctx, viewport, canvas } as never).promise;
-
-    // Try direct text extraction first
+    // Try direct text extraction first (fast, no rendering needed)
     let text = "";
     try {
       const textContent = await page.getTextContent();
@@ -181,8 +180,26 @@ export async function classifyFilePages(
       // Direct extraction failed
     }
 
+    // Only render canvas if we need OCR or scan quality assessment
+    let canvas: HTMLCanvasElement | null = null;
+    const needsCanvas = text.trim().length < SUFFICIENT_TEXT_LENGTH;
+
+    if (needsCanvas) {
+      const viewport = page.getViewport({ scale: RENDER_SCALE });
+      canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext("2d")!;
+
+      // White background — improves OCR on transparent / dark areas
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      await page.render({ canvasContext: ctx, viewport, canvas } as never).promise;
+    }
+
     // If direct text too short, OCR the canvas
-    if (text.trim().length < MIN_DIRECT_TEXT_LENGTH) {
+    if (text.trim().length < MIN_DIRECT_TEXT_LENGTH && canvas) {
       onProgress?.({
         currentPage: i,
         totalPages,
@@ -190,15 +207,22 @@ export async function classifyFilePages(
       });
 
       try {
-        const { data } = await tesseractWorker.recognize(canvas);
+        const worker = await getTesseractWorker();
+        const { data } = await worker.recognize(canvas);
         text = data.text;
       } catch {
         // OCR failed
       }
     }
 
-    // Assess scan quality
-    const quality: ScanQualityResult = await assessScanQuality(canvas);
+    // Assess scan quality (only if we rendered a canvas)
+    let quality: ScanQualityResult;
+    if (canvas) {
+      quality = await assessScanQuality(canvas);
+    } else {
+      // Text-rich page — assume good quality since text extracted successfully
+      quality = { score: 100, passable: true, issues: [] };
+    }
 
     // Generate thumbnail
     onProgress?.({
@@ -207,13 +231,30 @@ export async function classifyFilePages(
       phase: "thumbnailing",
     });
 
-    const thumbCanvas = document.createElement("canvas");
-    const aspectRatio = canvas.height / canvas.width;
-    thumbCanvas.width = THUMB_WIDTH;
-    thumbCanvas.height = Math.round(THUMB_WIDTH * aspectRatio);
-    const thumbCtx = thumbCanvas.getContext("2d")!;
-    thumbCtx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
-    const thumbnail = thumbCanvas.toDataURL("image/jpeg", 0.6);
+    let thumbnail = "";
+    if (canvas) {
+      const thumbCanvas = document.createElement("canvas");
+      const aspectRatio = canvas.height / canvas.width;
+      thumbCanvas.width = THUMB_WIDTH;
+      thumbCanvas.height = Math.round(THUMB_WIDTH * aspectRatio);
+      const thumbCtx = thumbCanvas.getContext("2d")!;
+      thumbCtx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+      thumbnail = thumbCanvas.toDataURL("image/jpeg", 0.6);
+    } else {
+      // Render a small thumbnail for text-rich pages that skipped full rendering
+      const viewport = page.getViewport({ scale: 0.5 });
+      const thumbCanvas = document.createElement("canvas");
+      thumbCanvas.width = THUMB_WIDTH;
+      const aspectRatio = viewport.height / viewport.width;
+      thumbCanvas.height = Math.round(THUMB_WIDTH * aspectRatio);
+      const thumbCtx = thumbCanvas.getContext("2d")!;
+      thumbCtx.fillStyle = "#ffffff";
+      thumbCtx.fillRect(0, 0, thumbCanvas.width, thumbCanvas.height);
+      // Render at thumbnail scale directly
+      const thumbViewport = page.getViewport({ scale: THUMB_WIDTH / viewport.width });
+      await page.render({ canvasContext: thumbCtx, viewport: thumbViewport, canvas: thumbCanvas } as never).promise;
+      thumbnail = thumbCanvas.toDataURL("image/jpeg", 0.6);
+    }
 
     // Classify the text (keyword-based)
     const classification = classifyPageText(text);
@@ -267,7 +308,9 @@ export async function classifyFilePages(
     });
   }
 
-  await tesseractWorker.terminate();
+  if (tesseractWorker !== null) {
+    await (tesseractWorker as TesseractWorker).terminate();
+  }
 
   // ── Source-slot defaulting ──
   // Pages that couldn't be classified default to the source slot's doc type.

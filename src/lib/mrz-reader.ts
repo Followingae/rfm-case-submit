@@ -55,27 +55,92 @@ function formatDate(yymmdd: string): string {
   return `${dd}/${mm}/${century}${yy.toString().padStart(2, "0")}`;
 }
 
+/** Clean an MRZ line: strip non-MRZ characters, apply common OCR substitutions. */
+function cleanMRZLine(line: string): string {
+  // Remove spaces and common OCR noise characters
+  const cleaned = line.replace(/\s/g, "").toUpperCase();
+  // Replace common OCR misreads in non-alpha positions
+  // We do a general pass here; position-specific fixes happen in fixOCRDigits
+  return cleaned;
+}
+
+/**
+ * Fix common OCR substitutions in positions that should be numeric
+ * (check digits, date fields, etc.)
+ */
+function fixOCRDigits(line: string, numericPositions: number[]): string {
+  const chars = line.split("");
+  for (const pos of numericPositions) {
+    if (pos >= chars.length) continue;
+    const ch = chars[pos];
+    // O → 0
+    if (ch === "O") chars[pos] = "0";
+    // l or I → 1
+    else if (ch === "L" || ch === "I") chars[pos] = "1";
+    // B → 8 (only in check digit positions)
+    else if (ch === "B") chars[pos] = "8";
+    // S → 5
+    else if (ch === "S") chars[pos] = "5";
+  }
+  return chars.join("");
+}
+
+/** Numeric positions in TD3 line 2: passport check digit, DOB, DOB check, expiry, expiry check, etc. */
+const TD3_LINE2_NUMERIC = [
+  // Passport number positions 0-8 can be alphanumeric, but check digit at 9 is numeric
+  9,
+  // DOB at 13-18, check digit at 19
+  13, 14, 15, 16, 17, 18, 19,
+  // Expiry at 21-26, check digit at 27
+  21, 22, 23, 24, 25, 26, 27,
+  // Overall check digit at 43
+  43,
+];
+
+/** Numeric positions in TD1 line 1: check digit at 14 */
+const TD1_LINE1_NUMERIC = [14];
+/** Numeric positions in TD1 line 2: DOB 0-5, check 6, expiry 8-13, check 14 */
+const TD1_LINE2_NUMERIC = [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14];
+
 function findMRZLines(text: string): { type: "TD3"; lines: [string, string] } | { type: "TD1"; lines: [string, string, string] } | null {
   const rawLines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
 
-  // Try TD3: 2 consecutive lines of 44 chars
+  // Try TD3: 2 consecutive lines of ~44 chars (±2 tolerance for OCR)
   for (let i = 0; i < rawLines.length - 1; i++) {
-    const a = rawLines[i];
-    const b = rawLines[i + 1];
-    if (a.length === 44 && b.length === 44 && MRZ_PATTERN.test(a) && MRZ_PATTERN.test(b)) {
+    let a = cleanMRZLine(rawLines[i]);
+    let b = cleanMRZLine(rawLines[i + 1]);
+    if (
+      a.length >= 42 && a.length <= 46 &&
+      b.length >= 42 && b.length <= 46 &&
+      MRZ_PATTERN.test(a) && MRZ_PATTERN.test(b)
+    ) {
+      // Pad or trim to exactly 44 chars
+      a = a.substring(0, 44).padEnd(44, "<");
+      b = b.substring(0, 44).padEnd(44, "<");
+      // Fix OCR digit substitutions in known numeric positions
+      b = fixOCRDigits(b, TD3_LINE2_NUMERIC);
       return { type: "TD3", lines: [a, b] };
     }
   }
 
-  // Try TD1: 3 consecutive lines of 30 chars
+  // Try TD1: 3 consecutive lines of ~30 chars (±2 tolerance for OCR)
   for (let i = 0; i < rawLines.length - 2; i++) {
-    const a = rawLines[i];
-    const b = rawLines[i + 1];
-    const c = rawLines[i + 2];
+    let a = cleanMRZLine(rawLines[i]);
+    let b = cleanMRZLine(rawLines[i + 1]);
+    let c = cleanMRZLine(rawLines[i + 2]);
     if (
-      a.length === 30 && b.length === 30 && c.length === 30 &&
+      a.length >= 28 && a.length <= 32 &&
+      b.length >= 28 && b.length <= 32 &&
+      c.length >= 28 && c.length <= 32 &&
       MRZ_PATTERN.test(a) && MRZ_PATTERN.test(b) && MRZ_PATTERN.test(c)
     ) {
+      // Pad or trim to exactly 30 chars
+      a = a.substring(0, 30).padEnd(30, "<");
+      b = b.substring(0, 30).padEnd(30, "<");
+      c = c.substring(0, 30).padEnd(30, "<");
+      // Fix OCR digit substitutions
+      a = fixOCRDigits(a, TD1_LINE1_NUMERIC);
+      b = fixOCRDigits(b, TD1_LINE2_NUMERIC);
       return { type: "TD1", lines: [a, b, c] };
     }
   }

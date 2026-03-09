@@ -43,7 +43,7 @@ function normalise(s: string): string {
 export function fuzzyMatch(
   a: string,
   b: string,
-  threshold: number = 0.3
+  threshold: number = 0.25
 ): boolean {
   const na = normalise(a);
   const nb = normalise(b);
@@ -154,7 +154,7 @@ export function checkConsistency(
   if (mdfData?.iban) {
     if (!validateIBAN(mdfData.iban)) {
       warnings.push({
-        type: "iban-invalid",
+        type: "iban-checksum-failed",
         severity: "minor",
         message: "IBAN checksum validation failed",
         docs: ["MDF"],
@@ -188,11 +188,40 @@ export function checkConsistency(
     const bank = mdfData.bankName.trim();
     if (!bank || /^n\/?a$/i.test(bank)) {
       warnings.push({
-        type: "iban-invalid",
+        type: "bank-name-missing",
         severity: "minor",
         message: "Bank name in MDF is empty or listed as N/A",
         docs: ["MDF"],
       });
+    }
+  }
+
+  // ── (f) Passport/form shareholder name vs MDF shareholder cross-validation ──
+  if (shareholders.length > 0 && mdfData?.shareholders && mdfData.shareholders.length > 0) {
+    for (const userSH of shareholders) {
+      const shName = userSH.name?.trim();
+      if (!shName) continue;
+
+      // Already checked in section (d); now also verify MDF shareholders appear in form input
+    }
+
+    // Reverse check: MDF shareholders not found in form input
+    for (const mdfSH of mdfData.shareholders) {
+      const mdfShName = mdfSH.name?.trim();
+      if (!mdfShName) continue;
+
+      const matchedInForm = shareholders.some(
+        (userSH) => userSH.name && fuzzyMatch(mdfShName, userSH.name)
+      );
+
+      if (!matchedInForm) {
+        warnings.push({
+          type: "passport-shareholder-mismatch",
+          severity: "major",
+          message: `MDF shareholder "${mdfShName}" not found in form input shareholder list`,
+          docs: ["Passport", "MDF"],
+        });
+      }
     }
   }
 

@@ -23,7 +23,6 @@ import {
 import { getChecklistForCase } from "@/lib/checklist-config";
 import {
   extractTextFromFile,
-  getLastConfidence,
   parseMDFText,
   parseTradeLicenseText,
   parsePassportText,
@@ -93,7 +92,6 @@ export default function NewCasePage() {
   const [consistencyWarnings, setConsistencyWarnings] = useState<ConsistencyWarning[]>([]);
   const [readiness, setReadiness] = useState<ReadinessResult | null>(null);
   const [exceptions, setExceptions] = useState<CaseException[]>([]);
-  const [classificationInProgress, setClassificationInProgress] = useState<string | null>(null);
   const [uploadValidations, setUploadValidations] = useState<Map<string, UploadValidation>>(new Map());
   const [templateWarnings, setTemplateWarnings] = useState<Map<string, TemplateMatchResult>>(new Map());
   const [extractedFields, setExtractedFields] = useState<Map<string, LabeledField[]>>(new Map());
@@ -167,8 +165,15 @@ export default function NewCasePage() {
         const k = key as keyof ParsedMDF;
         const newVal = incoming[k];
         const existVal = existing[k];
+        // Boolean: prefer true
+        if (typeof newVal === "boolean" && newVal === true) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (result as any)[k] = true;
+          continue;
+        }
+        // String: prefer first non-empty value
         if (typeof newVal === "string" && newVal.trim()) {
-          if (!existVal || (typeof existVal === "string" && newVal.length > existVal.length)) {
+          if (!existVal || (typeof existVal === "string" && !existVal.trim())) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (result as any)[k] = newVal;
           }
@@ -314,7 +319,7 @@ export default function NewCasePage() {
     async (itemId: string, file: File) => {
       if (!file.type.startsWith("image/") && file.type !== "application/pdf") return;
       try {
-        const text = await extractTextFromFile(file);
+        const { text } = await extractTextFromFile(file);
         if (!text || text.trim().length < 30) return;
         const result = detectDocumentType(text, itemId);
         if (result.suggestion) {
@@ -336,7 +341,7 @@ export default function NewCasePage() {
     async (itemId: string, file: File) => {
       if (!file.type.startsWith("image/") && file.type !== "application/pdf") return;
       try {
-        const text = await extractTextFromFile(file);
+        const { text } = await extractTextFromFile(file);
         if (!text || text.trim().length < 30) return;
         const currentItems = checklist.map((i) => ({ id: i.id, label: i.label, status: i.status }));
         const result = await validateSlotUpload(text, itemId, currentItems);
@@ -362,14 +367,15 @@ export default function NewCasePage() {
   );
 
   const handleRawFilesAdded = useCallback(
-    (itemId: string, rawFiles: File[]) => {
+    async (itemId: string, rawFiles: File[]) => {
       const existing = fileStoreRef.current.get(itemId) || [];
       fileStoreRef.current.set(itemId, [...existing, ...rawFiles]);
 
       const caseId = caseIdRef.current;
-      rawFiles.forEach(async (file) => {
+      for (const file of rawFiles) {
+        const abortKey = `${itemId}::${file.name}`;
         const controller = new AbortController();
-        abortControllersRef.current.set(itemId, controller);
+        abortControllersRef.current.set(abortKey, controller);
         const signal = controller.signal;
 
         const itemData = document.querySelector(`[data-item-id="${itemId}"]`);
@@ -387,6 +393,8 @@ export default function NewCasePage() {
 
           await saveDocumentRecord(caseId, itemId, label, category, file.name, path, file.size, file.type);
           if (signal.aborted) return;
+        } else {
+          toast.error(`Upload failed for ${file.name}`, { description: "Could not save file to storage. Please try again." });
         }
 
         // OCR extraction based on slot type
@@ -407,10 +415,13 @@ export default function NewCasePage() {
                   const arrayBuf = await file.arrayBuffer();
                   if (signal.aborted) return;
                   const formParsed = await extractMDFFormFields(arrayBuf);
-                  if (formParsed && formParsed.merchantLegalName) {
-                    parsed = formParsed;
-                    confidence = 95; // High confidence for form field extraction
-                    textForTemplate = formParsed.rawText;
+                  if (formParsed) {
+                    const formValidation = validateMDFFields(formParsed);
+                    if (formValidation.totalPresent >= 5) {
+                      parsed = formParsed;
+                      confidence = 95;
+                      textForTemplate = formParsed.rawText;
+                    }
                   }
                 } catch (err) {
                   console.warn("[MDF] AcroForm extraction failed, falling back to OCR:", err);
@@ -419,12 +430,12 @@ export default function NewCasePage() {
 
               // Fallback: OCR text extraction
               if (!parsed) {
-                const text = await extractTextFromFile(file);
+                const { text: ocrText, confidence: ocrConf } = await extractTextFromFile(file);
                 if (signal.aborted) return;
-                confidence = getLastConfidence();
-                if (text) {
-                  parsed = parseMDFText(text);
-                  textForTemplate = text;
+                confidence = ocrConf;
+                if (ocrText) {
+                  parsed = parseMDFText(ocrText);
+                  textForTemplate = ocrText;
                 }
               }
 
@@ -435,7 +446,7 @@ export default function NewCasePage() {
                 await saveMDFData(caseId, parsed, confidence);
                 if (signal.aborted) return;
 
-                const validation = validateMDFFields(parsed);
+                const validation = validateMDFFields(parsedMDFRef.current!);
                 setMdfValidation(validation);
 
                 // Auto-fill merchant name/DBA
@@ -489,6 +500,20 @@ export default function NewCasePage() {
                   });
                 }
 
+                // Auto-populate shareholders from MDF
+                if (parsed.shareholders && parsed.shareholders.length > 0) {
+                  setShareholders(prev => {
+                    if (prev.length > 0) return prev; // don't overwrite user entries
+                    return parsed!.shareholders.map(s => ({
+                      id: crypto.randomUUID(),
+                      name: s.name || "",
+                      percentage: (s.sharesPercentage || "").replace(/[^0-9.]/g, ""),
+                      passportFiles: [],
+                      eidFiles: [],
+                    }));
+                  });
+                }
+
                 runConsistencyChecks();
                 recomputeReadiness();
               }
@@ -496,9 +521,8 @@ export default function NewCasePage() {
 
             // ── Trade License ──
             else if (itemId === "trade-license") {
-              const text = await extractTextFromFile(file);
+              const { text, confidence } = await extractTextFromFile(file);
               if (signal.aborted) return;
-              const confidence = getLastConfidence();
 
               setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
               if (text) {
@@ -525,9 +549,8 @@ export default function NewCasePage() {
 
             // ── Bank Statement ──
             else if (itemId === "bank-statement") {
-              const text = await extractTextFromFile(file);
+              const { text, confidence } = await extractTextFromFile(file);
               if (signal.aborted) return;
-              const confidence = getLastConfidence();
 
               setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
               if (text) {
@@ -540,9 +563,8 @@ export default function NewCasePage() {
 
             // ── VAT Certificate ──
             else if (itemId === "vat-cert") {
-              const text = await extractTextFromFile(file);
+              const { text, confidence } = await extractTextFromFile(file);
               if (signal.aborted) return;
-              const confidence = getLastConfidence();
 
               setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
               if (text) {
@@ -555,9 +577,8 @@ export default function NewCasePage() {
 
             // ── MOA ──
             else if (itemId === "main-moa" || itemId === "amended-moa") {
-              const text = await extractTextFromFile(file);
+              const { text, confidence } = await extractTextFromFile(file);
               if (signal.aborted) return;
-              const confidence = getLastConfidence();
 
               setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
               if (text) {
@@ -573,7 +594,7 @@ export default function NewCasePage() {
             else {
               const templatedSlots = ["ack-form", "signed-svr", "aml-questionnaire", "addendum", "branch-form", "pg-questionnaire", "pep-form"];
               if (templatedSlots.includes(itemId)) {
-                const text = await extractTextFromFile(file);
+                const { text } = await extractTextFromFile(file);
                 if (signal.aborted) return;
 
                 setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
@@ -597,8 +618,8 @@ export default function NewCasePage() {
           }
 
           // Run upload slot validation only for slots without dedicated parsers
-          // (MDF, trade-license, bank-statement, vat-cert, moa-articles already OCR + validate inline)
-          const hasInlineParser = ["mdf", "trade-license", "bank-statement", "vat-cert", "moa-articles"].includes(itemId);
+          // (MDF, trade-license, bank-statement, vat-cert, main-moa, amended-moa already OCR + validate inline)
+          const hasInlineParser = ["mdf", "trade-license", "bank-statement", "vat-cert", "main-moa", "amended-moa"].includes(itemId);
           if (!signal.aborted && !hasInlineParser) runUploadValidation(itemId, file);
         } else {
           // Non-image/PDF: just run doc type detection
@@ -610,9 +631,9 @@ export default function NewCasePage() {
         // Done — clear progress
         if (!signal.aborted) {
           setSlotProgress(itemId, null);
-          abortControllersRef.current.delete(itemId);
+          abortControllersRef.current.delete(abortKey);
         }
-      });
+      }
 
       // Run duplicate check after adding files
       setTimeout(() => {
@@ -656,8 +677,7 @@ export default function NewCasePage() {
         // OCR for passport/EID
         if (file.type.startsWith("image/") || file.type === "application/pdf") {
           try {
-            const text = await extractTextFromFile(file);
-            const confidence = getLastConfidence();
+            const { text, confidence } = await extractTextFromFile(file);
             if (text) {
               if (docType === "passport") {
                 const parsed = parsePassportText(text);
@@ -823,7 +843,8 @@ export default function NewCasePage() {
       updateCaseConditionals(caseIdRef.current, next);
       return next;
     });
-  }, []);
+    recomputeReadiness();
+  }, [recomputeReadiness]);
 
   const handleMultiSlotFulfill = useCallback(
     (results: Array<{ slotId: string; files: File[] }>) => {
@@ -875,7 +896,7 @@ export default function NewCasePage() {
   }, [recomputeReadiness]);
 
   return (
-    <div className="pb-12">
+    <div className="px-8 pb-12 pt-8 lg:px-12">
       <WizardShell currentStep={step}>
         {step === 0 && (
           <StepMerchant
@@ -905,7 +926,7 @@ export default function NewCasePage() {
             onCancelUpload={handleCancelUpload}
             onMoveFile={handleMoveFile}
             onMultiSlotFulfill={handleMultiSlotFulfill}
-            onClassificationProgress={setClassificationInProgress}
+            consistencyWarnings={consistencyWarnings}
             mdfMergePlan={mdfMergePlan}
             skipMdfMerge={skipMdfMerge}
             onSkipMdfMergeChange={setSkipMdfMerge}
@@ -929,6 +950,7 @@ export default function NewCasePage() {
             onFieldConfirm={handleFieldConfirm}
             submissionDetails={submissionDetails}
             onSubmissionDetailsChange={setSubmissionDetails}
+            consistencyWarnings={consistencyWarnings}
             mdfMergePlan={mdfMergePlan}
             skipMdfMerge={skipMdfMerge}
             onPrev={() => setStep(1)}

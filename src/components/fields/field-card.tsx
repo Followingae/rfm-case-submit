@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Check, Edit2 } from "lucide-react";
+import { Check, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ExtractedField } from "@/lib/types";
 
@@ -62,56 +62,61 @@ export function FieldCard({ label, field, onConfirm }: FieldCardProps) {
   };
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card px-3 py-2 transition-colors hover:border-border/70">
-      {/* Top row */}
-      <div className="mb-1 flex items-center gap-1.5">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
-        <span className={cn("h-2 w-2 shrink-0 rounded-full", confidenceDot)} />
-        <span className="ml-auto text-[9px] text-muted-foreground/70">
-          {sourceLabels[field.extractionMethod]}
-        </span>
-      </div>
-
-      {/* Value */}
-      {editing ? (
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={handleKeyDown}
-          className="w-full rounded-md border border-border bg-background px-2 py-1 text-sm font-medium text-foreground outline-none focus:border-primary"
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="group flex w-full items-center gap-1 text-left"
-        >
-          <span className="text-sm font-medium text-foreground">
-            {field.value}
+    <div className="rounded-xl border border-border/50 bg-card px-4 py-3 transition-colors hover:border-border/80">
+      {/* Horizontal layout: label left, value right */}
+      <div className="flex items-center gap-4">
+        {/* Left: label + confidence dot + source */}
+        <div className="flex items-center gap-2 shrink-0 min-w-[120px]">
+          <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", confidenceDot)} />
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            {label}
           </span>
-          <Edit2 className="h-3 w-3 shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground" />
-        </button>
-      )}
+        </div>
 
-      {/* Bottom row */}
-      <div className="mt-1.5 flex justify-end">
-        <button
-          type="button"
-          onClick={toggleConfirm}
-          className={cn(
-            "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors",
-            confirmed
-              ? "bg-emerald-500/15 text-emerald-500"
-              : "text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground"
+        {/* Center: value or edit input */}
+        <div className="flex-1 min-w-0">
+          {editing ? (
+            <input
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commitEdit}
+              onKeyDown={handleKeyDown}
+              className="w-full rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary/20"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="group flex w-full items-center gap-2 text-left"
+            >
+              <span className="text-sm font-medium text-foreground truncate">
+                {field.value}
+              </span>
+              <Pencil className="h-3 w-3 shrink-0 text-muted-foreground/0 transition-colors group-hover:text-muted-foreground" />
+            </button>
           )}
-        >
-          <Check className="h-3 w-3" />
-          {confirmed ? "Confirmed" : "Confirm"}
-        </button>
+        </div>
+
+        {/* Right: source + confirm */}
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-muted-foreground/60">
+            {sourceLabels[field.extractionMethod]}
+          </span>
+          <button
+            type="button"
+            onClick={toggleConfirm}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+              confirmed
+                ? "bg-emerald-500/10 text-emerald-600"
+                : "text-muted-foreground/50 hover:bg-muted hover:text-muted-foreground"
+            )}
+          >
+            <Check className="h-3 w-3" />
+            {confirmed ? "Confirmed" : "Confirm"}
+          </button>
+        </div>
       </div>
     </div>
   );

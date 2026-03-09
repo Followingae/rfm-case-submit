@@ -12,7 +12,7 @@ import { parseEID } from "./eid-reader";
 
 // ── PDF text extraction (direct — fast & accurate) ──
 
-async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
+async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<{ text: string; confidence: number }> {
   const pdfjsLib = await import("pdfjs-dist");
 
   // Use locally served worker (copied to public/)
@@ -24,35 +24,75 @@ async function extractTextFromPDF(arrayBuffer: ArrayBuffer): Promise<string> {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    const pageText = content.items
-      .map((item: any) => item.str)
-      .join(" ");
-    allText.push(pageText);
+
+    // Reconstruct lines using Y-coordinate clustering
+    // Group text items by Y position (within 3px tolerance = same line)
+    const items = content.items as any[];
+    if (items.length === 0) {
+      allText.push("");
+      continue;
+    }
+
+    // Build clusters of items sharing the same Y-coordinate (within tolerance)
+    const yClusters: Map<number, any[]> = new Map();
+    for (const item of items) {
+      if (!item.str) continue;
+      const y = item.transform[5];
+      let foundCluster = false;
+      for (const [clusterY, cluster] of yClusters) {
+        if (Math.abs(y - clusterY) <= 3) {
+          cluster.push(item);
+          foundCluster = true;
+          break;
+        }
+      }
+      if (!foundCluster) {
+        yClusters.set(y, [item]);
+      }
+    }
+
+    // Sort clusters by Y descending (PDF Y-axis: top of page = higher value)
+    const sortedClusters = [...yClusters.entries()]
+      .sort(([yA], [yB]) => yB - yA);
+
+    const pageLines: string[] = [];
+    for (const [, cluster] of sortedClusters) {
+      // Sort items within a line by X-coordinate (left to right)
+      cluster.sort((a: any, b: any) => a.transform[4] - b.transform[4]);
+      const lineText = cluster.map((item: any) => item.str).join(" ");
+      pageLines.push(lineText);
+      // Check if last item in cluster has EOL flag — add extra newline
+      const lastItem = cluster[cluster.length - 1];
+      if (lastItem.hasEOL) {
+        pageLines.push("");
+      }
+    }
+
+    allText.push(pageLines.join("\n"));
   }
 
   // High confidence since it's actual text, not OCR
-  (extractTextFromFile as any)._lastConfidence = 99;
-  return allText.join("\n");
+  return { text: allText.join("\n"), confidence: 99 };
 }
 
 // ── Render scanned PDF pages → canvas → Tesseract OCR ──
 
-async function ocrScannedPDF(arrayBuffer: ArrayBuffer): Promise<string> {
+async function ocrScannedPDF(arrayBuffer: ArrayBuffer): Promise<{ text: string; confidence: number }> {
   const pdfjsLib = await import("pdfjs-dist");
   pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const Tesseract = await import("tesseract.js");
-  const worker = await Tesseract.createWorker("eng", undefined, {
+  const worker = await Tesseract.createWorker("eng+ara", undefined, {
     logger: () => {},
   });
 
   const allText: string[] = [];
   let totalConfidence = 0;
 
-  // Cap at 6 pages — useful content is in the first few pages;
+  // Cap at 15 pages — useful content is in the first several pages;
   // OCR'ing 30+ page PDFs wastes time and causes pdfjs worker conflicts
-  const maxPages = Math.min(pdf.numPages, 6);
+  const maxPages = Math.min(pdf.numPages, 15);
 
   for (let i = 1; i <= maxPages; i++) {
     try {
@@ -89,16 +129,15 @@ async function ocrScannedPDF(arrayBuffer: ArrayBuffer): Promise<string> {
 
   const pagesProcessed = allText.length || 1;
   const avgConfidence = totalConfidence / pagesProcessed;
-  (extractTextFromFile as any)._lastConfidence = avgConfidence;
 
-  return allText.join("\n");
+  return { text: allText.join("\n"), confidence: avgConfidence };
 }
 
 // ── Tesseract OCR (for images) ──
 
-async function extractTextFromImage(file: File): Promise<string> {
+async function extractTextFromImage(file: File): Promise<{ text: string; confidence: number }> {
   const Tesseract = await import("tesseract.js");
-  const worker = await Tesseract.createWorker("eng", undefined, {
+  const worker = await Tesseract.createWorker("eng+ara", undefined, {
     logger: () => {},
   });
   const arrayBuffer = await file.arrayBuffer();
@@ -107,44 +146,42 @@ async function extractTextFromImage(file: File): Promise<string> {
     data: { text, confidence },
   } = await worker.recognize(blob);
   await worker.terminate();
-  (extractTextFromFile as any)._lastConfidence = confidence;
-  return text;
+  return { text, confidence };
 }
 
 // ── Main entry point ─────────────────────────
 // PDFs → try text extraction first, fall back to OCR for scanned docs
 // Images → OCR with Tesseract
 
-export async function extractTextFromFile(file: File): Promise<string> {
+export async function extractTextFromFile(file: File): Promise<{ text: string; confidence: number }> {
   try {
     if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
       const arrayBuffer = await file.arrayBuffer();
-      const text = await extractTextFromPDF(arrayBuffer);
+      const result = await extractTextFromPDF(arrayBuffer);
 
-      if (text.trim().length > 50) {
-        return text;
+      if (result.text.trim().length > 200) {
+        return result;
       }
 
       // Scanned PDF — render pages to canvas and OCR each one
       const arrayBuffer2 = await file.arrayBuffer();
-      const ocrText = await ocrScannedPDF(arrayBuffer2);
-      return ocrText;
+      return await ocrScannedPDF(arrayBuffer2);
     }
 
     if (file.type.startsWith("image/")) {
-      const text = await extractTextFromImage(file);
-      return text;
+      return await extractTextFromImage(file);
     }
 
-    return "";
+    return { text: "", confidence: 0 };
   } catch (err) {
     console.error("[OCR] Extraction failed:", err);
-    return "";
+    return { text: "", confidence: 0 };
   }
 }
 
+/** @deprecated Use the `confidence` field from `extractTextFromFile` return value instead. */
 export function getLastConfidence(): number {
-  return (extractTextFromFile as any)._lastConfidence || 0;
+  return 0;
 }
 
 // ── Helpers ──────────────────────────────────
@@ -153,9 +190,13 @@ function extractField(lines: string[], i: number, pattern: RegExp): string | und
   const line = lines[i];
   const nextLine = lines[i + 1] || "";
 
-  // Try to extract value from the same line (after colon/label)
-  const colonMatch = line.match(new RegExp(pattern.source + "\\s*[:\\-]?\\s*(.*)", "i"));
+  // Try to extract value from the same line (after colon/dash/label)
+  const colonMatch = line.match(new RegExp(pattern.source + "\\s*[:\\-]\\s*(.*)", "i"));
   if (colonMatch?.[1]?.trim()) return colonMatch[1].trim();
+
+  // Try without colon — just capture everything after the label match
+  const labelMatch = line.match(new RegExp(pattern.source + "\\s+(.*)", "i"));
+  if (labelMatch?.[1]?.trim()) return labelMatch[1].trim();
 
   // Otherwise, the value is likely on the next line
   if (nextLine.trim()) return nextLine.trim();
@@ -183,8 +224,13 @@ function extractEmail(text: string): string | undefined {
 }
 
 function extractPhone(text: string): string | undefined {
+  // Require at least 7 actual digits in the match (not just 7 chars from the set)
   const match = text.match(/[\d\s\+\-()]{7,}/);
-  return match?.[0]?.trim();
+  if (!match) return undefined;
+  const candidate = match[0].trim();
+  const digitCount = (candidate.match(/\d/g) || []).length;
+  if (digitCount < 7) return undefined;
+  return candidate;
 }
 
 // ── MDF Parser ───────────────────────────────
@@ -393,9 +439,28 @@ export function parseMDFText(text: string): ParsedMDF {
 
     // ── Section 3: Fees ──
 
-    // Card type transaction fees
+    // Card type transaction fees — use word boundaries and deduplicate
     for (const cardType of CARD_TYPES) {
-      if (new RegExp(cardType, "i").test(line) && /\d/.test(line)) {
+      if (new RegExp("\\b" + cardType + "\\b", "i").test(line) && /\d/.test(line)) {
+        // Skip if a more specific card type already matched this line
+        const alreadyMatched = data.feeSchedule.some((entry) => {
+          // If existing entry's cardType is a substring of current or vice versa,
+          // and the more specific (longer) one already exists, skip the shorter one
+          const existsLonger = CARD_TYPES.some(
+            (ct) => ct !== cardType && ct.length > cardType.length &&
+            ct.toLowerCase().includes(cardType.toLowerCase()) &&
+            new RegExp("\\b" + ct + "\\b", "i").test(line)
+          );
+          return existsLonger;
+        });
+        if (alreadyMatched) continue;
+
+        // Also skip if this exact card type was already added from this line
+        const duplicate = data.feeSchedule.some(
+          (entry) => entry.cardType === cardType
+        );
+        if (duplicate) continue;
+
         const percentages = line.match(/(\d+\.?\d*)\s*%?/g);
         if (percentages && percentages.length >= 1) {
           data.feeSchedule.push({
@@ -462,8 +527,11 @@ export function parseMDFText(text: string): ParsedMDF {
     // ── Section 5: Settlement ──
 
     if (/\biban\b/i.test(line)) {
-      const ibanMatch = line.match(/[A-Z]{2}\d{2}[\w\s]{10,30}/) || nextLine.match(/[A-Z]{2}\d{2}[\w]{10,30}/);
-      if (ibanMatch) data.iban = ibanMatch[0].replace(/\s/g, "");
+      // Strip spaces before matching for consistent IBAN detection
+      const lineNoSpaces = line.replace(/\s/g, "");
+      const nextLineNoSpaces = nextLine.replace(/\s/g, "");
+      const ibanMatch = lineNoSpaces.match(/[A-Z]{2}\d{2}[A-Z0-9]{10,30}/) || nextLineNoSpaces.match(/[A-Z]{2}\d{2}[A-Z0-9]{10,30}/);
+      if (ibanMatch) data.iban = ibanMatch[0];
     }
     if (/account.*no/i.test(line) && !/iban/i.test(line)) {
       const accMatch = nextLine.match(/[\d\s]{5,}/);

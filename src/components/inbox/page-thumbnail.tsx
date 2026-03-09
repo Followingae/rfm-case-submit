@@ -35,7 +35,7 @@ export function PageThumbnail({
         className="block w-full aspect-[3/4] object-cover"
       />
 
-      <span className="absolute bottom-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-background/80 px-1 text-[9px] font-semibold text-foreground backdrop-blur-sm">
+      <span className="absolute bottom-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-background/80 px-1 text-[11px] font-semibold text-foreground backdrop-blur-sm">
         {pageNumber}
       </span>
 

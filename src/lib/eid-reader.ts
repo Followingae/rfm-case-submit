@@ -7,11 +7,16 @@ import type { ParsedEID } from "@/lib/types";
 export function parseEID(text: string): ParsedEID | null {
   const raw = text.replace(/\r\n/g, "\n");
 
-  // 1. ID Number: standard UAE format 784-XXXX-XXXXXXX-X
-  const idMatch = raw.match(/784-\d{4}-\d{7}-\d/);
+  // 1. ID Number: UAE format 784-XXXX-XXXXXXX-X (also spaces or no separators)
+  const idMatch =
+    raw.match(/784-\d{4}-\d{7}-\d/) ||
+    raw.match(/784\s\d{4}\s\d{7}\s\d/) ||
+    raw.match(/784\d{12}/);
   if (!idMatch) return null;
 
-  const idNumber = idMatch[0];
+  // Normalise to standard dash-separated format
+  const rawId = idMatch[0].replace(/[\s-]/g, "");
+  const idNumber = `${rawId.slice(0, 3)}-${rawId.slice(3, 7)}-${rawId.slice(7, 14)}-${rawId.slice(14)}`;
 
   // 2. Name extraction
   const name = extractName(raw);
@@ -35,12 +40,32 @@ export function parseEID(text: string): ParsedEID | null {
 }
 
 function extractName(text: string): string | undefined {
+  // Try label-based extraction first
   const nameRe = /Name\s*[:\-]?\s*(.+)/i;
   const match = text.match(nameRe);
   if (match) {
     const value = match[1].trim();
     if (value.length > 0) return value;
   }
+
+  // Fallback: look for a line that appears to be a full name
+  // (2-4 capitalized words, no digits, no special chars besides spaces)
+  const lines = text.split(/\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    // Skip lines that are too short, have digits, or are too long
+    if (trimmed.length < 4 || trimmed.length > 80) continue;
+    if (/\d/.test(trimmed)) continue;
+    // Match 2-4 capitalized words (e.g. "JOHN MICHAEL SMITH" or "Ahmed Al Mansouri")
+    if (/^[A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){1,3}$/.test(trimmed)) {
+      return trimmed;
+    }
+    // Also match ALL CAPS names (common in ID cards)
+    if (/^[A-Z][A-Z'-]+(?:\s+[A-Z][A-Z'-]+){1,3}$/.test(trimmed)) {
+      return trimmed;
+    }
+  }
+
   return undefined;
 }
 

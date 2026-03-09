@@ -21,8 +21,6 @@ const CRITICAL_DOC_IDS = new Set(["mdf", "trade-license", "main-moa"]);
 const PENALTY_FAIL_CRITICAL = 15;
 const PENALTY_FAIL_STANDARD = 10;
 const PENALTY_EXCEPTION = 3;
-const PENALTY_SHAREHOLDER_DOC = 10;
-
 /** High-confidence threshold for doc-type mismatch detection. */
 const DOC_TYPE_MISMATCH_CONFIDENCE = 50;
 

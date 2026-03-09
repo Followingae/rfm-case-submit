@@ -9,13 +9,14 @@ export interface LabeledField {
 function makeField(
   value: string | undefined | null,
   confidence: number,
-  method: ExtractedField["extractionMethod"] = "ocr"
+  method: ExtractedField["extractionMethod"] = "ocr",
+  sourcePage: number = 1
 ): ExtractedField | null {
   if (!value || !value.trim()) return null;
   return {
     value: value.trim(),
     confidence,
-    sourcePage: 1,
+    sourcePage,
     extractionMethod: method,
   };
 }
