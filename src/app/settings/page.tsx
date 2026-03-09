@@ -33,7 +33,6 @@ const EXCLUDE_IDS = new Set([
   "trade-license",
   "main-moa",
   "amended-moa",
-  "passport-eid",
   "bank-statement",
   "tenancy-ejari",
   "payment-proof",
@@ -145,8 +144,9 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-4xl px-6 py-8 space-y-8 md:px-10">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Reference Documents</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">Settings</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">Reference Documents</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
           Upload gold-standard copies of standard forms for better document matching
         </p>
       </div>
@@ -265,7 +265,7 @@ export default function SettingsPage() {
       )}
 
       {/* How it works */}
-      <div className="rounded-xl border border-border/50 p-5">
+      <div className="rounded-xl border border-border/50 bg-card p-5 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)]">
         <h3 className="text-sm font-medium text-foreground">How reference documents are used</h3>
         <ul className="mt-3 space-y-2.5">
           {[

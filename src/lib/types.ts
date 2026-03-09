@@ -184,7 +184,7 @@ export interface EnhancedDuplicateWarning {
 // ── Cross-Document Consistency ──
 
 export interface ConsistencyWarning {
-  type: "name-mismatch" | "expired" | "shareholder-mismatch" | "iban-invalid" | "iban-checksum-failed" | "bank-name-missing" | "passport-shareholder-mismatch";
+  type: "name-mismatch" | "expired" | "shareholder-mismatch" | "iban-invalid" | "iban-checksum-failed" | "bank-name-missing" | "passport-shareholder-mismatch" | "shareholder-percentage-mismatch" | "trade-license-expiring-soon" | "iban-mismatch" | "account-name-mismatch" | "signatory-not-in-moa" | "activity-mismatch" | "bank-statement-stale" | "vat-name-mismatch";
   severity: "major" | "minor";
   message: string;
   docs: string[];
@@ -229,6 +229,8 @@ export interface ParsedPassport {
   dateOfBirth?: string;
   sex?: string;
   expiryDate?: string;
+  placeOfBirth?: string;
+  issuingDate?: string;
   isExpired?: boolean;
   mrzValid?: boolean;
   rawText: string;
@@ -239,6 +241,8 @@ export interface ParsedEID {
   name?: string;
   nationality?: string;
   expiryDate?: string;
+  dateOfBirth?: string;
+  gender?: string;
   isExpired?: boolean;
   rawText: string;
 }
@@ -248,6 +252,10 @@ export interface ParsedMOA {
   shareholders?: string[];
   sharePercentages?: string[];
   signatories?: string[];
+  registrationNumber?: string;
+  registrationDate?: string;
+  authorizedCapital?: string;
+  legalForm?: string;
   rawText: string;
 }
 
@@ -255,7 +263,15 @@ export interface ParsedBankStatement {
   bankName?: string;
   accountHolder?: string;
   accountNumber?: string;
+  iban?: string;
+  currency?: string;
   period?: string;
+  periodEndDate?: string;
+  openingBalance?: string;
+  closingBalance?: string;
+  totalCredits?: string;
+  totalDebits?: string;
+  swiftCode?: string;
   rawText: string;
 }
 
@@ -263,6 +279,9 @@ export interface ParsedVATCert {
   trnNumber?: string;
   businessName?: string;
   registrationDate?: string;
+  effectiveDate?: string;
+  expiryDate?: string;
+  businessAddress?: string;
   rawText: string;
 }
 

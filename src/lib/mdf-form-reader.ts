@@ -119,6 +119,55 @@ const COMPANY_INDICATORS = [
 ];
 
 function fallbackFieldMatching(fields: PDFField[], data: ParsedMDF): void {
+  // Phase 1: Name-based hints — infer meaning from field name patterns
+  for (const { name, value } of fields) {
+    if (!value) continue;
+    const nameLower = name.toLowerCase();
+
+    // Field name hints (works even if FIELD_MAP doesn't match this PDF version)
+    if (!data.bankName && /bank.*name/i.test(nameLower)) {
+      data.bankName = value.trim();
+      continue;
+    }
+    if (!data.swiftCode && /swift|bic/i.test(nameLower)) {
+      data.swiftCode = value.trim();
+      continue;
+    }
+    if (!data.accountNo && /account.*(?:no|num)/i.test(nameLower) && !/iban/i.test(nameLower)) {
+      data.accountNo = value.trim();
+      continue;
+    }
+    if (!data.accountTitle && /account.*(?:title|name|holder)/i.test(nameLower)) {
+      data.accountTitle = value.trim();
+      continue;
+    }
+    if (!data.contactName && /contact.*(?:name|person)/i.test(nameLower)) {
+      data.contactName = value.trim();
+      continue;
+    }
+    if (!data.contactTitle && /(?:title|designation)/i.test(nameLower)) {
+      data.contactTitle = value.trim();
+      continue;
+    }
+    if (!data.address && /(?:street|address|location)/i.test(nameLower) && !/email|web/i.test(nameLower)) {
+      data.address = value.trim();
+      continue;
+    }
+    if (!data.webAddress && /(?:web|website|url)/i.test(nameLower)) {
+      data.webAddress = value.trim();
+      continue;
+    }
+    if (!data.businessType && /(?:business.*type|nature.*business|type.*business)/i.test(nameLower)) {
+      data.businessType = value.trim();
+      continue;
+    }
+    if (!data.numTerminals && /(?:terminal|pos).*(?:no|num|count|qty)/i.test(nameLower)) {
+      data.numTerminals = value.trim();
+      continue;
+    }
+  }
+
+  // Phase 2: Value-pattern fallback — infer from VALUE content when name is opaque
   for (const { value } of fields) {
     if (!value) continue;
 
@@ -128,13 +177,19 @@ function fallbackFieldMatching(fields: PDFField[], data: ParsedMDF): void {
       continue;
     }
 
+    // SWIFT code pattern (4 letters + 2 letters + 2-5 alphanumeric)
+    if (!data.swiftCode && /^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2,5}$/i.test(value.replace(/\s/g, ""))) {
+      data.swiftCode = value.replace(/\s/g, "").toUpperCase();
+      continue;
+    }
+
     // Email pattern
     if (!data.email1 && /\S+@\S+\.\S+/.test(value)) {
       data.email1 = value;
       continue;
     }
 
-    // Phone pattern
+    // Phone pattern (UAE numbers often start with +971, 05x, 04, etc.)
     if (!data.mobileNo && /^[\d\s\+\-()]{7,15}$/.test(value.trim())) {
       data.mobileNo = value.trim();
       continue;
@@ -169,7 +224,7 @@ export async function extractMDFFormFields(arrayBuffer: ArrayBuffer): Promise<Pa
     const form = pdf.getForm();
     const fields = form.getFields();
 
-    if (fields.length < 20) return null; // Not a fillable MDF
+    if (fields.length < 10) return null; // Not a fillable MDF
 
     // Read all text field values
     const values = new Map<string, string>();

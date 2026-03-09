@@ -47,10 +47,10 @@ function isFieldPresent(parsed: ParsedMDF, field: string): boolean {
     return !!(parsed.accountNo?.trim() || parsed.iban?.trim());
   }
   if (field === "shareholders") {
-    return parsed.shareholders.length >= 1;
+    return Array.isArray(parsed.shareholders) && parsed.shareholders.length >= 1;
   }
   if (field === "feeSchedule") {
-    return parsed.feeSchedule.length >= 1;
+    return Array.isArray(parsed.feeSchedule) && parsed.feeSchedule.length >= 1;
   }
 
   const value = (parsed as unknown as Record<string, unknown>)[field];

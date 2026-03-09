@@ -26,36 +26,42 @@ const caseTypes: {
   label: string;
   description: string;
   icon: React.ElementType;
+  color: string;
 }[] = [
   {
     value: "low-risk",
     label: "Low Risk",
     description: "Standard onboarding",
     icon: ShieldCheck,
+    color: "var(--case-low-risk)",
   },
   {
     value: "high-risk",
     label: "High Risk",
     description: "Enhanced due diligence",
     icon: ShieldAlert,
+    color: "var(--case-high-risk)",
   },
   {
     value: "ecom",
     label: "E-Commerce",
     description: "Online / payment link",
     icon: Globe,
+    color: "var(--case-ecom)",
   },
   {
     value: "additional-mid",
     label: "Additional MID",
     description: "Additional merchant ID",
     icon: FilePlus2,
+    color: "var(--case-add-mid)",
   },
   {
     value: "additional-branch",
     label: "Additional Branch",
     description: "New branch for existing merchant",
     icon: GitBranch,
+    color: "var(--case-add-branch)",
   },
 ];
 
@@ -83,12 +89,13 @@ export function StepMerchant({
     <div className="mx-auto max-w-2xl space-y-6">
       {/* Page header */}
       <div>
-        <h2 className="text-xl font-semibold tracking-tight">Merchant Information</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Enter the merchant&apos;s basic details</p>
+        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">Step 1</p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight">Merchant Information</h2>
+        <p className="mt-1.5 text-sm text-muted-foreground">Enter the merchant&apos;s basic details</p>
       </div>
 
       {/* Form card */}
-      <div className="rounded-lg border border-border/40 bg-card p-6 shadow-[0_1px_3px_0_rgba(0,0,0,0.04),0_1px_2px_0_rgba(0,0,0,0.06)] dark:shadow-none space-y-6">
+      <div className="rounded-xl border border-border/40 bg-card p-6 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)] space-y-6">
         {/* Name fields */}
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -156,24 +163,33 @@ export function StepMerchant({
                   aria-checked={selected}
                   onClick={() => onUpdate({ caseType: ct.value })}
                   className={cn(
-                    "flex flex-col items-center gap-2.5 rounded-lg border-2 p-5 text-center cursor-pointer transition-colors",
+                    "relative flex flex-col items-center gap-2.5 rounded-xl border-2 p-5 text-center cursor-pointer transition-all duration-200",
                     selected
-                      ? "border-primary bg-primary/5"
-                      : "border-border/40 hover:border-border"
+                      ? "shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.15)]"
+                      : "border-border/40 hover:border-border/60"
                   )}
+                  style={selected ? {
+                    borderColor: ct.color,
+                    backgroundColor: `color-mix(in oklch, ${ct.color} 6%, transparent)`,
+                  } : undefined}
                 >
-                  <ct.icon
-                    className={cn(
-                      "h-6 w-6",
-                      selected ? "text-primary" : "text-muted-foreground"
-                    )}
-                  />
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-lg"
+                    style={{
+                      backgroundColor: selected
+                        ? `color-mix(in oklch, ${ct.color} 14%, transparent)`
+                        : undefined,
+                    }}
+                  >
+                    <ct.icon
+                      className={cn("h-6 w-6", !selected && "text-muted-foreground")}
+                      style={selected ? { color: ct.color } : undefined}
+                    />
+                  </div>
                   <div>
                     <div
-                      className={cn(
-                        "text-sm font-medium",
-                        selected ? "text-primary" : "text-foreground"
-                      )}
+                      className={cn("text-sm font-medium", !selected && "text-foreground")}
+                      style={selected ? { color: ct.color } : undefined}
                     >
                       {ct.label}
                     </div>

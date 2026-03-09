@@ -1,4 +1,4 @@
-import type { ConsistencyWarning, MerchantInfo, ShareholderKYC } from "@/lib/types";
+import type { ConsistencyWarning, MerchantInfo, ShareholderKYC, ParsedBankStatement, ParsedVATCert, ParsedMOA } from "@/lib/types";
 import type { ParsedMDF, ParsedTradeLicense } from "@/lib/ocr-engine";
 
 // ── Levenshtein Distance ─────────────────────────────────────────────
@@ -100,7 +100,10 @@ export function checkConsistency(
   mdfData: ParsedMDF | null,
   tradeLicenseData: ParsedTradeLicense | null,
   merchantInfo: MerchantInfo,
-  shareholders: ShareholderKYC[]
+  shareholders: ShareholderKYC[],
+  bankStatementData?: ParsedBankStatement | null,
+  vatCertData?: ParsedVATCert | null,
+  moaData?: ParsedMOA | null,
 ): ConsistencyWarning[] {
   const warnings: ConsistencyWarning[] = [];
 
@@ -139,14 +142,28 @@ export function checkConsistency(
   // ── (b) Trade License expiry ───────────────────────────────────────
   if (tradeLicenseData?.expiryDate) {
     const parsed = parseFlexibleDate(tradeLicenseData.expiryDate);
-    if (parsed && parsed < new Date()) {
-      const formatted = tradeLicenseData.expiryDate;
-      warnings.push({
-        type: "expired",
-        severity: "major",
-        message: `Trade License expired on ${formatted}`,
-        docs: ["Trade License"],
-      });
+    if (parsed) {
+      const now = new Date();
+      if (parsed < now) {
+        warnings.push({
+          type: "expired",
+          severity: "major",
+          message: `Trade License expired on ${tradeLicenseData.expiryDate}`,
+          docs: ["Trade License"],
+        });
+      } else {
+        // Check if expiring within 30 days
+        const thirtyDaysFromNow = new Date(now);
+        thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+        if (parsed <= thirtyDaysFromNow) {
+          warnings.push({
+            type: "trade-license-expiring-soon",
+            severity: "minor",
+            message: `Trade License expires on ${tradeLicenseData.expiryDate} (within 30 days)`,
+            docs: ["Trade License"],
+          });
+        }
+      }
     }
   }
 
@@ -222,6 +239,139 @@ export function checkConsistency(
           docs: ["Passport", "MDF"],
         });
       }
+    }
+  }
+
+  // ── (g) IBAN chain: MDF vs Bank Statement ─────────────────────────
+  if (mdfData?.iban && bankStatementData?.iban) {
+    const mdfIban = mdfData.iban.replace(/\s/g, "").toUpperCase();
+    const bsIban = bankStatementData.iban.replace(/\s/g, "").toUpperCase();
+    if (mdfIban !== bsIban) {
+      warnings.push({
+        type: "iban-mismatch",
+        severity: "major",
+        message: `IBAN mismatch: MDF has "${mdfIban}" but Bank Statement has "${bsIban}"`,
+        docs: ["MDF", "Bank Statement"],
+      });
+    }
+  }
+
+  // ── (h) Account name: MDF vs Bank Statement ──────────────────────
+  if (mdfData?.accountTitle && bankStatementData?.accountHolder) {
+    const mdfAcct = mdfData.accountTitle.trim();
+    const bsAcct = bankStatementData.accountHolder.trim();
+    if (mdfAcct && bsAcct && !fuzzyMatch(mdfAcct, bsAcct)) {
+      warnings.push({
+        type: "account-name-mismatch",
+        severity: "major",
+        message: `Account name mismatch: MDF has "${mdfAcct}" but Bank Statement has "${bsAcct}"`,
+        docs: ["MDF", "Bank Statement"],
+      });
+    }
+  }
+
+  // ── (i) Signatory chain: MDF signatory vs MOA authorized signatories ──
+  if (mdfData?.contactName && moaData?.signatories && moaData.signatories.length > 0) {
+    const mdfSignatory = mdfData.contactName.trim();
+    if (mdfSignatory) {
+      const foundInMoa = moaData.signatories.some(
+        (sig) => sig && fuzzyMatch(mdfSignatory, sig)
+      );
+      if (!foundInMoa) {
+        warnings.push({
+          type: "signatory-not-in-moa",
+          severity: "major",
+          message: `MDF contact person "${mdfSignatory}" not found in MOA authorized signatories`,
+          docs: ["MDF", "MOA"],
+        });
+      }
+    }
+  }
+
+  // ── (j) Activity matching: MDF business type vs Trade License activities ──
+  if (mdfData?.businessType && tradeLicenseData?.activities) {
+    const mdfBiz = normalise(mdfData.exactBusinessNature || mdfData.businessType || "");
+    const tlAct = normalise(tradeLicenseData.activities || "");
+    if (mdfBiz && tlAct) {
+      // Extract meaningful keywords (3+ chars) from each
+      const mdfWords = new Set(mdfBiz.split(/\s+/).filter(w => w.length >= 3));
+      const tlWords = new Set(tlAct.split(/\s+/).filter(w => w.length >= 3));
+      const stopWords = new Set(["the", "and", "for", "with", "from", "other", "general"]);
+      const mdfFiltered = [...mdfWords].filter(w => !stopWords.has(w));
+      const overlap = mdfFiltered.filter(w => tlWords.has(w));
+      if (mdfFiltered.length >= 2 && overlap.length === 0) {
+        warnings.push({
+          type: "activity-mismatch",
+          severity: "minor",
+          message: `Business activity may not match: MDF says "${mdfData.businessType}" but Trade License lists "${tradeLicenseData.activities}"`,
+          docs: ["MDF", "Trade License"],
+        });
+      }
+    }
+  }
+
+  // ── (k) Bank statement recency ───────────────────────────────────
+  if (bankStatementData?.periodEndDate) {
+    const endDate = parseFlexibleDate(bankStatementData.periodEndDate);
+    if (endDate) {
+      const daysSince = Math.floor((Date.now() - endDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSince > 45) {
+        warnings.push({
+          type: "bank-statement-stale",
+          severity: "major",
+          message: `Bank statement period ended ${daysSince} days ago (expected within 45 days)`,
+          docs: ["Bank Statement"],
+        });
+      }
+    }
+  }
+
+  // ── (l) VAT certificate name vs MDF/TL name ─────────────────────
+  if (vatCertData?.businessName) {
+    const vatName = vatCertData.businessName.trim();
+    if (vatName) {
+      if (mdfName && !fuzzyMatch(vatName, mdfName)) {
+        warnings.push({
+          type: "vat-name-mismatch",
+          severity: "minor",
+          message: `VAT certificate business name "${vatName}" doesn't match MDF name "${mdfName}"`,
+          docs: ["VAT Certificate", "MDF"],
+        });
+      }
+      if (tlName && !fuzzyMatch(vatName, tlName)) {
+        warnings.push({
+          type: "vat-name-mismatch",
+          severity: "minor",
+          message: `VAT certificate business name "${vatName}" doesn't match Trade License name "${tlName}"`,
+          docs: ["VAT Certificate", "Trade License"],
+        });
+      }
+    }
+  }
+
+  // ── (m) Shareholder percentage sum ──────────────────────────────────
+  if (mdfData?.shareholders && mdfData.shareholders.length > 0) {
+    let sum = 0;
+    let allParseable = true;
+    for (const sh of mdfData.shareholders) {
+      const raw = sh.sharesPercentage?.replace(/[^0-9.]/g, "");
+      if (raw) {
+        const val = parseFloat(raw);
+        if (!isNaN(val)) {
+          sum += val;
+        } else {
+          allParseable = false;
+        }
+      }
+    }
+    // Only warn when we could parse at least some percentages and the sum is off
+    if (allParseable && sum > 0 && (sum < 98 || sum > 102)) {
+      warnings.push({
+        type: "shareholder-percentage-mismatch",
+        severity: "major",
+        message: `MDF shareholder ownership sums to ${sum.toFixed(1)}% (expected ~100%)`,
+        docs: ["MDF"],
+      });
     }
   }
 

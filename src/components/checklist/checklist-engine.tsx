@@ -85,6 +85,15 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
   Shop: Store,
 };
 
+/** Muted accent color per document category — maps to CSS variables */
+const CATEGORY_COLORS: Record<string, string> = {
+  Forms: "var(--cat-forms)",
+  Legal: "var(--cat-legal)",
+  KYC: "var(--cat-kyc)",
+  Bank: "var(--cat-bank)",
+  Shop: "var(--cat-shop)",
+};
+
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.gif,.bmp,.tiff";
 
 /* ───────────────────────── Helpers ───────────────────────── */
@@ -155,6 +164,7 @@ function CategoryCard({
   onClick: () => void;
 }) {
   const Icon = CATEGORY_ICONS[category] || FileStack;
+  const catColor = CATEGORY_COLORS[category] || "var(--cat-forms)";
 
   return (
     <motion.button
@@ -166,33 +176,42 @@ function CategoryCard({
         stat.complete
           ? "border-emerald-500/20 bg-emerald-500/5"
           : isActive
-          ? "border-primary/30 bg-primary/5 shadow-sm"
+          ? "shadow-sm"
           : "border-border/40 bg-card hover:border-border/60 hover:bg-muted/30",
-        isActive && "ring-1 ring-primary/20",
         isFlashing && "animate-pulse border-emerald-500/40 bg-emerald-500/10"
       )}
+      style={isActive && !stat.complete ? {
+        borderColor: `color-mix(in oklch, ${catColor} 30%, transparent)`,
+        backgroundColor: `color-mix(in oklch, ${catColor} 5%, transparent)`,
+        boxShadow: `inset 0 0 0 1px color-mix(in oklch, ${catColor} 15%, transparent)`,
+      } : undefined}
     >
-      {/* Left accent bar for active state */}
+      {/* Left accent bar — category-colored */}
       {isActive && !stat.complete && (
-        <div className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full bg-primary" />
+        <div
+          className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full"
+          style={{ backgroundColor: catColor }}
+        />
       )}
 
-      {/* Icon */}
-      <div className={cn(
-        "flex h-10 w-10 items-center justify-center rounded-lg",
-        stat.complete
-          ? "bg-emerald-500/10"
-          : isActive
-          ? "bg-primary/10"
-          : "bg-muted/50"
-      )}>
+      {/* Icon — category-colored background tint */}
+      <div
+        className={cn(
+          "flex h-10 w-10 items-center justify-center rounded-lg",
+          stat.complete && "bg-emerald-500/10",
+          !stat.complete && !isActive && "bg-muted/50",
+        )}
+        style={!stat.complete && isActive ? {
+          backgroundColor: `color-mix(in oklch, ${catColor} 12%, transparent)`,
+        } : !stat.complete && !isActive ? undefined : undefined}
+      >
         {stat.complete ? (
           <CheckCircle2 className="h-5 w-5 text-emerald-500" />
         ) : (
-          <Icon className={cn(
-            "h-5 w-5",
-            isActive ? "text-primary" : "text-muted-foreground"
-          )} />
+          <Icon
+            className={cn("h-5 w-5", !isActive && "text-muted-foreground")}
+            style={isActive ? { color: catColor } : undefined}
+          />
         )}
       </div>
 
@@ -208,15 +227,15 @@ function CategoryCard({
         {category}
       </span>
 
-      {/* Simple fraction */}
-      <span className={cn(
-        "text-sm font-medium tabular-nums",
-        stat.complete
-          ? "text-emerald-500/60"
-          : isActive
-          ? "text-primary/70"
-          : "text-muted-foreground/50"
-      )}>
+      {/* Fraction — category-colored when active */}
+      <span
+        className={cn(
+          "text-sm font-medium tabular-nums",
+          stat.complete && "text-emerald-500/60",
+          !stat.complete && !isActive && "text-muted-foreground/50",
+        )}
+        style={!stat.complete && isActive ? { color: `color-mix(in oklch, ${catColor} 60%, transparent)` } : undefined}
+      >
         {stat.uploaded}/{stat.total}
       </span>
     </motion.button>
@@ -430,18 +449,10 @@ function CategoryIntelligence({
     else if (v?.status === "warn") warnCount++;
   }
 
-  // Template matches with issues
-  let sectionIssues = 0;
-  for (const item of uploadedItems) {
-    const tm = templateWarnings?.get(item.id);
-    if (tm?.matched && tm.missingSections.length > 0) sectionIssues++;
-  }
-
-  const hasAnything = hasMdf || passCount > 0 || warnCount > 0 || sectionIssues > 0;
+  const hasAnything = hasMdf || passCount > 0 || warnCount > 0;
   if (!hasAnything) return null;
 
-  // Summary color
-  const isAllGood = (!hasMdf || fieldPct >= 80) && warnCount === 0 && sectionIssues === 0;
+  const isAllGood = (!hasMdf || fieldPct >= 80) && warnCount === 0;
 
   return (
     <div className="rounded-xl border border-border/30 bg-card/50">
@@ -482,11 +493,6 @@ function CategoryIntelligence({
             {warnCount > 0 && (
               <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
                 {warnCount} uncertain
-              </span>
-            )}
-            {sectionIssues > 0 && (
-              <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                {sectionIssues} section{sectionIssues > 1 ? "s" : ""} incomplete
               </span>
             )}
           </div>
@@ -533,28 +539,17 @@ function CategoryIntelligence({
               {/* Per-slot validation results */}
               {uploadedItems.map((item) => {
                 const v = uploadValidations?.get(item.id);
-                const tm = templateWarnings?.get(item.id);
-                if (!v && !tm?.matched) return null;
+                if (!v) return null;
                 if (dismissedValidations.has(item.id)) return null;
 
                 return (
                   <div key={item.id} className="flex items-center gap-2.5 text-sm">
-                    {v?.status === "pass" && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
-                    {v?.status === "warn" && <AlertTriangle className="h-4 w-4 text-amber-500" />}
-                    {!v && tm?.matched && (
-                      tm.missingSections.length === 0
-                        ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                        : <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    )}
+                    {v.status === "pass" && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+                    {v.status === "warn" && <AlertTriangle className="h-4 w-4 text-amber-500" />}
                     <span className="text-foreground/80">{item.label}</span>
-                    {v?.status === "warn" && (
+                    {v.status === "warn" && (
                       <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
                         verify manually
-                      </span>
-                    )}
-                    {tm?.matched && tm.missingSections.length > 0 && (
-                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                        {tm.missingSections.length} section{tm.missingSections.length > 1 ? "s" : ""} missing
                       </span>
                     )}
                   </div>
@@ -616,6 +611,7 @@ function UploadSlot({
   const isUploaded = item.status === "uploaded";
   const isProcessing = !!slotProgress;
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
+  const [showFieldGrid, setShowFieldGrid] = useState(false);
 
   // Auto-dismiss remove confirmation after 2 seconds
   useEffect(() => {
@@ -694,13 +690,34 @@ function UploadSlot({
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className={cn(
                   "text-sm font-medium",
                   isProcessing ? "text-primary" : "text-foreground"
                 )}>
                   {item.label}
                 </span>
+                {/* Inline MDF field count pill — click to expand field grid */}
+                {mdfValidation && !isProcessing && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setShowFieldGrid(!showFieldGrid); }}
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors",
+                      mdfValidation.percentage >= 80
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+                        : mdfValidation.percentage >= 50
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
+                        : "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                    )}
+                  >
+                    {mdfValidation.totalPresent}/{mdfValidation.totalChecked} fields
+                    <ChevronDown className={cn(
+                      "ml-1 inline h-3 w-3 transition-transform duration-200",
+                      showFieldGrid && "rotate-180"
+                    )} />
+                  </button>
+                )}
                 {docTypeWarning && (
                   <Tooltip delayDuration={0}>
                     <TooltipTrigger onClick={(e) => e.stopPropagation()}>
@@ -780,7 +797,6 @@ function UploadSlot({
                       // Second click — actually remove
                       setRemoveConfirm(null);
                       onFileRemove(f.id);
-                      toast("File removed");
                     } else {
                       // First click — enter confirm state
                       setRemoveConfirm(f.id);
@@ -802,6 +818,39 @@ function UploadSlot({
               </div>
             ))}
           </div>
+
+          {/* Expandable MDF field grid */}
+          <AnimatePresence>
+            {showFieldGrid && mdfValidation && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="mt-3 rounded-lg border border-border/20 bg-muted/20 p-3">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    {mdfValidation.allFields.map((field) => (
+                      <div key={field.field} className="flex items-center gap-1.5 text-xs">
+                        {field.present ? (
+                          <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+                        ) : (
+                          <X className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                        )}
+                        <span className={cn(
+                          field.present ? "text-muted-foreground" : "text-foreground"
+                        )}>
+                          {field.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {item.multiFile && (
             <button
@@ -895,26 +944,40 @@ function MDFMergeIndicator({
   onSkipChange: (skip: boolean) => void;
 }) {
   return (
-    <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-start gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
-          <Link2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-        </div>
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
-            Smart merge available
-          </p>
-          <p className="text-xs text-blue-600/70 dark:text-blue-400/70">
-            {plan.reason} ({plan.mainPageCount}p main + {plan.stampPageCount}p stamp = {plan.resultPageCount}p merged)
-          </p>
-          <button
-            onClick={() => onSkipChange(!skip)}
-            className="text-sm text-primary hover:underline transition-colors"
-          >
-            {skip ? "Enable merge" : "Don't merge"}
-          </button>
-        </div>
-      </div>
+    <div
+      className={cn(
+        "mt-2 flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs",
+        skip
+          ? "border border-amber-500/20 bg-amber-500/5"
+          : "border border-blue-500/20 bg-blue-500/5"
+      )}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <Link2 className={cn(
+        "h-3.5 w-3.5 shrink-0",
+        skip ? "text-amber-500" : "text-blue-500"
+      )} />
+      <span className={cn(
+        "font-medium tabular-nums",
+        skip ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"
+      )}>
+        {skip ? "Merge skipped" : (
+          plan.overlappingPages.length > 0
+            ? `Smart merge: ${plan.mainPageCount}p + ${plan.stampPageCount}p → ${plan.resultPageCount}p`
+            : `Append merge: ${plan.mainPageCount}p + ${plan.stampPageCount}p → ${plan.resultPageCount}p`
+        )}
+      </span>
+      <button
+        onClick={() => onSkipChange(!skip)}
+        className={cn(
+          "ml-auto shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
+          skip
+            ? "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 dark:text-blue-400"
+            : "bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+        )}
+      >
+        {skip ? "Enable merge" : "Don't merge"}
+      </button>
     </div>
   );
 }
@@ -1495,14 +1558,7 @@ export function ChecklistEngine({
               </div>
             </div>
 
-            {/* Single consolidated intelligence bar for this category */}
-            <CategoryIntelligence
-              items={grouped.get(activeCategory) || []}
-              mdfValidation={activeCategory === "Forms" ? mdfValidation : undefined}
-              templateWarnings={templateWarnings}
-              uploadValidations={uploadValidations}
-              dismissedValidations={dismissedValidations}
-            />
+            {/* Intelligence moved inline to each UploadSlot */}
 
             {/* Conditional question cards + their nested doc slots */}
             {(() => {

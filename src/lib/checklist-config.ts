@@ -139,16 +139,7 @@ const LOW_RISK: ChecklistTemplate[] = [
   },
 
   // --- KYC ---
-  {
-    id: "passport-eid",
-    label: "Passport & EID (for shareholders 25% & above only)",
-    category: "KYC",
-    required: true,
-    notes: [
-      "If share is below 25%, no need for KYC and don't mention in MDF",
-      "Check expiry date — expired KYC is a major discrepancy",
-    ],
-  },
+  // Passport & EID moved to ShareholderKYC section (auto-populated from MDF)
 
   // --- Bank ---
   {
@@ -329,7 +320,6 @@ export function getChecklistForCase(caseType: CaseType): ChecklistTemplate[] {
 export const CATEGORIES_ORDER = [
   "Forms",
   "Legal",
-  "KYC",
   "Bank",
   "Shop",
 ];
@@ -349,7 +339,6 @@ export const DOCUMENT_TYPE_MAP: Record<string, string> = {
   "vat-declaration": "VAT_Declaration",
   "org-structure": "OrgStructure",
   "letter-of-intent": "LetterOfIntent",
-  "passport-eid": "KYC",
   "bank-statement": "BankStatement_1M",
   "iban-proof": "IBAN_Proof",
   "payment-proof": "PaymentProof",

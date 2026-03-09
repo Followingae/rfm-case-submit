@@ -379,7 +379,6 @@ export const SLOT_TO_DOCTYPE: Record<string, string[]> = {
   "addendum": ["addendum"],
   "branch-form": ["branch-form"],
   "pg-questionnaire": ["pg-questionnaire"],
-  "passport-eid": ["passport", "emirates-id"],
   "payment-proof": ["payment-proof"],
   "iban-proof": ["iban-letter", "bank-statement"],
   "tenancy-ejari": ["tenancy"],

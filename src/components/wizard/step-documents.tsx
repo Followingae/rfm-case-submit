@@ -8,9 +8,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChecklistEngine } from "@/components/checklist/checklist-engine";
 import { ShareholderKYCSection } from "@/components/checklist/shareholder-kyc";
+import { DocProgressSidebar } from "@/components/checklist/doc-progress-sidebar";
 import {
   ChecklistItem,
-  ConsistencyWarning,
   MerchantInfo,
   ShareholderKYC,
   UploadedFile,
@@ -20,7 +20,7 @@ import type { MergePlan } from "@/lib/pdf-merger";
 import { MDFValidationResult } from "@/lib/mdf-validation";
 import { DocTypeDetectionResult } from "@/lib/doc-type-detector";
 import type { UploadValidation } from "@/lib/upload-validator";
-import { DuplicateWarning } from "@/lib/duplicate-detector";
+
 import { TemplateMatchResult } from "@/lib/types";
 
 interface StepDocumentsProps {
@@ -36,7 +36,7 @@ interface StepDocumentsProps {
   onShareholderRawFiles: (key: string, files: File[]) => void;
   mdfValidation: MDFValidationResult | null;
   docTypeWarnings: Map<string, DocTypeDetectionResult>;
-  duplicateWarnings: DuplicateWarning[];
+  duplicateWarnings: { fileName: string }[];
   templateWarnings: Map<string, TemplateMatchResult>;
   uploadValidations?: Map<string, UploadValidation>;
   uploadProgress?: Map<string, UploadProgress>;
@@ -44,7 +44,6 @@ interface StepDocumentsProps {
   onMoveFile?: (fromSlotId: string, toSlotId: string, files: File[]) => void;
   onMultiSlotFulfill?: (results: Array<{ slotId: string; files: File[] }>) => void;
   onClassificationProgress?: (msg: string | null) => void;
-  consistencyWarnings?: ConsistencyWarning[];
   mdfMergePlan?: MergePlan | null;
   skipMdfMerge?: boolean;
   onSkipMdfMergeChange?: (skip: boolean) => void;
@@ -73,7 +72,6 @@ export function StepDocuments({
   onMoveFile,
   onMultiSlotFulfill,
   onClassificationProgress,
-  consistencyWarnings,
   mdfMergePlan,
   skipMdfMerge,
   onSkipMdfMergeChange,
@@ -81,7 +79,6 @@ export function StepDocuments({
   onNext,
 }: StepDocumentsProps) {
   const uploadedCount = items.filter((i) => i.status === "uploaded").length;
-  const totalItems = items.length;
   const hasAnyUpload = uploadedCount > 0 || shareholders.some(
     (s) => s.passportFiles.length > 0 || s.eidFiles.length > 0
   );
@@ -98,92 +95,91 @@ export function StepDocuments({
     return set;
   }, [duplicateWarnings]);
 
-  const progressPercent = totalItems > 0 ? Math.round((uploadedCount / totalItems) * 100) : 0;
-
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-5xl">
       {/* Page header */}
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight">Document Checklist</h2>
-        <div className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
+      <div className="max-w-3xl space-y-1 mb-6">
+        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">Step 2</p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight">Document Checklist</h2>
+        <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{merchantInfo.legalName || "Merchant"}</span>
           <span>&middot;</span>
           <span className="capitalize">{merchantInfo.caseType.replace("-", " ")}</span>
         </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Upload progress</span>
-          <span className="font-medium text-foreground">{uploadedCount}/{totalItems} documents</span>
-        </div>
-        <div className="h-1.5 w-full rounded-full bg-muted/30 overflow-hidden">
-          <div
-            className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
-            style={{ width: `${progressPercent}%` }}
+      {/* Two-column layout: main content + sticky sidebar */}
+      <div className="flex gap-6 items-start">
+        {/* Main content */}
+        <div className="min-w-0 flex-1 space-y-6">
+          <ChecklistEngine
+            items={items}
+            onItemUpdate={onItemUpdate}
+            onFileRemove={onFileRemove}
+            conditionals={conditionals}
+            onConditionalToggle={onConditionalToggle}
+            onRawFilesAdded={onRawFilesAdded}
+            onMultiSlotFulfill={onMultiSlotFulfill}
+            onClassificationProgress={onClassificationProgress}
+            docTypeWarnings={docTypeWarnings}
+            duplicateFileNames={duplicateFileNames}
+            uploadValidations={uploadValidations}
+            uploadProgress={uploadProgress}
+            onCancelUpload={onCancelUpload}
+            onMoveFile={onMoveFile}
+            mdfMergePlan={mdfMergePlan}
+            skipMdfMerge={skipMdfMerge}
+            onSkipMdfMergeChange={onSkipMdfMergeChange}
+            mdfValidation={mdfValidation}
+            templateWarnings={templateWarnings}
           />
-        </div>
-      </div>
 
-      {/* Checklist engine */}
-      <ChecklistEngine
-        items={items}
-        onItemUpdate={onItemUpdate}
-        onFileRemove={onFileRemove}
-        conditionals={conditionals}
-        onConditionalToggle={onConditionalToggle}
-        onRawFilesAdded={onRawFilesAdded}
-        onMultiSlotFulfill={onMultiSlotFulfill}
-        onClassificationProgress={onClassificationProgress}
-        docTypeWarnings={docTypeWarnings}
-        duplicateFileNames={duplicateFileNames}
-        uploadValidations={uploadValidations}
-        uploadProgress={uploadProgress}
-        onCancelUpload={onCancelUpload}
-        onMoveFile={onMoveFile}
-        mdfMergePlan={mdfMergePlan}
-        skipMdfMerge={skipMdfMerge}
-        onSkipMdfMergeChange={onSkipMdfMergeChange}
-        mdfValidation={mdfValidation}
-        templateWarnings={templateWarnings}
-      />
+          <ShareholderKYCSection
+            shareholders={shareholders}
+            onUpdate={onShareholdersUpdate}
+            onRawFilesAdded={onShareholderRawFiles}
+          />
 
-      <ShareholderKYCSection
-        shareholders={shareholders}
-        onUpdate={onShareholdersUpdate}
-        onRawFilesAdded={onShareholderRawFiles}
-      />
+          {/* Bottom navigation */}
+          <div className="border-t border-border/30 pt-4 mt-6">
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <Button
+                variant="ghost"
+                size="lg"
+                onClick={onPrev}
+                className="group h-10 gap-2 rounded-lg px-6 text-muted-foreground hover:text-foreground"
+              >
+                <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+                Back
+              </Button>
 
-      {/* Bottom navigation */}
-      <div className="border-t border-border/30 pt-4 mt-6">
-        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Button
-            variant="ghost"
-            size="lg"
-            onClick={onPrev}
-            className="group h-10 gap-2 rounded-lg px-6 text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
-            Back
-          </Button>
-
-          <div className="flex items-center gap-3">
-            {missingRequired.length > 0 && hasAnyUpload && (
-              <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-600">
-                {missingRequired.length} required missing
-              </span>
-            )}
-            <Button
-              size="lg"
-              disabled={!hasAnyUpload}
-              onClick={onNext}
-              className="group h-10 gap-2 rounded-lg px-8 font-medium"
-            >
-              Review & Export
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-            </Button>
+              <div className="flex items-center gap-3">
+                {missingRequired.length > 0 && hasAnyUpload && (
+                  <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-600">
+                    {missingRequired.length} required missing
+                  </span>
+                )}
+                <Button
+                  size="lg"
+                  disabled={!hasAnyUpload}
+                  onClick={onNext}
+                  className="group h-10 gap-2 rounded-lg px-8 font-medium"
+                >
+                  Review & Export
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </Button>
+              </div>
+            </div>
           </div>
+        </div>
+
+        {/* Sticky progress sidebar — hidden on small screens */}
+        <div className="hidden xl:block">
+          <DocProgressSidebar
+            items={items}
+            conditionals={conditionals}
+            uploadProgress={uploadProgress ?? new Map()}
+          />
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ import type {
   ConsistencyWarning,
 } from "@/lib/types";
 import type { MDFValidationResult } from "@/lib/mdf-validation";
+import type { DocCompletenessResult } from "@/lib/doc-completeness";
 import type { DocTypeDetectionResult } from "@/lib/doc-type-detector";
 import type { ParsedTradeLicense } from "@/lib/ocr-engine";
 import type { UploadValidation } from "@/lib/upload-validator";
@@ -56,16 +57,14 @@ const EXCEPTION_OPTIONS: ExceptionOption[] = [
 /* ───────────────────────── Helpers ─────────────────────────── */
 
 /**
- * Check whether a date string represents an expired date.
+ * Parse a date string flexibly into a Date object.
  * Supports common formats: DD/MM/YYYY, DD-MM-YYYY, MM/DD/YYYY, YYYY-MM-DD.
- * Returns `true` if expired, `false` if valid or unparseable.
+ * Returns `null` if unparseable.
  */
-function isDateExpired(dateStr: string): boolean {
-  const now = new Date();
-
+function parseFlexibleDateRE(dateStr: string): Date | null {
   // Try ISO format first (YYYY-MM-DD)
   let parsed = new Date(dateStr);
-  if (!isNaN(parsed.getTime())) return parsed < now;
+  if (!isNaN(parsed.getTime())) return parsed;
 
   // Try DD/MM/YYYY or DD-MM-YYYY
   const ddmmyyyy = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
@@ -73,10 +72,33 @@ function isDateExpired(dateStr: string): boolean {
     const [, d, m, y] = ddmmyyyy;
     const year = y.length === 2 ? 2000 + parseInt(y, 10) : parseInt(y, 10);
     parsed = new Date(year, parseInt(m, 10) - 1, parseInt(d, 10));
-    if (!isNaN(parsed.getTime())) return parsed < now;
+    if (!isNaN(parsed.getTime())) return parsed;
   }
 
-  return false;
+  return null;
+}
+
+/**
+ * Check whether a date string represents an expired date.
+ * Returns `true` if expired, `false` if valid or unparseable.
+ */
+function isDateExpired(dateStr: string): boolean {
+  const parsed = parseFlexibleDateRE(dateStr);
+  return parsed !== null && parsed < new Date();
+}
+
+/**
+ * Check whether a date string represents a date within `months` months from now.
+ * Returns `true` if the date is in the future but within the given window.
+ */
+function isDateExpiringSoon(dateStr: string, months: number): boolean {
+  const parsed = parseFlexibleDateRE(dateStr);
+  if (!parsed) return false;
+  const now = new Date();
+  if (parsed <= now) return false; // already expired, not "expiring soon"
+  const threshold = new Date(now);
+  threshold.setMonth(threshold.getMonth() + months);
+  return parsed <= threshold;
 }
 
 /**
@@ -94,6 +116,14 @@ function isItemActive(
 
 /* ─────────────────── Main Readiness Function ──────────────── */
 
+/** KYC expiry flags for a single shareholder. */
+export interface KycExpiryFlag {
+  passportExpired?: boolean;
+  eidExpired?: boolean;
+  passportExpiryDate?: string;
+  eidExpiryDate?: string;
+}
+
 export function computeReadiness(
   checklist: ChecklistItem[],
   conditionals: Record<string, boolean>,
@@ -103,6 +133,8 @@ export function computeReadiness(
   docTypeWarnings: Map<string, DocTypeDetectionResult>,
   exceptions: CaseException[],
   uploadValidations?: Map<string, UploadValidation>,
+  kycExpiryFlags?: Map<string, KycExpiryFlag>,
+  docCompleteness?: Map<string, DocCompletenessResult>,
 ): ReadinessResult {
   const items: ReadinessItem[] = [];
 
@@ -227,6 +259,69 @@ export function computeReadiness(
         exceptionOptions: [...EXCEPTION_OPTIONS],
       });
     }
+
+    /* ── Step 2b: Expired KYC documents ── */
+
+    const flags = kycExpiryFlags?.get(sh.id);
+    const shDisplayName = sh.name || "Unnamed shareholder";
+
+    if (flags?.passportExpired) {
+      const entry: ReadinessItem = {
+        itemId: `kyc::${sh.id}::passport-expired`,
+        label: `Expired passport — ${shDisplayName}`,
+        status: "fail",
+        reason: `Expired passport for ${shDisplayName}`,
+        confidence: 90,
+        exceptionOptions: [...EXCEPTION_OPTIONS],
+      };
+      if (exceptionByItem.has(entry.itemId)) {
+        const ex = exceptionByItem.get(entry.itemId)!;
+        entry.status = "exception";
+        entry.reason = `Exception: ${ex.reason}`;
+      }
+      items.push(entry);
+    }
+
+    if (flags?.eidExpired) {
+      const entry: ReadinessItem = {
+        itemId: `kyc::${sh.id}::eid-expired`,
+        label: `Expired Emirates ID — ${shDisplayName}`,
+        status: "fail",
+        reason: `Expired Emirates ID for ${shDisplayName}`,
+        confidence: 90,
+        exceptionOptions: [...EXCEPTION_OPTIONS],
+      };
+      if (exceptionByItem.has(entry.itemId)) {
+        const ex = exceptionByItem.get(entry.itemId)!;
+        entry.status = "exception";
+        entry.reason = `Exception: ${ex.reason}`;
+      }
+      items.push(entry);
+    }
+
+    /* ── Step 2c: Nearly-expired KYC documents (within 6 months) ── */
+
+    if (flags?.passportExpiryDate && !flags.passportExpired && isDateExpiringSoon(flags.passportExpiryDate, 6)) {
+      items.push({
+        itemId: `kyc::${sh.id}::passport-expiring-soon`,
+        label: `Passport expiring soon — ${shDisplayName}`,
+        status: "exception",
+        reason: `Passport for ${shDisplayName} expires within 6 months`,
+        confidence: 90,
+        exceptionOptions: [...EXCEPTION_OPTIONS],
+      });
+    }
+
+    if (flags?.eidExpiryDate && !flags.eidExpired && isDateExpiringSoon(flags.eidExpiryDate, 6)) {
+      items.push({
+        itemId: `kyc::${sh.id}::eid-expiring-soon`,
+        label: `Emirates ID expiring soon — ${shDisplayName}`,
+        status: "exception",
+        reason: `Emirates ID for ${shDisplayName} expires within 6 months`,
+        confidence: 90,
+        exceptionOptions: [...EXCEPTION_OPTIONS],
+      });
+    }
   }
 
   /* ── Step 3: MDF validation ── */
@@ -252,6 +347,30 @@ export function computeReadiness(
       confidence: 0,
       exceptionOptions: [...EXCEPTION_OPTIONS],
     });
+  }
+
+  /* ── Step 3b: Document completeness checks ── */
+
+  if (docCompleteness) {
+    for (const [slotId, result] of docCompleteness) {
+      if (!result.isAcceptable && result.totalFields > 0) {
+        const label = `${slotId} completeness: ${result.percentage}%`;
+        const entry: ReadinessItem = {
+          itemId: `doc-completeness::${slotId}`,
+          label,
+          status: result.percentage < 30 ? "fail" : "exception",
+          reason: `Only ${result.presentCount}/${result.totalFields} fields detected — ${result.missingFields.map(f => f.label).join(", ")}`,
+          confidence: result.percentage,
+          exceptionOptions: [...EXCEPTION_OPTIONS],
+        };
+        if (exceptionByItem.has(entry.itemId)) {
+          const ex = exceptionByItem.get(entry.itemId)!;
+          entry.status = "exception";
+          entry.reason = `Exception: ${ex.reason}`;
+        }
+        items.push(entry);
+      }
+    }
   }
 
   /* ── Step 4: Trade License expiry check ── */
@@ -283,7 +402,9 @@ export function computeReadiness(
     if (item.status === "fail") {
       const isCritical =
         CRITICAL_DOC_IDS.has(item.itemId) ||
-        item.itemId === "trade-license-expiry";
+        item.itemId === "trade-license-expiry" ||
+        item.itemId.endsWith("::passport-expired") ||
+        item.itemId.endsWith("::eid-expired");
       score -= isCritical ? PENALTY_FAIL_CRITICAL : PENALTY_FAIL_STANDARD;
     } else if (item.status === "exception") {
       score -= PENALTY_EXCEPTION;

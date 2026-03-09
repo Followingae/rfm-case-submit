@@ -123,7 +123,7 @@ export const TEMPLATES: DocumentTemplate[] = [
     ],
     identifyingKeywords: [
       "merchant details form",
-      "magnati",
+      "network international",
       "fee schedule",
       "settlement bank",
       "schedule 01",
@@ -560,16 +560,16 @@ export async function matchTemplate(
   let bestResult: TemplateMatchResult = noMatch;
 
   for (const template of candidates) {
-    // Score identifying keywords (30%)
+    // Score identifying keywords (20%)
     const keywordHits = template.identifyingKeywords.filter((kw) =>
       hasPattern(normalizedText, kw),
     ).length;
     const keywordScore =
       template.identifyingKeywords.length > 0
-        ? (keywordHits / template.identifyingKeywords.length) * 30
+        ? (keywordHits / template.identifyingKeywords.length) * 20
         : 0;
 
-    // Score sections via pattern matching (30%)
+    // Score sections via pattern matching (20%)
     const matchedSections: string[] = [];
     const missingSections: string[] = [];
 
@@ -586,7 +586,7 @@ export async function matchTemplate(
 
     const sectionScore =
       template.sections.length > 0
-        ? (matchedSections.length / template.sections.length) * 30
+        ? (matchedSections.length / template.sections.length) * 20
         : 0;
 
     // Score required fields via pattern matching (15%)
@@ -598,8 +598,12 @@ export async function matchTemplate(
         ? (fieldHits / template.fieldPatterns.length) * 15
         : 0;
 
-    // Reference doc comparison (25%)
+    // Reference doc comparison (45%) — PRIMARY signal when available
+    // Reference docs are the gold standard uploaded by the team; they
+    // should weigh more than hardcoded patterns which are fallbacks.
     let refScore = 0;
+    const hardcodedWeight = 55; // keywords + sections + fields
+    const refWeight = 45;
     if (refText.length > 30) {
       const refWords = refText.split(/\s+/).filter((w) => w.length >= 3);
       const uniqueRefPhrases = new Set<string>();
@@ -614,15 +618,15 @@ export async function matchTemplate(
           if (normalizedText.includes(phrase)) phraseHits++;
         }
         refScore = Math.min(
-          25,
-          (phraseHits / uniqueRefPhrases.size) * 25,
+          refWeight,
+          (phraseHits / uniqueRefPhrases.size) * refWeight,
         );
       }
     } else {
       // No reference doc — redistribute weight proportionally
       const totalBase = keywordScore + sectionScore + fieldScore;
       if (totalBase > 0) {
-        refScore = (totalBase / 75) * 25;
+        refScore = (totalBase / hardcodedWeight) * refWeight;
       }
     }
 

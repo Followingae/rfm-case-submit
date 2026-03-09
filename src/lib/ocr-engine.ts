@@ -90,9 +90,11 @@ async function ocrScannedPDF(arrayBuffer: ArrayBuffer): Promise<{ text: string; 
   const allText: string[] = [];
   let totalConfidence = 0;
 
-  // Cap at 15 pages — useful content is in the first several pages;
-  // OCR'ing 30+ page PDFs wastes time and causes pdfjs worker conflicts
-  const maxPages = Math.min(pdf.numPages, 15);
+  // Cap at 30 pages — some MDFs and legal docs can exceed 15 pages
+  const maxPages = Math.min(pdf.numPages, 30);
+  if (pdf.numPages > 30) {
+    console.warn(`[OCR] PDF has ${pdf.numPages} pages — only the first 30 will be processed`);
+  }
 
   for (let i = 1; i <= maxPages; i++) {
     try {
@@ -159,7 +161,7 @@ export async function extractTextFromFile(file: File): Promise<{ text: string; c
       const arrayBuffer = await file.arrayBuffer();
       const result = await extractTextFromPDF(arrayBuffer);
 
-      if (result.text.trim().length > 200) {
+      if (result.text.trim().length > 100) {
         return result;
       }
 
@@ -420,7 +422,7 @@ export function parseMDFText(text: string): ParsedMDF {
 
     if (/contact.*person/i.test(line)) {
       // Scan next few lines for contact details
-      for (let j = i + 1; j < Math.min(i + 8, lines.length); j++) {
+      for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
         const cl = lines[j];
         if (/^name\b/i.test(cl)) {
           data.contactName = extractField(lines, j, /name/i);
@@ -634,7 +636,7 @@ export function parseMDFText(text: string): ParsedMDF {
     if (/length.*(?:business|relationship)/i.test(line)) {
       data.otherAcquirerYears = extractField(lines, i, /length.*(?:business|relationship)/i);
     }
-    if (/reason.*(?:approaching|magnati)/i.test(line)) {
+    if (/reason.*(?:approaching|network\s*international|magnati)/i.test(line)) {
       data.reasonForMagnati = extractField(lines, i, /reason/i);
     }
   }
@@ -646,7 +648,7 @@ export function parseMDFText(text: string): ParsedMDF {
 
 export function detectMDFVersion(text: string): "v1" | "v2" | "unknown" {
   const lower = text.toLowerCase();
-  if (lower.includes("merchant details form")) return "v1";
+  if (lower.includes("merchant details form") || lower.includes("network international")) return "v1";
   if (lower.includes("merchant application") || lower.includes("merchant onboarding")) return "v2";
   return "unknown";
 }
@@ -662,6 +664,9 @@ export interface ParsedTradeLicense {
   activities?: string;
   authority?: string;
   partnersListed?: string;
+  registeredAddress?: string;
+  paidUpCapital?: string;
+  licenseType?: string;
   rawText: string;
 }
 
@@ -674,7 +679,7 @@ export function parseTradeLicenseText(text: string): ParsedTradeLicense {
     const nextLine = lines[i + 1] || "";
 
     if (/licen[cs]e.*(?:no|number)/i.test(line)) {
-      const numMatch = line.match(/[\d\-\/]+/) || nextLine.match(/[\d\-\/]+/);
+      const numMatch = line.match(/[A-Z0-9][\w\-\/]{3,}/) || nextLine.match(/[A-Z0-9][\w\-\/]{3,}/);
       if (numMatch) data.licenseNumber = numMatch[0];
     }
     if (/expir/i.test(line)) {
@@ -692,37 +697,74 @@ export function parseTradeLicenseText(text: string): ParsedTradeLicense {
     if (/activit/i.test(line)) {
       data.activities = extractField(lines, i, /activit/i);
     }
-    // Detect issuing authority
-    if (/DED|department.*economic/i.test(line)) {
-      data.authority = "DED";
-    }
-    if (/JAFZA|jebel.*ali/i.test(line)) {
-      data.authority = "JAFZA";
-    }
-    if (/DMCC/i.test(line)) {
-      data.authority = "DMCC";
-    }
-    if (/DIFC/i.test(line)) {
-      data.authority = "DIFC";
-    }
-    if (/ADGM/i.test(line)) {
-      data.authority = "ADGM";
-    }
-    if (/RAKEZ|ras.*al.*khaim/i.test(line)) {
-      data.authority = "RAKEZ";
-    }
-    if (/SAIF.*zone|sharjah.*airport/i.test(line)) {
-      data.authority = "SAIF Zone";
+    // Detect issuing authority — comprehensive UAE free zones and authorities
+    if (!data.authority) {
+      const authorityMap: [RegExp, string][] = [
+        [/\bDED\b|department.*economic.*development/i, "DED"],
+        [/\bJAFZA\b|jebel.*ali.*free/i, "JAFZA"],
+        [/\bDMCC\b|dubai.*multi.*commodit/i, "DMCC"],
+        [/\bDIFC\b|dubai.*international.*financial/i, "DIFC"],
+        [/\bADGM\b|abu.*dhabi.*global.*market/i, "ADGM"],
+        [/\bRAKEZ\b|ras.*al.*khaim.*economic/i, "RAKEZ"],
+        [/SAIF.*zone|sharjah.*airport/i, "SAIF Zone"],
+        [/\bDAFZA\b|dubai.*airport.*free/i, "DAFZA"],
+        [/\bKIZAD\b|khalifa.*industrial/i, "KIZAD"],
+        [/\bSHAMS\b|sharjah.*media/i, "SHAMS"],
+        [/\bIFZA\b|international.*free.*zone.*auth/i, "IFZA"],
+        [/\bDSO\b|dubai.*silicon.*oasis/i, "DSO"],
+        [/\bDWC\b|dubai.*world.*central|dubai.*south/i, "Dubai South"],
+        [/\bDHCC\b|dubai.*health.*care/i, "DHCC"],
+        [/\bDIC\b|dubai.*internet.*city/i, "DIC"],
+        [/\bDMC\b|dubai.*media.*city/i, "DMC"],
+        [/\bDKP\b|dubai.*knowledge/i, "DKP"],
+        [/ajman.*free.*zone/i, "Ajman Free Zone"],
+        [/fujairah.*free.*zone/i, "Fujairah Free Zone"],
+        [/hamriyah.*free.*zone/i, "Hamriyah Free Zone"],
+        [/\bRAK\b.*free.*trade|rak.*ftza/i, "RAK FTZ"],
+        [/umm.*al.*quwain.*free/i, "UAQ Free Zone"],
+        [/\bTWOFOUR54\b|twofour.*54/i, "twofour54"],
+        [/\bADIO\b|abu.*dhabi.*investment/i, "ADIO"],
+      ];
+      for (const [pattern, authority] of authorityMap) {
+        if (pattern.test(line)) {
+          data.authority = authority;
+          break;
+        }
+      }
     }
     if (/(?:partner|shareholder|owner).*(?:name|detail)/i.test(line)) {
       // Collect next few lines as partner text
       const partnerLines: string[] = [];
-      for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+      for (let j = i + 1; j < Math.min(i + 20, lines.length); j++) {
         if (/activit|section|legal.*form|capital/i.test(lines[j])) break;
         partnerLines.push(lines[j]);
       }
       if (partnerLines.length > 0) {
         data.partnersListed = partnerLines.join("; ");
+      }
+    }
+
+    // Registered address
+    if (!data.registeredAddress && (/address/i.test(line) || /registered.*office/i.test(line) || /location/i.test(line))) {
+      // Avoid matching email/web addresses
+      if (!/email/i.test(line) && !/web/i.test(line) && !/url/i.test(line)) {
+        data.registeredAddress = extractField(lines, i, /(?:address|registered.*office|location)/i);
+      }
+    }
+
+    // Paid-up capital
+    if (!data.paidUpCapital && /(?:paid.*up.*capital|share.*capital|capital)/i.test(line)) {
+      const amountMatch = line.match(/[\d,]+\.?\d*/) || nextLine.match(/[\d,]+\.?\d*/);
+      if (amountMatch) data.paidUpCapital = amountMatch[0];
+    }
+
+    // License type
+    if (!data.licenseType) {
+      const typeMatch = line.match(/(?:commercial|industrial|professional|tourism|trading).*licen[cs]e/i);
+      if (typeMatch) {
+        data.licenseType = typeMatch[0];
+      } else if (/licen[cs]e.*(?:type|category)/i.test(line)) {
+        data.licenseType = extractField(lines, i, /licen[cs]e.*(?:type|category)/i);
       }
     }
   }
@@ -791,6 +833,16 @@ export function parsePassportText(text: string): ParsedPassport {
       const sexMatch = line.match(/\b([MF])\b/) || nextLine.match(/\b([MF])\b/);
       if (sexMatch) data.sex = sexMatch[1];
     }
+
+    // Place of birth
+    if (!data.placeOfBirth && /place.*of.*birth/i.test(line)) {
+      data.placeOfBirth = extractField(lines, i, /place.*of.*birth/i);
+    }
+
+    // Issuing date (date of issue)
+    if (!data.issuingDate && /(?:date.*of.*issue|issue.*date)/i.test(line)) {
+      data.issuingDate = extractDate(lines, i);
+    }
   }
 
   // Check expiry
@@ -833,7 +885,7 @@ export function parseMOAText(text: string): ParsedMOA {
           const name = sl.substring(0, sl.indexOf(percMatch[0])).trim();
           if (name) data.shareholders!.push(name);
           data.sharePercentages!.push(percMatch[1] + "%");
-        } else if (sl.length > 3 && sl.length < 80 && /^[A-Za-z\s.]+$/.test(sl)) {
+        } else if (sl.length > 3 && sl.length < 80 && /^[A-Za-z\u00C0-\u024F\s.'\-]+$/.test(sl)) {
           data.shareholders!.push(sl);
         }
       }
@@ -841,13 +893,36 @@ export function parseMOAText(text: string): ParsedMOA {
 
     // Authorized signatory
     if (/authorized.*signator/i.test(line) || /signatory.*authoriz/i.test(line)) {
-      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+      for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
         const sl = lines[j];
-        if (sl.length > 3 && sl.length < 80 && /^[A-Za-z\s.]+$/.test(sl)) {
+        if (sl.length > 3 && sl.length < 80 && /^[A-Za-z\u00C0-\u024F\s.'\-]+$/.test(sl)) {
           data.signatories!.push(sl);
         }
         if (/article|section|clause/i.test(sl)) break;
       }
+    }
+
+    // Registration number
+    if (!data.registrationNumber && /(?:registration|commercial).*(?:no|number)/i.test(line)) {
+      const numMatch = line.match(/[A-Z0-9][\w\-\/]{3,}/) || (lines[i + 1] || "").match(/[A-Z0-9][\w\-\/]{3,}/);
+      if (numMatch) data.registrationNumber = numMatch[0];
+    }
+
+    // Registration date
+    if (!data.registrationDate && /(?:date.*of.*registration|registered.*on|dated)/i.test(line)) {
+      data.registrationDate = extractDate(lines, i);
+    }
+
+    // Authorized capital
+    if (!data.authorizedCapital && /(?:authorized|authorised|share).*capital/i.test(line)) {
+      const amountMatch = line.match(/[\d,]+\.?\d*/) || (lines[i + 1] || "").match(/[\d,]+\.?\d*/);
+      if (amountMatch) data.authorizedCapital = amountMatch[0];
+    }
+
+    // Legal form
+    if (!data.legalForm) {
+      const legalFormMatch = line.match(/(?:limited.*liability|llc|l\.l\.c|pjsc|sole.*proprietor|partnership|free.*zone.*company)/i);
+      if (legalFormMatch) data.legalForm = legalFormMatch[0];
     }
   }
 
@@ -865,9 +940,24 @@ export function parseBankStatementText(text: string): ParsedBankStatement {
     const nextLine = lines[i + 1] || "";
 
     if (!data.bankName) {
-      const banks = ["Emirates NBD", "ADCB", "FAB", "Mashreq", "RAKBANK", "DIB", "ENBD", "CBD", "NBF", "UAB", "ADIB"];
+      const banks = [
+        // UAE national banks
+        "Emirates NBD", "ENBD", "ADCB", "FAB", "First Abu Dhabi",
+        "Mashreq", "RAKBANK", "DIB", "Dubai Islamic", "CBD",
+        "NBF", "National Bank of Fujairah", "UAB", "United Arab Bank",
+        "ADIB", "Abu Dhabi Islamic", "Emirates Islamic", "EIB",
+        "Ajman Bank", "Bank of Sharjah", "Invest Bank", "NBR",
+        "National Bank of Ras Al Khaimah", "Commercial Bank International", "CBI",
+        // International banks operating in UAE
+        "HSBC", "Standard Chartered", "Citibank", "Barclays",
+        "Bank of Baroda", "Habib Bank", "HBL", "State Bank of India",
+        "Banque Misr", "National Bank of Oman", "NBO",
+        "Bank of China", "Industrial and Commercial Bank",
+        "Deutsche Bank", "BNP Paribas", "Credit Agricole",
+        "Arab Bank", "Bank of America", "JPMorgan",
+      ];
       for (const bank of banks) {
-        if (new RegExp(bank, "i").test(line)) {
+        if (new RegExp(bank.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(line)) {
           data.bankName = bank;
           break;
         }
@@ -887,6 +977,62 @@ export function parseBankStatementText(text: string): ParsedBankStatement {
     if (!data.period && /from\s+\d/i.test(line)) {
       const dateRange = line.match(/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\s*(?:to|[-–])\s*\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/i);
       if (dateRange) data.period = dateRange[0];
+    }
+
+    // IBAN extraction
+    if (!data.iban) {
+      const ibanMatch = line.replace(/\s/g, "").match(/[A-Z]{2}\d{2}[A-Z0-9]{10,30}/i);
+      if (ibanMatch) {
+        data.iban = ibanMatch[0].toUpperCase();
+      }
+    }
+
+    // Currency
+    if (!data.currency && /(?:currency|ccy)/i.test(line)) {
+      const ccyMatch = line.match(/\b(AED|USD|EUR|GBP|SAR|QAR|KWD|BHD|OMR|INR)\b/i);
+      if (ccyMatch) data.currency = ccyMatch[1].toUpperCase();
+    }
+    if (!data.currency) {
+      const ccyMatch = line.match(/\b(AED|USD|EUR|GBP)\b/);
+      if (ccyMatch) data.currency = ccyMatch[1];
+    }
+
+    // Opening balance
+    if (!data.openingBalance && /opening.*balance/i.test(line)) {
+      const amountMatch = line.match(/[\d,]+\.?\d*/) || nextLine.match(/[\d,]+\.?\d*/);
+      if (amountMatch) data.openingBalance = amountMatch[0];
+    }
+
+    // Closing balance
+    if (!data.closingBalance && /closing.*balance/i.test(line)) {
+      const amountMatch = line.match(/[\d,]+\.?\d*/) || nextLine.match(/[\d,]+\.?\d*/);
+      if (amountMatch) data.closingBalance = amountMatch[0];
+    }
+
+    // Total credits
+    if (!data.totalCredits && /total.*credits?/i.test(line)) {
+      const amountMatch = line.match(/[\d,]+\.?\d*/) || nextLine.match(/[\d,]+\.?\d*/);
+      if (amountMatch) data.totalCredits = amountMatch[0];
+    }
+
+    // Total debits
+    if (!data.totalDebits && /total.*debits?/i.test(line)) {
+      const amountMatch = line.match(/[\d,]+\.?\d*/) || nextLine.match(/[\d,]+\.?\d*/);
+      if (amountMatch) data.totalDebits = amountMatch[0];
+    }
+
+    // SWIFT/BIC code
+    if (!data.swiftCode && /(?:swift|bic).*(?:code)?/i.test(line)) {
+      const swiftMatch = line.match(/[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?/) || nextLine.match(/[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?/);
+      if (swiftMatch) data.swiftCode = swiftMatch[0];
+    }
+  }
+
+  // Extract period end date for recency check
+  if (data.period) {
+    const dates = data.period.match(/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/g);
+    if (dates && dates.length >= 2) {
+      data.periodEndDate = dates[dates.length - 1];
     }
   }
 
@@ -912,6 +1058,24 @@ export function parseVATCertText(text: string): ParsedVATCert {
     }
     if (!data.registrationDate && /(?:registration|effective).*date/i.test(line)) {
       data.registrationDate = extractDate(lines, i);
+    }
+
+    // Effective date (separate from registration date)
+    if (!data.effectiveDate && /effective.*date/i.test(line)) {
+      data.effectiveDate = extractDate(lines, i);
+    }
+
+    // Expiry date
+    if (!data.expiryDate && /expir/i.test(line)) {
+      data.expiryDate = extractDate(lines, i);
+    }
+
+    // Business address
+    if (!data.businessAddress && (/(?:address|location|registered.*office)/i.test(line))) {
+      // Avoid matching email/web addresses
+      if (!/email/i.test(line) && !/web/i.test(line)) {
+        data.businessAddress = extractField(lines, i, /(?:address|location|registered.*office)/i);
+      }
     }
   }
 

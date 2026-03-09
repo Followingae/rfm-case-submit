@@ -1,4 +1,4 @@
-import type { ExtractedField } from "@/lib/types";
+import type { ExtractedField, ParsedBankStatement, ParsedVATCert, ParsedMOA, ParsedPassport, ParsedEID } from "@/lib/types";
 import type { ParsedMDF, ParsedTradeLicense } from "@/lib/ocr-engine";
 
 export interface LabeledField {
@@ -88,6 +88,137 @@ export function tradeLicenseToExtractedFields(
   add("Legal Form", parsed.legalForm);
   add("Activities", parsed.activities);
   add("Authority", parsed.authority);
+  add("Address", parsed.registeredAddress);
+  add("Paid-Up Capital", parsed.paidUpCapital);
+  add("License Type", parsed.licenseType);
+
+  return fields;
+}
+
+export function bankStatementToExtractedFields(
+  parsed: ParsedBankStatement,
+  confidence: number
+): LabeledField[] {
+  const fields: LabeledField[] = [];
+  const add = (label: string, value: string | undefined | null) => {
+    const f = makeField(value, confidence);
+    if (f) fields.push({ label, field: f });
+  };
+
+  add("Bank Name", parsed.bankName);
+  add("Account Holder", parsed.accountHolder);
+  add("Account Number", parsed.accountNumber);
+  add("IBAN", parsed.iban);
+  add("Currency", parsed.currency);
+  add("Statement Period", parsed.period);
+  add("Opening Balance", parsed.openingBalance);
+  add("Closing Balance", parsed.closingBalance);
+  add("Total Credits", parsed.totalCredits);
+  add("Total Debits", parsed.totalDebits);
+  add("SWIFT Code", parsed.swiftCode);
+
+  return fields;
+}
+
+export function vatCertToExtractedFields(
+  parsed: ParsedVATCert,
+  confidence: number
+): LabeledField[] {
+  const fields: LabeledField[] = [];
+  const add = (label: string, value: string | undefined | null) => {
+    const f = makeField(value, confidence);
+    if (f) fields.push({ label, field: f });
+  };
+
+  add("TRN Number", parsed.trnNumber);
+  add("Business Name", parsed.businessName);
+  add("Registration Date", parsed.registrationDate);
+  add("Effective Date", parsed.effectiveDate);
+  add("Expiry Date", parsed.expiryDate);
+  add("Business Address", parsed.businessAddress);
+
+  return fields;
+}
+
+export function moaToExtractedFields(
+  parsed: ParsedMOA,
+  confidence: number
+): LabeledField[] {
+  const fields: LabeledField[] = [];
+  const add = (label: string, value: string | undefined | null) => {
+    const f = makeField(value, confidence);
+    if (f) fields.push({ label, field: f });
+  };
+
+  add("Company Name", parsed.companyName);
+  add("Registration Number", parsed.registrationNumber);
+  add("Registration Date", parsed.registrationDate);
+  add("Authorized Capital", parsed.authorizedCapital);
+  add("Legal Form", parsed.legalForm);
+
+  if (parsed.shareholders && parsed.shareholders.length > 0) {
+    add("Shareholders", parsed.shareholders.join(", "));
+  }
+  if (parsed.sharePercentages && parsed.sharePercentages.length > 0) {
+    add("Share Percentages", parsed.sharePercentages.join(", "));
+  }
+  if (parsed.signatories && parsed.signatories.length > 0) {
+    add("Signatories", parsed.signatories.join(", "));
+  }
+
+  return fields;
+}
+
+export function passportToExtractedFields(
+  parsed: ParsedPassport,
+  confidence: number
+): LabeledField[] {
+  const fields: LabeledField[] = [];
+  const add = (label: string, value: string | undefined | null) => {
+    const f = makeField(value, confidence);
+    if (f) fields.push({ label, field: f });
+  };
+
+  add("Surname", parsed.surname);
+  add("Given Names", parsed.givenNames);
+  add("Passport Number", parsed.passportNumber);
+  add("Nationality", parsed.nationality);
+  add("Date of Birth", parsed.dateOfBirth);
+  add("Sex", parsed.sex);
+  add("Expiry Date", parsed.expiryDate);
+  add("Place of Birth", parsed.placeOfBirth);
+  add("Issuing Date", parsed.issuingDate);
+
+  if (parsed.isExpired !== undefined) {
+    add("Expired", parsed.isExpired ? "Yes" : "No");
+  }
+  if (parsed.mrzValid !== undefined) {
+    add("MRZ Valid", parsed.mrzValid ? "Yes" : "No");
+  }
+
+  return fields;
+}
+
+export function eidToExtractedFields(
+  parsed: ParsedEID,
+  confidence: number
+): LabeledField[] {
+  const fields: LabeledField[] = [];
+  const add = (label: string, value: string | undefined | null) => {
+    const f = makeField(value, confidence);
+    if (f) fields.push({ label, field: f });
+  };
+
+  add("ID Number", parsed.idNumber);
+  add("Name", parsed.name);
+  add("Nationality", parsed.nationality);
+  add("Expiry Date", parsed.expiryDate);
+  add("Date of Birth", parsed.dateOfBirth);
+  add("Gender", parsed.gender);
+
+  if (parsed.isExpired !== undefined) {
+    add("Expired", parsed.isExpired ? "Yes" : "No");
+  }
 
   return fields;
 }

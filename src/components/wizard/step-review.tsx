@@ -17,11 +17,13 @@ import {
   FilePlus2,
   AlertTriangle,
   Shield,
+  ShieldCheck,
   Send,
   Copy,
   ClipboardCheck,
   Mail,
   ArrowRight as ArrowRightIcon,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -100,6 +102,8 @@ export function StepReview({
   const [copiedText, setCopiedText] = useState(false);
   const [submissionExpanded, setSubmissionExpanded] = useState(true);
   const [issuesExpanded, setIssuesExpanded] = useState(true);
+  const [crossDocExpanded, setCrossDocExpanded] = useState(true);
+  const [validationExpanded, setValidationExpanded] = useState(false);
 
   const warnings = useMemo(
     () => validateCase(merchantInfo, items, conditionals, shareholders),
@@ -197,29 +201,31 @@ export function StepReview({
     <div className="mx-auto max-w-3xl space-y-6">
       {/* Page header */}
       <div>
-        <h2 className="text-xl font-semibold tracking-tight">Review & Export</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Review your case details and export when ready</p>
+        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">Step 3</p>
+        <h2 className="mt-1 text-2xl font-semibold tracking-tight">Review & Export</h2>
+        <p className="mt-1.5 text-sm text-muted-foreground">Review your case details and export when ready</p>
       </div>
 
       {/* ── Readiness Score Card ── */}
       {readiness && (
-        <div className="rounded-xl border border-border/50 bg-card p-6">
+        <div className="rounded-xl border border-border/50 bg-card p-6 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)]">
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-4">Readiness Score</p>
           <div className="flex items-center justify-between">
-            <div className="flex items-baseline gap-2">
+            <div className="flex items-baseline gap-1">
               <span className={cn(
-                "text-4xl font-bold",
+                "text-5xl font-bold tracking-tight",
                 tier === "green" ? "text-emerald-500" : tier === "amber" ? "text-amber-500" : "text-red-500"
               )}>
                 {score}
               </span>
-              <span className="text-lg text-muted-foreground">/100</span>
+              <span className="text-lg text-muted-foreground/50 font-medium">/100</span>
             </div>
             <Badge
               className={cn(
-                "px-3 py-1 text-xs font-medium border-0",
-                tier === "green" && "bg-emerald-500/10 text-emerald-600",
-                tier === "amber" && "bg-amber-500/10 text-amber-600",
-                tier === "red" && "bg-red-500/10 text-red-600"
+                "px-3 py-1.5 text-xs font-medium border-0",
+                tier === "green" && "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/[0.08] dark:text-emerald-400",
+                tier === "amber" && "bg-amber-500/10 text-amber-600 dark:bg-amber-500/[0.08] dark:text-amber-400",
+                tier === "red" && "bg-red-500/10 text-red-600 dark:bg-red-500/[0.08] dark:text-red-400"
               )}
             >
               {tier === "green" ? "Ready to Export" : tier === "amber" ? "Needs Attention" : "Not Ready"}
@@ -227,7 +233,7 @@ export function StepReview({
           </div>
 
           {/* Score bar */}
-          <div className="mt-4 h-2 w-full rounded-full bg-muted/20 overflow-hidden">
+          <div className="mt-5 h-1.5 w-full rounded-full bg-muted/30 overflow-hidden">
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-700 ease-out",
@@ -237,17 +243,17 @@ export function StepReview({
             />
           </div>
 
-          {/* Metric pills */}
-          <div className="mt-4 flex items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600">
+          {/* Metric pills — Stripe-style pastel backgrounds */}
+          <div className="mt-4 flex items-center gap-2.5">
+            <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium bg-emerald-500/[0.08] text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
               <CheckCircle2 className="h-3.5 w-3.5" />
               {readiness.greenCount} Pass
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600">
+            <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium bg-amber-500/[0.08] text-amber-600 dark:bg-amber-950/60 dark:text-amber-400">
               <AlertTriangle className="h-3.5 w-3.5" />
               {readiness.amberCount} Warnings
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-600">
+            <span className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium bg-red-500/[0.08] text-red-600 dark:bg-red-950/60 dark:text-red-400">
               <XCircle className="h-3.5 w-3.5" />
               {readiness.redCount} Failed
             </span>
@@ -256,25 +262,26 @@ export function StepReview({
       )}
 
       {/* ── Case Summary Card ── */}
-      <div className="rounded-xl border border-border/50 bg-card p-6">
+      <div className="rounded-xl border border-border/50 bg-card p-6 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)]">
+        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-4">Case Summary</p>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Legal Name</span>
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/60">Legal Name</span>
             <p className="mt-1 text-sm font-medium">{merchantInfo.legalName || "\u2014"}</p>
           </div>
           <div>
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">DBA</span>
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/60">DBA</span>
             <p className="mt-1 text-sm font-medium">{merchantInfo.dba || "\u2014"}</p>
           </div>
           <div>
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Case Type</span>
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/60">Case Type</span>
             <p className="mt-1 text-sm font-medium capitalize">
               {merchantInfo.caseType.replace("-", " ")}
             </p>
           </div>
           <div>
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Documents</span>
-            <p className="mt-1 text-sm font-medium">{uploadedItems.length}/{requiredItems.length}</p>
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/60">Documents</span>
+            <p className="mt-1 text-sm font-semibold tabular-nums">{uploadedItems.length}/{requiredItems.length}</p>
           </div>
         </div>
 
@@ -449,6 +456,61 @@ export function StepReview({
         </div>
       )}
 
+      {/* ── Validation Warnings (business-logic) ── */}
+      {warnings.length > 0 && (
+        <div className="rounded-xl border border-border/50 bg-card">
+          <button
+            onClick={() => setValidationExpanded(!validationExpanded)}
+            className="flex w-full items-center gap-2 px-6 py-4"
+          >
+            <Info className="h-4 w-4 text-blue-500" />
+            <span className="flex-1 text-left text-sm font-medium">
+              Validation Warnings ({warnings.length})
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium bg-red-500/[0.08] text-red-600 dark:bg-red-950/60 dark:text-red-400">
+                {warnings.filter((w) => w.type === "major").length} major
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium bg-amber-500/[0.08] text-amber-600 dark:bg-amber-950/60 dark:text-amber-400">
+                {warnings.filter((w) => w.type === "minor").length} minor
+              </span>
+            </div>
+            {validationExpanded ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
+
+          {validationExpanded && (
+            <div className="border-t border-border/30 px-6 py-4">
+              <div className="space-y-1.5">
+                {warnings.map((w, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-start gap-2.5 rounded-lg px-3 py-2 text-sm bg-muted/20"
+                  >
+                    {w.type === "major" ? (
+                      <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    )}
+                    <span className="text-muted-foreground">{w.message}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Cross-Document Checks ── */}
+      <CrossDocumentChecks
+        consistencyWarnings={consistencyWarnings ?? []}
+        expanded={crossDocExpanded}
+        onToggle={() => setCrossDocExpanded(!crossDocExpanded)}
+      />
+
       {/* ── Extracted Fields ── */}
       {extractedFields.size > 0 && (
         <div className="rounded-xl border border-border/50 bg-card p-6">
@@ -550,11 +612,11 @@ export function StepReview({
               }
               disabled={tier !== "red" && (isExporting || renameMappings.length === 0)}
               className={cn(
-                "h-12 gap-2 rounded-xl px-8 text-base font-medium",
+                "h-12 gap-2 rounded-xl px-8 text-base font-semibold transition-all duration-200",
                 tier === "green"
-                  ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                  ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-[0_2px_8px_rgba(16,185,129,0.25)] hover:shadow-[0_4px_14px_rgba(16,185,129,0.35)]"
                   : tier === "amber"
-                  ? "bg-amber-600 hover:bg-amber-700 text-white"
+                  ? "bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-700 hover:to-amber-600 text-white shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
                   : ""
               )}
             >
@@ -789,6 +851,147 @@ function MdfSummary({ validation }: { validation: MDFValidationResult }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Cross-Document Checks ──────────────────────────────────────────
+
+/** All possible consistency check types, with human-readable pass labels */
+const CONSISTENCY_CHECK_DEFS: {
+  type: ConsistencyWarning["type"];
+  passLabel: string;
+  docs: string[];
+}[] = [
+  { type: "name-mismatch", passLabel: "Merchant name matches across documents", docs: ["Form Input", "MDF", "Trade License"] },
+  { type: "expired", passLabel: "Trade License is not expired", docs: ["Trade License"] },
+  { type: "iban-checksum-failed", passLabel: "IBAN checksum is valid", docs: ["MDF"] },
+  { type: "shareholder-mismatch", passLabel: "All form shareholders found in MDF", docs: ["Form Input", "MDF"] },
+  { type: "passport-shareholder-mismatch", passLabel: "All MDF shareholders found in form input", docs: ["Passport", "MDF"] },
+  { type: "bank-name-missing", passLabel: "Bank name is present in MDF", docs: ["MDF"] },
+];
+
+function CrossDocumentChecks({
+  consistencyWarnings,
+  expanded,
+  onToggle,
+}: {
+  consistencyWarnings: ConsistencyWarning[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  // Build a set of warning types that fired
+  const warningTypes = new Set(consistencyWarnings.map((w) => w.type));
+  const warningsByType = new Map<string, ConsistencyWarning[]>();
+  for (const w of consistencyWarnings) {
+    const list = warningsByType.get(w.type) || [];
+    list.push(w);
+    warningsByType.set(w.type, list);
+  }
+
+  const passCount = CONSISTENCY_CHECK_DEFS.filter((d) => !warningTypes.has(d.type)).length;
+  const warnCount = consistencyWarnings.length;
+
+  return (
+    <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/[0.02] dark:bg-indigo-500/[0.03]">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center gap-2.5 px-6 py-4"
+      >
+        <ShieldCheck className="h-4 w-4 text-indigo-500" />
+        <span className="flex-1 text-left text-sm font-medium">
+          Cross-Document Checks
+        </span>
+        <div className="flex items-center gap-2">
+          {passCount > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium bg-emerald-500/[0.08] text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
+              {passCount} pass
+            </span>
+          )}
+          {warnCount > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium bg-amber-500/[0.08] text-amber-600 dark:bg-amber-950/60 dark:text-amber-400">
+              {warnCount} {warnCount === 1 ? "warning" : "warnings"}
+            </span>
+          )}
+        </div>
+        {expanded ? (
+          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="border-t border-indigo-500/10 px-6 py-4 space-y-1.5">
+          {CONSISTENCY_CHECK_DEFS.map((def) => {
+            const fired = warningsByType.get(def.type);
+
+            if (!fired || fired.length === 0) {
+              // Pass state
+              return (
+                <div
+                  key={def.type}
+                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm"
+                >
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+                  <span className="text-muted-foreground">{def.passLabel}</span>
+                  <div className="ml-auto flex gap-1">
+                    {def.docs.map((d) => (
+                      <span
+                        key={d}
+                        className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-muted/40 text-muted-foreground/60"
+                      >
+                        {d}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
+            // Warning state — render each warning instance
+            return fired.map((w, idx) => (
+              <div
+                key={`${def.type}-${idx}`}
+                className={cn(
+                  "flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-sm",
+                  w.severity === "major"
+                    ? "bg-amber-500/[0.06] dark:bg-amber-500/[0.04]"
+                    : "bg-amber-500/[0.03] dark:bg-amber-500/[0.02]"
+                )}
+              >
+                <AlertTriangle className={cn(
+                  "mt-0.5 h-4 w-4 shrink-0",
+                  w.severity === "major" ? "text-amber-500" : "text-amber-400"
+                )} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-foreground/90">{w.message}</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {w.docs.map((d) => (
+                      <span
+                        key={d}
+                        className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                      >
+                        {d}
+                      </span>
+                    ))}
+                    <span
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                        w.severity === "major"
+                          ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                          : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                      )}
+                    >
+                      {w.severity}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ));
+          })}
         </div>
       )}
     </div>

@@ -36,7 +36,13 @@ export function parseEID(text: string): ParsedEID | null {
     }
   }
 
-  return { idNumber, name, nationality, expiryDate, isExpired, rawText: text };
+  // 6. Date of birth extraction
+  const dateOfBirth = extractDateOfBirth(raw, rawId);
+
+  // 7. Gender extraction
+  const gender = extractGender(raw);
+
+  return { idNumber, name, nationality, expiryDate, dateOfBirth, gender, isExpired, rawText: text };
 }
 
 function extractName(text: string): string | undefined {
@@ -75,6 +81,39 @@ function extractNationality(text: string): string | undefined {
   if (match) {
     const value = match[1].trim();
     if (value.length > 0) return value;
+  }
+  return undefined;
+}
+
+function extractDateOfBirth(text: string, rawId: string): string | undefined {
+  // Try label-based extraction first
+  const dobRe =
+    /(?:Date\s*of\s*Birth|Birth\s*Date|D\.?O\.?B)\s*[:\-]?\s*(\d{1,4}[\/-]\d{1,2}[\/-]\d{1,4})/i;
+  const match = text.match(dobRe);
+  if (match) return match[1].trim();
+
+  // Fallback: try to decode from UAE ID number
+  // For UAE nationals (784), digits 5-12 can encode birth date as YYYYMMDD
+  if (rawId && rawId.length >= 15) {
+    const birthSegment = rawId.slice(4, 12); // digits 5-12 (0-indexed: 4..11)
+    const year = parseInt(birthSegment.slice(0, 4), 10);
+    const month = parseInt(birthSegment.slice(4, 6), 10);
+    const day = parseInt(birthSegment.slice(6, 8), 10);
+    if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`;
+    }
+  }
+
+  return undefined;
+}
+
+function extractGender(text: string): string | undefined {
+  const genderRe = /(?:Sex|Gender)\s*[:\-]?\s*(Male|Female|M|F)\b/i;
+  const match = text.match(genderRe);
+  if (match) {
+    const value = match[1].trim().toUpperCase();
+    if (value === "MALE" || value === "M") return "M";
+    if (value === "FEMALE" || value === "F") return "F";
   }
   return undefined;
 }

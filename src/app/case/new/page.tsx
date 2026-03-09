@@ -19,6 +19,9 @@ import {
   ExtractedField,
   SubmissionDetails,
   UploadProgress,
+  ParsedBankStatement,
+  ParsedVATCert,
+  ParsedMOA,
 } from "@/lib/types";
 import { getChecklistForCase } from "@/lib/checklist-config";
 import {
@@ -53,15 +56,26 @@ import {
 } from "@/lib/mdf-validation";
 import { detectDocumentType, DocTypeDetectionResult } from "@/lib/doc-type-detector";
 import { validateSlotUpload, UploadValidation } from "@/lib/upload-validator";
-import { detectDuplicates, DuplicateWarning } from "@/lib/duplicate-detector";
-import { computeReadiness } from "@/lib/readiness-engine";
+import { detectEnhancedDuplicates } from "@/lib/duplicate-detector";
+import type { EnhancedDuplicateWarning } from "@/lib/types";
+import { computeReadiness, type KycExpiryFlag } from "@/lib/readiness-engine";
 import { checkConsistency } from "@/lib/consistency-checker";
 import { getExceptions } from "@/lib/exception-store";
 import { matchTemplate } from "@/lib/template-registry";
-import { mdfToExtractedFields, tradeLicenseToExtractedFields, type LabeledField } from "@/lib/field-adapter";
+import {
+  mdfToExtractedFields,
+  tradeLicenseToExtractedFields,
+  bankStatementToExtractedFields,
+  vatCertToExtractedFields,
+  moaToExtractedFields,
+  passportToExtractedFields,
+  eidToExtractedFields,
+  type LabeledField,
+} from "@/lib/field-adapter";
 import type { ParsedTradeLicense, ParsedMDF } from "@/lib/ocr-engine";
 import { detectMDFMergePlan, type MergePlan } from "@/lib/pdf-merger";
 import { extractMDFFormFields } from "@/lib/mdf-form-reader";
+import { validateDocCompleteness, type DocCompletenessResult } from "@/lib/doc-completeness";
 
 export default function NewCasePage() {
   const [step, setStep] = useState(0);
@@ -85,16 +99,25 @@ export default function NewCasePage() {
   // Validation state
   const [mdfValidation, setMdfValidation] = useState<MDFValidationResult | null>(null);
   const [docTypeWarnings, setDocTypeWarnings] = useState<Map<string, DocTypeDetectionResult>>(new Map());
-  const [duplicateWarnings, setDuplicateWarnings] = useState<DuplicateWarning[]>([]);
+  const [duplicateWarnings, setDuplicateWarnings] = useState<EnhancedDuplicateWarning[]>([]);
 
   // New intelligence state
   const [tradeLicenseData, setTradeLicenseData] = useState<ParsedTradeLicense | null>(null);
+  const [bankStatementData, setBankStatementData] = useState<ParsedBankStatement | null>(null);
+  const [vatCertData, setVatCertData] = useState<ParsedVATCert | null>(null);
+  const [moaData, setMoaData] = useState<ParsedMOA | null>(null);
   const [consistencyWarnings, setConsistencyWarnings] = useState<ConsistencyWarning[]>([]);
   const [readiness, setReadiness] = useState<ReadinessResult | null>(null);
   const [exceptions, setExceptions] = useState<CaseException[]>([]);
   const [uploadValidations, setUploadValidations] = useState<Map<string, UploadValidation>>(new Map());
   const [templateWarnings, setTemplateWarnings] = useState<Map<string, TemplateMatchResult>>(new Map());
   const [extractedFields, setExtractedFields] = useState<Map<string, LabeledField[]>>(new Map());
+
+  // KYC expiry tracking for readiness engine
+  const [kycExpiryFlags, setKycExpiryFlags] = useState<Map<string, KycExpiryFlag>>(new Map());
+
+  // Document completeness tracking
+  const [docCompleteness, setDocCompleteness] = useState<Map<string, DocCompletenessResult>>(new Map());
 
   // Submission email table
   const [submissionDetails, setSubmissionDetails] = useState<SubmissionDetails>({
@@ -238,6 +261,7 @@ export default function NewCasePage() {
       setTemplateWarnings(new Map());
       setExtractedFields(new Map());
       setUploadValidations(new Map());
+      setKycExpiryFlags(new Map());
       parsedMDFRef.current = null;
     },
     []
@@ -274,12 +298,14 @@ export default function NewCasePage() {
         tradeLicenseData,
         docTypeWarnings,
         exceptions,
-        uploadValidations
+        uploadValidations,
+        kycExpiryFlags,
+        docCompleteness,
       );
       setReadiness(result);
       return currentChecklist;
     });
-  }, [conditionals, shareholders, mdfValidation, tradeLicenseData, docTypeWarnings, exceptions, uploadValidations]);
+  }, [conditionals, shareholders, mdfValidation, tradeLicenseData, docTypeWarnings, exceptions, uploadValidations, kycExpiryFlags, docCompleteness]);
 
   // Run consistency checks
   const runConsistencyChecks = useCallback(() => {
@@ -287,10 +313,13 @@ export default function NewCasePage() {
       parsedMDFRef.current || null,
       tradeLicenseData,
       merchantInfo,
-      shareholders
+      shareholders,
+      bankStatementData,
+      vatCertData,
+      moaData,
     );
     setConsistencyWarnings(warnings);
-  }, [tradeLicenseData, merchantInfo, shareholders]);
+  }, [tradeLicenseData, merchantInfo, shareholders, bankStatementData, vatCertData, moaData]);
 
   const handleNextToDocuments = useCallback(async () => {
     await createCase(caseIdRef.current, merchantInfo);
@@ -310,8 +339,8 @@ export default function NewCasePage() {
     []
   );
 
-  const runDuplicateCheck = useCallback(() => {
-    const dupes = detectDuplicates(fileStoreRef.current);
+  const runDuplicateCheck = useCallback(async () => {
+    const dupes = await detectEnhancedDuplicates(fileStoreRef.current);
     setDuplicateWarnings(dupes);
   }, []);
 
@@ -350,15 +379,7 @@ export default function NewCasePage() {
           next.set(itemId, result);
           return next;
         });
-        // Only toast for mismatch/unknown — pass/warn are inline only
-        if (result.status === "mismatch" || result.status === "unknown") {
-          toast.warning(
-            result.status === "mismatch"
-              ? `Possible wrong document in ${checklist.find((i) => i.id === itemId)?.label || itemId}`
-              : "Document couldn't be identified",
-            { description: result.message.replace(/\*\*/g, "") }
-          );
-        }
+        // Inline ValidationIndicator handles all display — no toast needed
       } catch {
         // Silent fail
       }
@@ -530,7 +551,10 @@ export default function NewCasePage() {
                 setTradeLicenseData(parsed);
                 await saveTradeLicenseData(caseId, parsed, confidence);
                 if (signal.aborted) return;
-                // Inline indicator replaces toast
+
+                // Document completeness check
+                const tlComplete = validateDocCompleteness("trade-license", parsed);
+                setDocCompleteness(prev => { const m = new Map(prev); m.set("trade-license", tlComplete); return m; });
 
                 // Extract fields for review step
                 const tlFields = tradeLicenseToExtractedFields(parsed, confidence);
@@ -557,7 +581,25 @@ export default function NewCasePage() {
                 const parsed = parseBankStatementText(text);
                 await saveBankStatementData(caseId, parsed, confidence);
                 if (signal.aborted) return;
-                // Inline indicator replaces toast
+
+                setBankStatementData(parsed);
+
+                // Document completeness check
+                const bsComplete = validateDocCompleteness("bank-statement", parsed);
+                setDocCompleteness(prev => { const m = new Map(prev); m.set("bank-statement", bsComplete); return m; });
+
+                // Extract fields for review step
+                const bsFields = bankStatementToExtractedFields(parsed, confidence);
+                if (bsFields.length > 0) {
+                  setExtractedFields((prev) => {
+                    const next = new Map(prev);
+                    next.set("bank-statement", bsFields);
+                    return next;
+                  });
+                }
+
+                runConsistencyChecks();
+                recomputeReadiness();
               }
             }
 
@@ -571,7 +613,25 @@ export default function NewCasePage() {
                 const parsed = parseVATCertText(text);
                 await saveVATCertData(caseId, parsed, confidence);
                 if (signal.aborted) return;
-                // Inline indicator replaces toast
+
+                setVatCertData(parsed);
+
+                // Document completeness check
+                const vatComplete = validateDocCompleteness("vat-cert", parsed);
+                setDocCompleteness(prev => { const m = new Map(prev); m.set("vat-cert", vatComplete); return m; });
+
+                // Extract fields for review step
+                const vatFields = vatCertToExtractedFields(parsed, confidence);
+                if (vatFields.length > 0) {
+                  setExtractedFields((prev) => {
+                    const next = new Map(prev);
+                    next.set("vat-cert", vatFields);
+                    return next;
+                  });
+                }
+
+                runConsistencyChecks();
+                recomputeReadiness();
               }
             }
 
@@ -585,7 +645,37 @@ export default function NewCasePage() {
                 const parsed = parseMOAText(text);
                 await saveMOAData(caseId, parsed, confidence);
                 if (signal.aborted) return;
-                // Inline indicator replaces toast
+
+                setMoaData(parsed);
+
+                // Document completeness check
+                const moaComplete = validateDocCompleteness(itemId, parsed);
+                setDocCompleteness(prev => { const m = new Map(prev); m.set(itemId, moaComplete); return m; });
+
+                // Extract fields for review step
+                const moaFields = moaToExtractedFields(parsed, confidence);
+                if (moaFields.length > 0) {
+                  setExtractedFields((prev) => {
+                    const next = new Map(prev);
+                    next.set(itemId, moaFields);
+                    return next;
+                  });
+                }
+
+                // Auto-populate shareholders from MOA if MDF didn't provide them
+                if (parsed.shareholders && parsed.shareholders.length > 0) {
+                  setShareholders(prev => {
+                    if (prev.length > 0) return prev; // don't overwrite existing
+                    return parsed.shareholders!.map((name, i) => ({
+                      id: crypto.randomUUID(),
+                      name: name || "",
+                      percentage: parsed.sharePercentages?.[i]?.replace(/[^0-9.]/g, "") || "",
+                      passportFiles: [],
+                      eidFiles: [],
+                    }));
+                  });
+                }
+
                 runConsistencyChecks();
               }
             }
@@ -682,16 +772,70 @@ export default function NewCasePage() {
               if (docType === "passport") {
                 const parsed = parsePassportText(text);
                 await savePassportData(caseId, shareholderId, parsed, confidence);
+
+                // Document completeness check
+                const ppComplete = validateDocCompleteness("passport", parsed);
+                setDocCompleteness(prev => { const m = new Map(prev); m.set(`passport::${shareholderId}`, ppComplete); return m; });
+
+                // Extract fields for review step
+                const ppFields = passportToExtractedFields(parsed, confidence);
+                if (ppFields.length > 0) {
+                  setExtractedFields((prev) => {
+                    const next = new Map(prev);
+                    next.set(`passport::${shareholderId}`, ppFields);
+                    return next;
+                  });
+                }
+
+                // Update KYC expiry flags for readiness engine
+                setKycExpiryFlags((prev) => {
+                  const next = new Map(prev);
+                  const existing = next.get(shareholderId) || {};
+                  next.set(shareholderId, {
+                    ...existing,
+                    passportExpired: parsed.isExpired === true,
+                    passportExpiryDate: parsed.expiryDate,
+                  });
+                  return next;
+                });
+
                 if (parsed.passportNumber) {
-                  toast.info(`Passport scanned: ${parsed.surname || ""} ${parsed.givenNames || ""}`.trim(), {
+                  toast.success(`Passport scanned: ${parsed.surname || ""} ${parsed.givenNames || ""}`.trim(), {
                     description: parsed.isExpired ? "Warning: Passport appears expired" : undefined,
                   });
                 }
               } else {
                 const parsed = parseEIDText(text);
                 await saveEIDData(caseId, shareholderId, parsed, confidence);
+
+                // Document completeness check
+                const eidComplete = validateDocCompleteness("eid", parsed);
+                setDocCompleteness(prev => { const m = new Map(prev); m.set(`eid::${shareholderId}`, eidComplete); return m; });
+
+                // Extract fields for review step
+                const eidFields = eidToExtractedFields(parsed, confidence);
+                if (eidFields.length > 0) {
+                  setExtractedFields((prev) => {
+                    const next = new Map(prev);
+                    next.set(`eid::${shareholderId}`, eidFields);
+                    return next;
+                  });
+                }
+
+                // Update KYC expiry flags for readiness engine
+                setKycExpiryFlags((prev) => {
+                  const next = new Map(prev);
+                  const existing = next.get(shareholderId) || {};
+                  next.set(shareholderId, {
+                    ...existing,
+                    eidExpired: parsed.isExpired === true,
+                    eidExpiryDate: parsed.expiryDate,
+                  });
+                  return next;
+                });
+
                 if (parsed.idNumber) {
-                  toast.info(`Emirates ID scanned: ${parsed.idNumber}`, {
+                  toast.success(`Emirates ID scanned: ${parsed.idNumber}`, {
                     description: parsed.isExpired ? "Warning: EID appears expired" : undefined,
                   });
                 }
@@ -926,7 +1070,6 @@ export default function NewCasePage() {
             onCancelUpload={handleCancelUpload}
             onMoveFile={handleMoveFile}
             onMultiSlotFulfill={handleMultiSlotFulfill}
-            consistencyWarnings={consistencyWarnings}
             mdfMergePlan={mdfMergePlan}
             skipMdfMerge={skipMdfMerge}
             onSkipMdfMergeChange={setSkipMdfMerge}

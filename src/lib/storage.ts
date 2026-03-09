@@ -344,32 +344,49 @@ export async function saveEIDData(
 }
 
 // ── OCR: Save Bank Statement Data ────────────
-// Table may not exist yet — no-op until migration is run
+// Supabase table not yet created — persist to localStorage for Phase 1
 
 export async function saveBankStatementData(
-  _caseId: string,
-  _parsed: ParsedBankStatement,
-  _confidence: number
+  caseId: string,
+  parsed: ParsedBankStatement,
+  confidence: number
 ): Promise<void> {
-  // TODO: Enable after running migration to create ocr_bank_statement table
+  try {
+    const key = `case::${caseId}::bankStatement`;
+    localStorage.setItem(key, JSON.stringify({ parsed, confidence }));
+  } catch {
+    console.warn("[localStorage] saveBankStatementData: failed to persist");
+  }
 }
 
 // ── OCR: Save VAT Certificate Data ───────────
+// Supabase table not yet created — persist to localStorage for Phase 1
 
 export async function saveVATCertData(
-  _caseId: string,
-  _parsed: ParsedVATCert,
-  _confidence: number
+  caseId: string,
+  parsed: ParsedVATCert,
+  confidence: number
 ): Promise<void> {
-  // TODO: Enable after running migration to create ocr_vat_certificate table
+  try {
+    const key = `case::${caseId}::vatCert`;
+    localStorage.setItem(key, JSON.stringify({ parsed, confidence }));
+  } catch {
+    console.warn("[localStorage] saveVATCertData: failed to persist");
+  }
 }
 
 // ── OCR: Save MOA Data ───────────────────────
+// Supabase table not yet created — persist to localStorage for Phase 1
 
 export async function saveMOAData(
-  _caseId: string,
-  _parsed: ParsedMOA,
-  _confidence: number
+  caseId: string,
+  parsed: ParsedMOA,
+  confidence: number
 ): Promise<void> {
-  // TODO: Enable after running migration to create ocr_moa_data table
+  try {
+    const key = `case::${caseId}::moa`;
+    localStorage.setItem(key, JSON.stringify({ parsed, confidence }));
+  } catch {
+    console.warn("[localStorage] saveMOAData: failed to persist");
+  }
 }
