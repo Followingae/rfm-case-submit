@@ -26,7 +26,7 @@ import type { ReadinessItem, ExceptionOption, CaseException } from "@/lib/types"
 
 const REASON_CATEGORY_MAP: Record<CaseException["reasonCategory"], string[]> = {
   "combined-doc": ["Combined doc"],
-  "ocr-failed": ["OCR couldn\u2019t read"],
+  "ocr-failed": ["AI couldn\u2019t read"],
   "field-not-detected": ["Field present but not detected"],
   "not-applicable": ["Not applicable"],
   "non-standard": ["Non-standard"],

@@ -9,6 +9,7 @@ import {
   Globe,
   FilePlus2,
   GitBranch,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -60,12 +61,18 @@ export default function DashboardPage() {
     <div className="min-h-screen px-8 py-10 lg:px-12">
       {/* Page header — larger typography like Stripe/Revolut */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-          New Submission
-        </h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            New Submission
+          </h1>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-[11px] font-semibold text-violet-600 dark:text-violet-400 border border-violet-500/20">
+            <Sparkles className="h-3 w-3" />
+            AI-Powered
+          </span>
+        </div>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground max-w-xl">
           Select a case type to begin preparing a merchant onboarding package.
-          Each type determines the required documents, compliance checks, and export format.
+          AI Vision automatically analyzes documents, extracts fields, and validates compliance.
         </p>
       </div>
 
@@ -128,8 +135,8 @@ export default function DashboardPage() {
         <div className="mt-3 space-y-3 pl-[22px]">
           {[
             { n: "1", title: "Merchant details", sub: "Enter legal name, select case type, and provide business info." },
-            { n: "2", title: "Upload documents", sub: "Drag and drop files — OCR extracts fields and validates automatically." },
-            { n: "3", title: "Review & export", sub: "Verify the checklist, resolve warnings, and export the ZIP package." },
+            { n: "2", title: "Upload documents", sub: "Drag and drop files — AI Vision analyzes documents, extracts fields, and validates automatically." },
+            { n: "3", title: "Review & export", sub: "Review AI analysis results, resolve warnings, and export the ZIP package." },
           ].map((s) => (
             <div key={s.n} className="flex items-start gap-3">
               <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted/50 text-[11px] font-medium tabular-nums text-muted-foreground">

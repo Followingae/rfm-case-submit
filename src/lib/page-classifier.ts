@@ -130,18 +130,6 @@ export async function classifyFilePages(
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const totalPages = Math.min(pdf.numPages, MAX_PAGES);
 
-  // Lazy Tesseract worker — only created when OCR is actually needed
-  const Tesseract = await import("tesseract.js");
-  type TesseractWorker = Awaited<ReturnType<typeof Tesseract.createWorker>>;
-  let tesseractWorker: TesseractWorker | null = null;
-
-  async function getTesseractWorker(): Promise<TesseractWorker> {
-    if (!tesseractWorker) {
-      tesseractWorker = await Tesseract.createWorker("eng+ara");
-    }
-    return tesseractWorker;
-  }
-
   const pages: PageClassification[] = [];
 
   // ── Fetch reference texts for reference-driven classification ──
@@ -180,7 +168,7 @@ export async function classifyFilePages(
       // Direct extraction failed
     }
 
-    // Only render canvas if we need OCR or scan quality assessment
+    // Render canvas for scan quality assessment and thumbnails
     let canvas: HTMLCanvasElement | null = null;
     const needsCanvas = text.trim().length < SUFFICIENT_TEXT_LENGTH;
 
@@ -191,28 +179,10 @@ export async function classifyFilePages(
       canvas.height = viewport.height;
       const ctx = canvas.getContext("2d")!;
 
-      // White background — improves OCR on transparent / dark areas
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       await page.render({ canvasContext: ctx, viewport, canvas } as never).promise;
-    }
-
-    // If direct text too short, OCR the canvas
-    if (text.trim().length < MIN_DIRECT_TEXT_LENGTH && canvas) {
-      onProgress?.({
-        currentPage: i,
-        totalPages,
-        phase: "classifying",
-      });
-
-      try {
-        const worker = await getTesseractWorker();
-        const { data } = await worker.recognize(canvas);
-        text = data.text;
-      } catch {
-        // OCR failed
-      }
     }
 
     // Assess scan quality (only if we rendered a canvas)
@@ -306,10 +276,6 @@ export async function classifyFilePages(
       thumbnail,
       quality,
     });
-  }
-
-  if (tesseractWorker !== null) {
-    await (tesseractWorker as TesseractWorker).terminate();
   }
 
   // ── Source-slot defaulting ──

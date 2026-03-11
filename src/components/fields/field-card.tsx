@@ -12,9 +12,10 @@ interface FieldCardProps {
 }
 
 const sourceLabels: Record<ExtractedField["extractionMethod"], string> = {
-  ocr: "OCR",
+  ocr: "Legacy",
   "pdf-text": "PDF",
   mrz: "MRZ",
+  ai: "AI Vision",
   "user-override": "Manual",
 };
 
@@ -100,7 +101,12 @@ export function FieldCard({ label, field, onConfirm }: FieldCardProps) {
 
         {/* Right: source + confirm */}
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-muted-foreground/60">
+          <span className={cn(
+            "text-xs",
+            field.extractionMethod === "ai"
+              ? "rounded-full bg-violet-500/10 px-1.5 py-0.5 font-medium text-violet-600 dark:text-violet-400"
+              : "text-muted-foreground/60"
+          )}>
             {sourceLabels[field.extractionMethod]}
           </span>
           <button

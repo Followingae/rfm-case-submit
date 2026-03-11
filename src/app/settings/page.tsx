@@ -21,7 +21,7 @@ import {
   ReferenceDocSlot,
   type ReferenceSlotInfo,
 } from "@/components/settings/reference-doc-slot";
-import { extractTextFromFile } from "@/lib/ocr-engine";
+import { aiExtractDocument } from "@/lib/ai-extract";
 import type { CaseType } from "@/lib/types";
 
 // IDs to exclude — indefinite-style docs validated via OCR, no standard template
@@ -102,22 +102,26 @@ export default function SettingsPage() {
         return;
       }
       await fetchDocs();
-      toast.success(`Saved: ${file.name}`, { description: "Running OCR to extract text..." });
+      toast.success(`Saved: ${file.name}`, { description: "Running AI extraction..." });
 
-      // 2. Run OCR in background to extract reference text
+      // 2. Run AI in background to extract reference text
       if (file.type.startsWith("image/") || file.type === "application/pdf") {
         setOcrInProgress(templateId);
         try {
-          const { text } = await extractTextFromFile(file);
-          if (text && text.trim().length > 10) {
-            await updateReferenceText(templateId, text);
-            await fetchDocs();
-            toast.success(`Reference text extracted for ${file.name}`, {
-              description: `${text.trim().split(/\s+/).length} words captured — will be used for template matching`,
-            });
+          const aiResult = await aiExtractDocument(file, "doc-detect");
+          if (aiResult) {
+            // Use the raw JSON as reference text for template matching
+            const text = JSON.stringify(aiResult.data, null, 2);
+            if (text.length > 10) {
+              await updateReferenceText(templateId, text);
+              await fetchDocs();
+              toast.success(`Reference data extracted for ${file.name}`, {
+                description: `AI analysis complete — will be used for template matching`,
+              });
+            }
           }
         } catch {
-          // OCR failed, doc is still saved without text
+          // AI failed, doc is still saved without text
         } finally {
           setOcrInProgress(null);
         }
@@ -241,7 +245,7 @@ export default function SettingsPage() {
                   {!isSaving && !isExtracting && hasText && (
                     <span className="flex items-center gap-1.5 text-xs text-emerald-500">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      OCR ready
+                      AI ready
                     </span>
                   )}
                   {!isSaving && !isExtracting && !hasText && ref && (
@@ -270,9 +274,9 @@ export default function SettingsPage() {
         <ul className="mt-3 space-y-2.5">
           {[
             "When you upload a document to a case, the system runs template matching against the reference copy",
-            "OCR text from the reference is compared with the uploaded file to detect missing sections",
+            "AI analyzes the reference and compares it with uploaded files to detect missing sections",
             "Reference files and extracted text are stored in the database — accessible across all devices",
-            "Documents like Trade License, MOA, Photos, and IBAN letters are excluded — they vary by source and are validated via OCR rules instead",
+            "Documents like Trade License, MOA, Photos, and IBAN letters are excluded — they vary by source and are validated via AI rules instead",
           ].map((text, i) => (
             <li key={i} className="flex items-start gap-3 text-sm text-muted-foreground">
               <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />

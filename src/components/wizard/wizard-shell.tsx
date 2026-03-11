@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Check } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WizardShellProps {
@@ -19,8 +19,12 @@ const steps = [
 export function WizardShell({ currentStep, children, onStepClick }: WizardShellProps) {
   return (
     <div className="space-y-8">
-      {/* Stripe-style horizontal stepper */}
-      <nav className="flex items-center justify-center" aria-label="Progress">
+      {/* AI badge + Stripe-style horizontal stepper */}
+      <nav className="flex items-center justify-center gap-4" aria-label="Progress">
+        <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-[11px] font-semibold text-violet-600 dark:text-violet-400 border border-violet-500/15">
+          <Sparkles className="h-3 w-3" />
+          AI-Powered
+        </span>
         <ol className="flex items-center gap-0" role="list">
           {steps.map((step, index) => {
             const isCompleted = index < currentStep;

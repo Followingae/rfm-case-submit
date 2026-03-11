@@ -62,11 +62,44 @@ export function mdfToExtractedFields(
   add("Branch Name", parsed.branchName);
   add("Payment Plan", parsed.paymentPlan);
 
-  // KYC: Projections
+  // KYC: Projections & Business
   add("Monthly Volume", parsed.projectedMonthlyVolume);
   add("Monthly Count", parsed.projectedMonthlyCount);
   add("Source of Income", parsed.sourceOfIncome);
+  add("Income Country", parsed.incomeCountry);
+  add("Activity Details", parsed.activityDetails);
+  add("Source of Capital", parsed.sourceOfCapital);
+  add("Years in UAE", parsed.yearsInUAE);
   add("Business Nature", parsed.exactBusinessNature);
+
+  // KYC: Other Acquirer
+  add("Other Acquirer Names", parsed.otherAcquirerNames);
+  add("Other Acquirer Years", parsed.otherAcquirerYears);
+  add("Reason for Magnati", parsed.reasonForMagnati);
+
+  // KYC: Key Suppliers
+  if (parsed.keySuppliers?.length > 0) {
+    add("Key Suppliers", parsed.keySuppliers.map(s => `${s.company || "?"} (${s.country || "?"})`).join("; "));
+  }
+
+  // KYC: Key Customers
+  if (parsed.keyCustomers?.length > 0) {
+    add("Key Customers", parsed.keyCustomers.map(c => `${c.company || "?"} (${c.country || "?"})`).join("; "));
+  }
+
+  // KYC: Sanctions Exposure
+  if (parsed.sanctionsExposure?.length > 0) {
+    const active = parsed.sanctionsExposure.filter(s => s.hasBusiness);
+    if (active.length > 0) {
+      add("Sanctions Exposure", active.map(s => `${s.country} (${s.percentage || "?"}%)`).join("; "));
+    }
+  }
+
+  // Fees
+  add("Refund Fee", parsed.refundFee);
+  add("MSV Shortfall", parsed.msvShortfall);
+  add("Chargeback Fee", parsed.chargebackFee);
+  add("Portal Fee", parsed.portalFee);
 
   return fields;
 }
@@ -154,7 +187,11 @@ export function moaToExtractedFields(
   add("Registration Number", parsed.registrationNumber);
   add("Registration Date", parsed.registrationDate);
   add("Authorized Capital", parsed.authorizedCapital);
+  add("Paid-Up Capital", parsed.paidUpCapital);
   add("Legal Form", parsed.legalForm);
+  add("Objectives", parsed.companyObjectives);
+  add("Registered Address", parsed.registeredAddress);
+  add("Notarization Date", parsed.notarizationDate);
 
   if (parsed.shareholders && parsed.shareholders.length > 0) {
     add("Shareholders", parsed.shareholders.join(", "));
@@ -210,9 +247,11 @@ export function eidToExtractedFields(
   };
 
   add("ID Number", parsed.idNumber);
+  add("Card Number", parsed.cardNumber);
   add("Name", parsed.name);
   add("Nationality", parsed.nationality);
   add("Expiry Date", parsed.expiryDate);
+  add("Issuing Date", parsed.issuingDate);
   add("Date of Birth", parsed.dateOfBirth);
   add("Gender", parsed.gender);
 

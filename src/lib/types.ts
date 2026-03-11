@@ -76,7 +76,7 @@ export interface ExtractedField {
   confidence: number;
   sourcePage: number;
   boundingBox?: { x: number; y: number; w: number; h: number };
-  extractionMethod: "ocr" | "pdf-text" | "mrz" | "user-override";
+  extractionMethod: "ocr" | "pdf-text" | "mrz" | "ai" | "user-override";
   confirmedBy?: "system" | "user";
 }
 
@@ -238,9 +238,11 @@ export interface ParsedPassport {
 
 export interface ParsedEID {
   idNumber?: string;
+  cardNumber?: string;
   name?: string;
   nationality?: string;
   expiryDate?: string;
+  issuingDate?: string;
   dateOfBirth?: string;
   gender?: string;
   isExpired?: boolean;
@@ -256,6 +258,10 @@ export interface ParsedMOA {
   registrationDate?: string;
   authorizedCapital?: string;
   legalForm?: string;
+  paidUpCapital?: string;
+  companyObjectives?: string;
+  registeredAddress?: string;
+  notarizationDate?: string;
   rawText: string;
 }
 
@@ -288,7 +294,7 @@ export interface ParsedVATCert {
 // ── Upload Progress ──
 
 export interface UploadProgress {
-  phase: "uploading" | "scanning" | "processing";
+  phase: "uploading" | "scanning" | "analyzing" | "processing";
   message: string;
 }
 

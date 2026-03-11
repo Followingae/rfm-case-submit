@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChecklistItem, UploadProgress } from "@/lib/types";
 
@@ -41,6 +41,7 @@ const SHORT_LABELS: Record<string, string> = {
 const PHASE_LABELS: Record<string, string> = {
   uploading: "Uploading",
   scanning: "Scanning",
+  analyzing: "AI Analyzing",
   processing: "Processing",
 };
 
@@ -50,7 +51,7 @@ interface DocProgressSidebarProps {
   uploadProgress: Map<string, UploadProgress>;
 }
 
-type SlotStatus = "missing" | "uploading" | "scanning" | "processing" | "done";
+type SlotStatus = "missing" | "uploading" | "scanning" | "analyzing" | "processing" | "done";
 
 interface SlotEntry {
   id: string;
@@ -92,7 +93,7 @@ export function DocProgressSidebar({
 
   const doneCount = slots.filter((s) => s.status === "done").length;
   const activeSlot = slots.find(
-    (s) => s.status === "uploading" || s.status === "scanning" || s.status === "processing"
+    (s) => s.status === "uploading" || s.status === "scanning" || s.status === "analyzing" || s.status === "processing"
   );
 
   return (
@@ -139,9 +140,19 @@ export function DocProgressSidebar({
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
             >
-              <div className="border-t border-border/20 px-3.5 py-2 flex items-center gap-2">
-                <Loader2 className="h-3 w-3 animate-spin text-primary" />
-                <span className="text-[11px] font-medium text-primary truncate">
+              <div className={cn(
+                "border-t border-border/20 px-3.5 py-2 flex items-center gap-2",
+                activeSlot.phase === "analyzing" && "bg-violet-500/[0.03]"
+              )}>
+                {activeSlot.phase === "analyzing" ? (
+                  <Sparkles className="h-3 w-3 animate-pulse text-violet-500" />
+                ) : (
+                  <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                )}
+                <span className={cn(
+                  "text-[11px] font-medium truncate",
+                  activeSlot.phase === "analyzing" ? "text-violet-600 dark:text-violet-400" : "text-primary"
+                )}>
                   {PHASE_LABELS[activeSlot.phase || ""] || "Working"} {activeSlot.shortLabel}…
                 </span>
               </div>
@@ -159,13 +170,15 @@ function SidebarSlot({ slot }: { slot: SlotEntry }) {
   const isActive =
     slot.status === "uploading" ||
     slot.status === "scanning" ||
+    slot.status === "analyzing" ||
     slot.status === "processing";
 
   return (
     <div
       className={cn(
         "group flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors",
-        isActive && "bg-primary/5"
+        slot.status === "analyzing" && "bg-violet-500/5",
+        isActive && slot.status !== "analyzing" && "bg-primary/5"
       )}
     >
       {/* Status indicator */}
@@ -178,6 +191,11 @@ function SidebarSlot({ slot }: { slot: SlotEntry }) {
           >
             <Check className="h-3.5 w-3.5 text-emerald-500" strokeWidth={2.5} />
           </motion.div>
+        ) : slot.status === "analyzing" ? (
+          <div className="relative flex h-3 w-3 items-center justify-center">
+            <div className="absolute h-3 w-3 animate-ping rounded-full bg-violet-500/30" />
+            <div className="h-2 w-2 rounded-full bg-violet-500" />
+          </div>
         ) : isActive ? (
           <div className="relative flex h-3 w-3 items-center justify-center">
             <div className="absolute h-3 w-3 animate-ping rounded-full bg-primary/30" />
@@ -207,14 +225,19 @@ function SidebarSlot({ slot }: { slot: SlotEntry }) {
         {isActive && (
           <div className="mt-0.5 h-[2px] w-full overflow-hidden rounded-full bg-muted/40">
             <motion.div
-              className="h-full rounded-full bg-primary"
+              className={cn(
+                "h-full rounded-full",
+                slot.status === "analyzing" ? "bg-violet-500" : "bg-primary"
+              )}
               initial={{ width: "0%" }}
               animate={{
                 width:
                   slot.status === "uploading"
-                    ? "33%"
+                    ? "25%"
                     : slot.status === "scanning"
-                    ? "66%"
+                    ? "50%"
+                    : slot.status === "analyzing"
+                    ? "70%"
                     : "90%",
               }}
               transition={{ duration: 0.6, ease: "easeOut" }}
@@ -225,8 +248,13 @@ function SidebarSlot({ slot }: { slot: SlotEntry }) {
 
       {/* Phase badge for active items */}
       {isActive && (
-        <span className="shrink-0 rounded bg-primary/10 px-1 py-px text-[9px] font-semibold uppercase tracking-wider text-primary">
-          {slot.status === "uploading" ? "UP" : slot.status === "scanning" ? "OCR" : "OK"}
+        <span className={cn(
+          "shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wider",
+          slot.status === "analyzing"
+            ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+            : "bg-primary/10 text-primary"
+        )}>
+          {slot.status === "uploading" ? "UP" : slot.status === "scanning" ? "SCAN" : slot.status === "analyzing" ? "AI" : "OK"}
         </span>
       )}
     </div>

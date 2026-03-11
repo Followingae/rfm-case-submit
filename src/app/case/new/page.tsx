@@ -22,18 +22,11 @@ import {
   ParsedBankStatement,
   ParsedVATCert,
   ParsedMOA,
+  ParsedPassport,
+  ParsedEID,
 } from "@/lib/types";
 import { getChecklistForCase } from "@/lib/checklist-config";
-import {
-  extractTextFromFile,
-  parseMDFText,
-  parseTradeLicenseText,
-  parsePassportText,
-  parseEIDText,
-  parseMOAText,
-  parseBankStatementText,
-  parseVATCertText,
-} from "@/lib/ocr-engine";
+// OCR removed — pure AI platform
 import {
   createCase,
   updateCaseStatus,
@@ -54,14 +47,13 @@ import {
   validateMDFFields,
   MDFValidationResult,
 } from "@/lib/mdf-validation";
-import { detectDocumentType, DocTypeDetectionResult } from "@/lib/doc-type-detector";
+import { detectDocumentType, DocTypeDetectionResult, DOC_TYPES, SLOT_TO_DOCTYPE } from "@/lib/doc-type-detector";
 import { validateSlotUpload, UploadValidation } from "@/lib/upload-validator";
 import { detectEnhancedDuplicates } from "@/lib/duplicate-detector";
 import type { EnhancedDuplicateWarning } from "@/lib/types";
 import { computeReadiness, type KycExpiryFlag } from "@/lib/readiness-engine";
 import { checkConsistency } from "@/lib/consistency-checker";
 import { getExceptions } from "@/lib/exception-store";
-import { matchTemplate } from "@/lib/template-registry";
 import {
   mdfToExtractedFields,
   tradeLicenseToExtractedFields,
@@ -74,8 +66,10 @@ import {
 } from "@/lib/field-adapter";
 import type { ParsedTradeLicense, ParsedMDF } from "@/lib/ocr-engine";
 import { detectMDFMergePlan, type MergePlan } from "@/lib/pdf-merger";
-import { extractMDFFormFields } from "@/lib/mdf-form-reader";
 import { validateDocCompleteness, type DocCompletenessResult } from "@/lib/doc-completeness";
+import { autofillSubmissionFromMDF } from "@/lib/submission-autofill";
+import { aiExtractDocument } from "@/lib/ai-extract";
+import type { AIExtractionMeta } from "@/lib/ai-types";
 
 export default function NewCasePage() {
   const [step, setStep] = useState(0);
@@ -119,6 +113,9 @@ export default function NewCasePage() {
   // Document completeness tracking
   const [docCompleteness, setDocCompleteness] = useState<Map<string, DocCompletenessResult>>(new Map());
 
+  // AI extraction metadata tracking
+  const [aiMetadata, setAiMetadata] = useState<Map<string, AIExtractionMeta>>(new Map());
+
   // Submission email table
   const [submissionDetails, setSubmissionDetails] = useState<SubmissionDetails>({
     requestDate: new Date().toLocaleDateString("en-GB"),
@@ -155,7 +152,7 @@ export default function NewCasePage() {
   const [skipMdfMerge, setSkipMdfMerge] = useState(false);
 
   // Parsed MDF data ref for consistency checks
-  const parsedMDFRef = useRef<ReturnType<typeof parseMDFText> | null>(null);
+  const parsedMDFRef = useRef<ParsedMDF | null>(null);
 
   const setSlotProgress = useCallback((itemId: string, progress: UploadProgress | null) => {
     setUploadProgress(prev => {
@@ -165,6 +162,89 @@ export default function NewCasePage() {
       return next;
     });
   }, []);
+
+  const storeAiMeta = useCallback((slotId: string, meta: AIExtractionMeta) => {
+    setAiMetadata(prev => { const m = new Map(prev); m.set(slotId, meta); return m; });
+  }, []);
+
+  // AI-powered wrong-doc-in-slot detection — uses the detectedDocType from primary extraction (no extra API call)
+  const checkSlotDocType = useCallback((slotId: string, meta: AIExtractionMeta) => {
+    const detected = meta.detectedDocType?.toLowerCase().trim();
+    if (!detected || detected === "unknown") return;
+
+    const expectedTypes = SLOT_TO_DOCTYPE[slotId] || [];
+    if (expectedTypes.length === 0) return; // no mapping for this slot
+
+    const isMatch = expectedTypes.includes(detected);
+
+    if (isMatch) {
+      // Set "pass" upload validation — shows "AI Verified" in UI
+      setUploadValidations(prev => {
+        const next = new Map(prev);
+        const slotLabel = checklist.find(i => i.id === slotId)?.label || slotId;
+        next.set(slotId, {
+          status: "pass",
+          confidence: meta.confidence,
+          detectedDocType: detected,
+          detectedLabel: DOC_TYPES.find(d => d.id === detected)?.label || detected,
+          expectedDocType: expectedTypes[0] || slotId,
+          expectedLabel: slotLabel,
+          suggestedSlotId: null,
+          suggestedSlotLabel: null,
+          message: "AI verified document type",
+          referenceUsed: false,
+        });
+        return next;
+      });
+    } else {
+      // Mismatch — find the correct slot
+      let suggestedSlotId: string | null = null;
+      let suggestedSlotLabel: string | null = null;
+      for (const [sId, types] of Object.entries(SLOT_TO_DOCTYPE)) {
+        if (sId === slotId) continue;
+        if (types.includes(detected)) {
+          const slot = checklist.find(i => i.id === sId);
+          if (slot) { suggestedSlotId = sId; suggestedSlotLabel = slot.label; break; }
+        }
+      }
+
+      const detectedLabel = DOC_TYPES.find(d => d.id === detected)?.label || detected;
+      const expectedLabel = checklist.find(i => i.id === slotId)?.label || slotId;
+
+      setDocTypeWarnings(prev => {
+        const next = new Map(prev);
+        next.set(slotId, {
+          detected,
+          detectedLabel,
+          confidence: meta.confidence,
+          isMatch: false,
+          suggestion: suggestedSlotLabel
+            ? `AI detected this as a ${detectedLabel} — move to ${suggestedSlotLabel}?`
+            : `AI detected this as a ${detectedLabel}, not ${expectedLabel}`,
+        });
+        return next;
+      });
+
+      setUploadValidations(prev => {
+        const next = new Map(prev);
+        next.set(slotId, {
+          status: "mismatch",
+          confidence: meta.confidence,
+          detectedDocType: detected,
+          detectedLabel,
+          expectedDocType: expectedTypes[0] || slotId,
+          expectedLabel,
+          suggestedSlotId,
+          suggestedSlotLabel,
+          message: suggestedSlotLabel
+            ? `This looks like a **${detectedLabel}**. Would you like to move it to the ${suggestedSlotLabel} slot?`
+            : `This doesn't look like a ${expectedLabel}. Please double-check.`,
+          referenceUsed: false,
+        });
+        return next;
+      });
+    }
+  }, [checklist]);
 
   const handleCancelUpload = useCallback((itemId: string) => {
     abortControllersRef.current.get(itemId)?.abort();
@@ -301,11 +381,12 @@ export default function NewCasePage() {
         uploadValidations,
         kycExpiryFlags,
         docCompleteness,
+        aiMetadata,
       );
       setReadiness(result);
       return currentChecklist;
     });
-  }, [conditionals, shareholders, mdfValidation, tradeLicenseData, docTypeWarnings, exceptions, uploadValidations, kycExpiryFlags, docCompleteness]);
+  }, [conditionals, shareholders, mdfValidation, tradeLicenseData, docTypeWarnings, exceptions, uploadValidations, kycExpiryFlags, docCompleteness, aiMetadata]);
 
   // Run consistency checks
   const runConsistencyChecks = useCallback(() => {
@@ -348,15 +429,22 @@ export default function NewCasePage() {
     async (itemId: string, file: File) => {
       if (!file.type.startsWith("image/") && file.type !== "application/pdf") return;
       try {
-        const { text } = await extractTextFromFile(file);
-        if (!text || text.trim().length < 30) return;
-        const result = detectDocumentType(text, itemId);
-        if (result.suggestion) {
-          setDocTypeWarnings((prev) => {
-            const next = new Map(prev);
-            next.set(itemId, result);
-            return next;
-          });
+        // Use AI doc-type detection instead of OCR
+        const aiResult = await aiExtractDocument(file, "doc-detect");
+        if (aiResult?.meta?.detectedDocType) {
+          const detected = aiResult.meta.detectedDocType.toLowerCase();
+          const slotId = itemId.toLowerCase();
+          // If detected type doesn't match the slot, surface a warning
+          if (detected !== "unknown" && !detected.includes(slotId) && !slotId.includes(detected)) {
+            const result = detectDocumentType(detected, itemId);
+            if (result.suggestion) {
+              setDocTypeWarnings((prev) => {
+                const next = new Map(prev);
+                next.set(itemId, result);
+                return next;
+              });
+            }
+          }
         }
       } catch {
         // Silent fail
@@ -370,16 +458,18 @@ export default function NewCasePage() {
     async (itemId: string, file: File) => {
       if (!file.type.startsWith("image/") && file.type !== "application/pdf") return;
       try {
-        const { text } = await extractTextFromFile(file);
-        if (!text || text.trim().length < 30) return;
-        const currentItems = checklist.map((i) => ({ id: i.id, label: i.label, status: i.status }));
-        const result = await validateSlotUpload(text, itemId, currentItems);
-        setUploadValidations((prev) => {
-          const next = new Map(prev);
-          next.set(itemId, result);
-          return next;
-        });
-        // Inline ValidationIndicator handles all display — no toast needed
+        // Use AI doc-detect to validate the upload matches the slot
+        const aiResult = await aiExtractDocument(file, "doc-detect");
+        if (aiResult?.meta?.detectedDocType) {
+          const detected = aiResult.meta.detectedDocType;
+          const currentItems = checklist.map((i) => ({ id: i.id, label: i.label, status: i.status }));
+          const result = await validateSlotUpload(detected, itemId, currentItems);
+          setUploadValidations((prev) => {
+            const next = new Map(prev);
+            next.set(itemId, result);
+            return next;
+          });
+        }
       } catch {
         // Silent fail
       }
@@ -418,46 +508,85 @@ export default function NewCasePage() {
           toast.error(`Upload failed for ${file.name}`, { description: "Could not save file to storage. Please try again." });
         }
 
-        // OCR extraction based on slot type
+        // AI extraction based on slot type
         if (file.type.startsWith("image/") || file.type === "application/pdf") {
           try {
-            // Phase 2: Scan (OCR)
+            // Phase 2: AI Analysis
             setSlotProgress(itemId, { phase: "scanning", message: "Scanning document..." });
 
             // ── MDF ──
             if (itemId === "mdf") {
-              // Try AcroForm extraction first (fillable PDFs)
+              // AI extraction
+              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              const aiResult = await aiExtractDocument(file, "mdf", signal);
+              if (signal.aborted) return;
+
               let parsed: ParsedMDF | null = null;
               let confidence = 0;
-              let textForTemplate = "";
-
-              if (file.type === "application/pdf") {
-                try {
-                  const arrayBuf = await file.arrayBuffer();
-                  if (signal.aborted) return;
-                  const formParsed = await extractMDFFormFields(arrayBuf);
-                  if (formParsed) {
-                    const formValidation = validateMDFFields(formParsed);
-                    if (formValidation.totalPresent >= 5) {
-                      parsed = formParsed;
-                      confidence = 95;
-                      textForTemplate = formParsed.rawText;
-                    }
-                  }
-                } catch (err) {
-                  console.warn("[MDF] AcroForm extraction failed, falling back to OCR:", err);
-                }
-              }
-
-              // Fallback: OCR text extraction
-              if (!parsed) {
-                const { text: ocrText, confidence: ocrConf } = await extractTextFromFile(file);
-                if (signal.aborted) return;
-                confidence = ocrConf;
-                if (ocrText) {
-                  parsed = parseMDFText(ocrText);
-                  textForTemplate = ocrText;
-                }
+              if (aiResult) {
+                // AI succeeded — map to ParsedMDF
+                const d = aiResult.data;
+                parsed = {
+                  rawText: "",
+                  feeSchedule: Array.isArray(d.feeSchedule) ? d.feeSchedule as ParsedMDF["feeSchedule"] : [],
+                  terminalFees: Array.isArray(d.terminalFees) ? d.terminalFees as ParsedMDF["terminalFees"] : [],
+                  shareholders: Array.isArray(d.shareholders) ? d.shareholders as ParsedMDF["shareholders"] : [],
+                  keySuppliers: Array.isArray(d.keySuppliers) ? d.keySuppliers as ParsedMDF["keySuppliers"] : [],
+                  keyCustomers: Array.isArray(d.keyCustomers) ? d.keyCustomers as ParsedMDF["keyCustomers"] : [],
+                  sanctionsExposure: Array.isArray(d.sanctionsExposure) ? d.sanctionsExposure as ParsedMDF["sanctionsExposure"] : [],
+                  productPOS: d.productPOS === true,
+                  productECOM: d.productECOM === true,
+                  productMPOS: d.productMPOS === true,
+                  productMOTO: d.productMOTO === true,
+                  hasOtherAcquirer: d.hasOtherAcquirer === true,
+                  // String fields
+                  merchantLegalName: (d.merchantLegalName as string) || undefined,
+                  dba: (d.dba as string) || undefined,
+                  emirate: (d.emirate as string) || undefined,
+                  country: (d.country as string) || undefined,
+                  address: (d.address as string) || undefined,
+                  poBox: (d.poBox as string) || undefined,
+                  mobileNo: (d.mobileNo as string) || undefined,
+                  telephoneNo: (d.telephoneNo as string) || undefined,
+                  email1: (d.email1 as string) || undefined,
+                  email2: (d.email2 as string) || undefined,
+                  shopLocation: (d.shopLocation as string) || undefined,
+                  businessType: (d.businessType as string) || undefined,
+                  webAddress: (d.webAddress as string) || undefined,
+                  contactName: (d.contactName as string) || undefined,
+                  contactTitle: (d.contactTitle as string) || undefined,
+                  contactMobile: (d.contactMobile as string) || undefined,
+                  contactWorkPhone: (d.contactWorkPhone as string) || undefined,
+                  refundFee: (d.refundFee as string) || undefined,
+                  msvShortfall: (d.msvShortfall as string) || undefined,
+                  chargebackFee: (d.chargebackFee as string) || undefined,
+                  portalFee: (d.portalFee as string) || undefined,
+                  businessInsightFee: (d.businessInsightFee as string) || undefined,
+                  numTerminals: (d.numTerminals as string) || undefined,
+                  accountNo: (d.accountNo as string) || undefined,
+                  iban: (d.iban as string) || undefined,
+                  accountTitle: (d.accountTitle as string) || undefined,
+                  bankName: (d.bankName as string) || undefined,
+                  swiftCode: (d.swiftCode as string) || undefined,
+                  branchName: (d.branchName as string) || undefined,
+                  paymentPlan: (d.paymentPlan as string) || undefined,
+                  projectedMonthlyVolume: (d.projectedMonthlyVolume as string) || undefined,
+                  projectedMonthlyCount: (d.projectedMonthlyCount as string) || undefined,
+                  sourceOfIncome: (d.sourceOfIncome as string) || undefined,
+                  incomeCountry: (d.incomeCountry as string) || undefined,
+                  activityDetails: (d.activityDetails as string) || undefined,
+                  sourceOfCapital: (d.sourceOfCapital as string) || undefined,
+                  yearsInUAE: (d.yearsInUAE as string) || undefined,
+                  exactBusinessNature: (d.exactBusinessNature as string) || undefined,
+                  otherAcquirerNames: (d.otherAcquirerNames as string) || undefined,
+                  otherAcquirerYears: (d.otherAcquirerYears as string) || undefined,
+                  reasonForMagnati: (d.reasonForMagnati as string) || undefined,
+                };
+                confidence = aiResult.meta.confidence;
+                storeAiMeta("mdf", aiResult.meta);
+                checkSlotDocType("mdf", aiResult.meta);
+              } else {
+                toast.error("AI extraction failed for MDF", { description: "Please check your internet connection and try again." });
               }
 
               // Phase 3: Process
@@ -486,30 +615,8 @@ export default function NewCasePage() {
                   return prev;
                 });
 
-                // Auto-fill submission details from MDF
-                setSubmissionDetails((prev) => ({
-                  ...prev,
-                  contactPersonName: parsed!.contactName?.trim() || prev.contactPersonName,
-                  mobileNumber: parsed!.contactMobile?.trim() || parsed!.mobileNo?.trim() || prev.mobileNumber,
-                  emailAddress: parsed!.email1?.trim() || prev.emailAddress,
-                  merchantLocation: parsed!.address?.trim() || parsed!.shopLocation?.trim() || prev.merchantLocation,
-                  websiteUrl: parsed!.webAddress?.trim() || prev.websiteUrl,
-                  noOfTerminalsAndType: parsed!.numTerminals?.trim() || prev.noOfTerminalsAndType,
-                  natureOfBusiness: parsed!.businessType?.trim() || prev.natureOfBusiness,
-                }));
-
-                // Template matching for MDF
-                if (textForTemplate) {
-                  const tmResult = await matchTemplate(textForTemplate, "mdf");
-                  if (signal.aborted) return;
-                  if (tmResult.matched) {
-                    setTemplateWarnings((prev) => {
-                      const next = new Map(prev);
-                      next.set("mdf", tmResult);
-                      return next;
-                    });
-                  }
-                }
+                // Auto-fill submission details from MDF (rates, projections, contact, etc.)
+                setSubmissionDetails((prev) => autofillSubmissionFromMDF(prev, parsed!));
 
                 // Extract fields for review step
                 const mdfFields = mdfToExtractedFields(parsed, confidence);
@@ -542,18 +649,38 @@ export default function NewCasePage() {
 
             // ── Trade License ──
             else if (itemId === "trade-license") {
-              const { text, confidence } = await extractTextFromFile(file);
+              // AI extraction
+              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              const aiResult = await aiExtractDocument(file, "trade-license", signal);
               if (signal.aborted) return;
 
-              setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
-              if (text) {
-                const parsed = parseTradeLicenseText(text);
+              if (aiResult) {
+                const d = aiResult.data;
+                const parsed: ParsedTradeLicense = {
+                  rawText: "",
+                  licenseNumber: (d.licenseNumber as string) || undefined,
+                  issueDate: (d.issueDate as string) || undefined,
+                  expiryDate: (d.expiryDate as string) || undefined,
+                  businessName: (d.businessName as string) || undefined,
+                  legalForm: (d.legalForm as string) || undefined,
+                  activities: (d.activities as string) || undefined,
+                  authority: (d.authority as string) || undefined,
+                  partnersListed: (d.partnersListed as string) || undefined,
+                  registeredAddress: (d.registeredAddress as string) || undefined,
+                  paidUpCapital: (d.paidUpCapital as string) || undefined,
+                  licenseType: (d.licenseType as string) || undefined,
+                };
+                const confidence = aiResult.meta.confidence;
+                storeAiMeta("trade-license", aiResult.meta);
+                checkSlotDocType("trade-license", aiResult.meta);
+
+                setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
                 setTradeLicenseData(parsed);
                 await saveTradeLicenseData(caseId, parsed, confidence);
                 if (signal.aborted) return;
 
                 // Document completeness check
-                const tlComplete = validateDocCompleteness("trade-license", parsed);
+                const tlComplete = validateDocCompleteness("trade-license", parsed, aiResult.meta);
                 setDocCompleteness(prev => { const m = new Map(prev); m.set("trade-license", tlComplete); return m; });
 
                 // Extract fields for review step
@@ -568,24 +695,47 @@ export default function NewCasePage() {
 
                 runConsistencyChecks();
                 recomputeReadiness();
+              } else {
+                toast.error("AI extraction failed for Trade License", { description: "Please check your internet connection and try again." });
               }
             }
 
             // ── Bank Statement ──
             else if (itemId === "bank-statement") {
-              const { text, confidence } = await extractTextFromFile(file);
+              // AI extraction
+              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              const aiResult = await aiExtractDocument(file, "bank-statement", signal);
               if (signal.aborted) return;
 
-              setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
-              if (text) {
-                const parsed = parseBankStatementText(text);
+              if (aiResult) {
+                const d = aiResult.data;
+                const parsed: ParsedBankStatement = {
+                  rawText: "",
+                  bankName: (d.bankName as string) || undefined,
+                  accountHolder: (d.accountHolder as string) || undefined,
+                  accountNumber: (d.accountNumber as string) || undefined,
+                  iban: (d.iban as string) || undefined,
+                  currency: (d.currency as string) || undefined,
+                  period: (d.period as string) || undefined,
+                  periodEndDate: (d.periodEndDate as string) || undefined,
+                  openingBalance: (d.openingBalance as string) || undefined,
+                  closingBalance: (d.closingBalance as string) || undefined,
+                  totalCredits: (d.totalCredits as string) || undefined,
+                  totalDebits: (d.totalDebits as string) || undefined,
+                  swiftCode: (d.swiftCode as string) || undefined,
+                };
+                const confidence = aiResult.meta.confidence;
+                storeAiMeta("bank-statement", aiResult.meta);
+                checkSlotDocType("bank-statement", aiResult.meta);
+
+                setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
                 await saveBankStatementData(caseId, parsed, confidence);
                 if (signal.aborted) return;
 
                 setBankStatementData(parsed);
 
                 // Document completeness check
-                const bsComplete = validateDocCompleteness("bank-statement", parsed);
+                const bsComplete = validateDocCompleteness("bank-statement", parsed, aiResult.meta);
                 setDocCompleteness(prev => { const m = new Map(prev); m.set("bank-statement", bsComplete); return m; });
 
                 // Extract fields for review step
@@ -600,24 +750,41 @@ export default function NewCasePage() {
 
                 runConsistencyChecks();
                 recomputeReadiness();
+              } else {
+                toast.error("AI extraction failed for Bank Statement", { description: "Please check your internet connection and try again." });
               }
             }
 
             // ── VAT Certificate ──
             else if (itemId === "vat-cert") {
-              const { text, confidence } = await extractTextFromFile(file);
+              // AI extraction
+              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              const aiResult = await aiExtractDocument(file, "vat-cert", signal);
               if (signal.aborted) return;
 
-              setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
-              if (text) {
-                const parsed = parseVATCertText(text);
+              if (aiResult) {
+                const d = aiResult.data;
+                const parsed: ParsedVATCert = {
+                  rawText: "",
+                  trnNumber: (d.trnNumber as string) || undefined,
+                  businessName: (d.businessName as string) || undefined,
+                  registrationDate: (d.registrationDate as string) || undefined,
+                  effectiveDate: (d.effectiveDate as string) || undefined,
+                  expiryDate: (d.expiryDate as string) || undefined,
+                  businessAddress: (d.businessAddress as string) || undefined,
+                };
+                const confidence = aiResult.meta.confidence;
+                storeAiMeta("vat-cert", aiResult.meta);
+                checkSlotDocType("vat-cert", aiResult.meta);
+
+                setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
                 await saveVATCertData(caseId, parsed, confidence);
                 if (signal.aborted) return;
 
                 setVatCertData(parsed);
 
                 // Document completeness check
-                const vatComplete = validateDocCompleteness("vat-cert", parsed);
+                const vatComplete = validateDocCompleteness("vat-cert", parsed, aiResult.meta);
                 setDocCompleteness(prev => { const m = new Map(prev); m.set("vat-cert", vatComplete); return m; });
 
                 // Extract fields for review step
@@ -632,24 +799,47 @@ export default function NewCasePage() {
 
                 runConsistencyChecks();
                 recomputeReadiness();
+              } else {
+                toast.error("AI extraction failed for VAT Certificate", { description: "Please check your internet connection and try again." });
               }
             }
 
             // ── MOA ──
             else if (itemId === "main-moa" || itemId === "amended-moa") {
-              const { text, confidence } = await extractTextFromFile(file);
+              // AI extraction (use "main-moa" as docType for the AI prompt)
+              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              const aiResult = await aiExtractDocument(file, "main-moa", signal);
               if (signal.aborted) return;
 
-              setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
-              if (text) {
-                const parsed = parseMOAText(text);
+              if (aiResult) {
+                const d = aiResult.data;
+                const parsed: ParsedMOA = {
+                  rawText: "",
+                  companyName: (d.companyName as string) || undefined,
+                  shareholders: Array.isArray(d.shareholders) ? d.shareholders as string[] : undefined,
+                  sharePercentages: Array.isArray(d.sharePercentages) ? d.sharePercentages as string[] : undefined,
+                  signatories: Array.isArray(d.signatories) ? d.signatories as string[] : undefined,
+                  registrationNumber: (d.registrationNumber as string) || undefined,
+                  registrationDate: (d.registrationDate as string) || undefined,
+                  authorizedCapital: (d.authorizedCapital as string) || undefined,
+                  legalForm: (d.legalForm as string) || undefined,
+                  paidUpCapital: (d.paidUpCapital as string) || undefined,
+                  companyObjectives: (d.companyObjectives as string) || undefined,
+                  registeredAddress: (d.registeredAddress as string) || undefined,
+                  notarizationDate: (d.notarizationDate as string) || undefined,
+                };
+                const confidence = aiResult.meta.confidence;
+                storeAiMeta(itemId, aiResult.meta);
+                checkSlotDocType(itemId, aiResult.meta);
+
+                setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
                 await saveMOAData(caseId, parsed, confidence);
                 if (signal.aborted) return;
 
                 setMoaData(parsed);
 
                 // Document completeness check
-                const moaComplete = validateDocCompleteness(itemId, parsed);
+                const moaComplete = validateDocCompleteness(itemId, parsed, aiResult.meta);
                 setDocCompleteness(prev => { const m = new Map(prev); m.set(itemId, moaComplete); return m; });
 
                 // Extract fields for review step
@@ -677,38 +867,21 @@ export default function NewCasePage() {
                 }
 
                 runConsistencyChecks();
+              } else {
+                toast.error("AI extraction failed for MOA", { description: "Please check your internet connection and try again." });
               }
             }
 
-            // ── Other files: doc type detection + template matching ──
+            // ── Other files: AI-based doc type detection ──
             else {
-              const templatedSlots = ["ack-form", "signed-svr", "aml-questionnaire", "addendum", "branch-form", "pg-questionnaire", "pep-form"];
-              if (templatedSlots.includes(itemId)) {
-                const { text } = await extractTextFromFile(file);
-                if (signal.aborted) return;
-
-                setSlotProgress(itemId, { phase: "processing", message: "Processing..." });
-                if (text && text.trim().length >= 30) {
-                  const tmResult = await matchTemplate(text, itemId);
-                  if (signal.aborted) return;
-                  if (tmResult.matched) {
-                    setTemplateWarnings((prev) => {
-                      const next = new Map(prev);
-                      next.set(itemId, tmResult);
-                      return next;
-                    });
-                  }
-                }
-              } else {
-                runDocTypeDetection(itemId, file);
-              }
+              runDocTypeDetection(itemId, file);
             }
           } catch {
-            // Silent fail — OCR is best-effort
+            // Silent fail — AI is best-effort
           }
 
           // Run upload slot validation only for slots without dedicated parsers
-          // (MDF, trade-license, bank-statement, vat-cert, main-moa, amended-moa already OCR + validate inline)
+          // (MDF, trade-license, bank-statement, vat-cert, main-moa, amended-moa already AI + validate inline)
           const hasInlineParser = ["mdf", "trade-license", "bank-statement", "vat-cert", "main-moa", "amended-moa"].includes(itemId);
           if (!signal.aborted && !hasInlineParser) runUploadValidation(itemId, file);
         } else {
@@ -733,7 +906,7 @@ export default function NewCasePage() {
         if (itemId === "mdf") runMdfMergeDetection();
       }, 100);
     },
-    [runDuplicateCheck, runDocTypeDetection, runConsistencyChecks, recomputeReadiness, runUploadValidation, mergeParsedMDF, runMdfMergeDetection, setSlotProgress]
+    [runDuplicateCheck, runDocTypeDetection, runConsistencyChecks, recomputeReadiness, runUploadValidation, mergeParsedMDF, runMdfMergeDetection, setSlotProgress, storeAiMeta, checkSlotDocType]
   );
 
   const handleShareholderRawFiles = useCallback(
@@ -764,17 +937,36 @@ export default function NewCasePage() {
           );
         }
 
-        // OCR for passport/EID
+        // AI for passport/EID
         if (file.type.startsWith("image/") || file.type === "application/pdf") {
           try {
-            const { text, confidence } = await extractTextFromFile(file);
-            if (text) {
-              if (docType === "passport") {
-                const parsed = parsePassportText(text);
+            if (docType === "passport") {
+              // AI extraction
+              const aiResult = await aiExtractDocument(file, "passport");
+
+              if (aiResult) {
+                const d = aiResult.data;
+                const parsed: ParsedPassport = {
+                  rawText: "",
+                  surname: (d.surname as string) || undefined,
+                  givenNames: (d.givenNames as string) || undefined,
+                  passportNumber: (d.passportNumber as string) || undefined,
+                  nationality: (d.nationality as string) || undefined,
+                  dateOfBirth: (d.dateOfBirth as string) || undefined,
+                  sex: (d.sex as string) || undefined,
+                  expiryDate: (d.expiryDate as string) || undefined,
+                  placeOfBirth: (d.placeOfBirth as string) || undefined,
+                  issuingDate: (d.issuingDate as string) || undefined,
+                  isExpired: d.isExpired === true,
+                  mrzValid: d.mrzValid === true,
+                };
+                const confidence = aiResult.meta.confidence;
+                storeAiMeta(`passport::${shareholderId}`, aiResult.meta);
+
                 await savePassportData(caseId, shareholderId, parsed, confidence);
 
                 // Document completeness check
-                const ppComplete = validateDocCompleteness("passport", parsed);
+                const ppComplete = validateDocCompleteness("passport", parsed, aiResult.meta);
                 setDocCompleteness(prev => { const m = new Map(prev); m.set(`passport::${shareholderId}`, ppComplete); return m; });
 
                 // Extract fields for review step
@@ -804,12 +996,36 @@ export default function NewCasePage() {
                     description: parsed.isExpired ? "Warning: Passport appears expired" : undefined,
                   });
                 }
+
+                recomputeReadiness();
               } else {
-                const parsed = parseEIDText(text);
+                toast.error("AI extraction failed for Passport", { description: "Please check your internet connection and try again." });
+              }
+            } else {
+              // EID — AI extraction
+              const aiResult = await aiExtractDocument(file, "eid");
+
+              if (aiResult) {
+                const d = aiResult.data;
+                const parsed: ParsedEID = {
+                  rawText: "",
+                  idNumber: (d.idNumber as string) || undefined,
+                  cardNumber: (d.cardNumber as string) || undefined,
+                  name: (d.name as string) || undefined,
+                  nationality: (d.nationality as string) || undefined,
+                  expiryDate: (d.expiryDate as string) || undefined,
+                  issuingDate: (d.issuingDate as string) || undefined,
+                  dateOfBirth: (d.dateOfBirth as string) || undefined,
+                  gender: (d.gender as string) || undefined,
+                  isExpired: d.isExpired === true,
+                };
+                const confidence = aiResult.meta.confidence;
+                storeAiMeta(`eid::${shareholderId}`, aiResult.meta);
+
                 await saveEIDData(caseId, shareholderId, parsed, confidence);
 
                 // Document completeness check
-                const eidComplete = validateDocCompleteness("eid", parsed);
+                const eidComplete = validateDocCompleteness("eid", parsed, aiResult.meta);
                 setDocCompleteness(prev => { const m = new Map(prev); m.set(`eid::${shareholderId}`, eidComplete); return m; });
 
                 // Extract fields for review step
@@ -839,10 +1055,14 @@ export default function NewCasePage() {
                     description: parsed.isExpired ? "Warning: EID appears expired" : undefined,
                   });
                 }
+
+                recomputeReadiness();
+              } else {
+                toast.error("AI extraction failed for Emirates ID", { description: "Please check your internet connection and try again." });
               }
             }
           } catch {
-            // Silent fail
+            // Silent fail — AI is best-effort
           }
         }
       });
@@ -852,7 +1072,7 @@ export default function NewCasePage() {
         recomputeReadiness();
       }, 100);
     },
-    [runDuplicateCheck, recomputeReadiness]
+    [runDuplicateCheck, recomputeReadiness, storeAiMeta]
   );
 
   const handleShareholdersUpdate = useCallback(
@@ -1070,9 +1290,11 @@ export default function NewCasePage() {
             onCancelUpload={handleCancelUpload}
             onMoveFile={handleMoveFile}
             onMultiSlotFulfill={handleMultiSlotFulfill}
+            consistencyWarnings={consistencyWarnings}
             mdfMergePlan={mdfMergePlan}
             skipMdfMerge={skipMdfMerge}
             onSkipMdfMergeChange={setSkipMdfMerge}
+            aiMetadata={aiMetadata}
             onPrev={() => setStep(0)}
             onNext={handleNextToReview}
           />
@@ -1096,6 +1318,7 @@ export default function NewCasePage() {
             consistencyWarnings={consistencyWarnings}
             mdfMergePlan={mdfMergePlan}
             skipMdfMerge={skipMdfMerge}
+            aiMetadata={aiMetadata}
             onPrev={() => setStep(1)}
           />
         )}

@@ -11,6 +11,7 @@ import {
   Moon,
   Menu,
   X,
+  Sparkles,
 } from "lucide-react";
 import { useTheme } from "./theme-provider";
 import { Button } from "@/components/ui/button";
@@ -112,9 +113,13 @@ export function Sidebar() {
       {/* Desktop sidebar */}
       <aside className="fixed left-0 top-0 z-40 hidden h-screen w-[var(--sidebar-width)] flex-col border-r border-border/40 bg-card md:flex">
         {/* Brand */}
-        <div className="flex h-14 items-center px-5">
+        <div className="flex h-14 items-center gap-2 px-5">
           <span className="text-sm font-semibold tracking-tight text-foreground">
             RFM
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-500">
+            <Sparkles className="h-2.5 w-2.5" />
+            AI
           </span>
         </div>
 

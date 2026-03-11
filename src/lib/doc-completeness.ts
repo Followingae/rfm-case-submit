@@ -6,6 +6,7 @@ import type {
   ParsedEID,
 } from "./types";
 import type { ParsedTradeLicense } from "./ocr-engine";
+import type { AIExtractionMeta } from "./ai-types";
 
 // ── Public Interfaces ────────────────────────
 
@@ -145,31 +146,40 @@ function evaluate(
 export function validateDocCompleteness(
   docType: string,
   parsedData: unknown,
+  aiMeta?: AIExtractionMeta,
 ): DocCompletenessResult {
   const data = (parsedData ?? {}) as Record<string, unknown>;
 
+  let result: DocCompletenessResult;
+
   switch (docType) {
     case "trade-license":
-      return evaluate(docType, data, TRADE_LICENSE_FIELDS, 70);
+      result = evaluate(docType, data, TRADE_LICENSE_FIELDS, 70);
+      break;
 
     case "bank-statement":
-      return evaluate(docType, data, BANK_STATEMENT_FIELDS, 60);
+      result = evaluate(docType, data, BANK_STATEMENT_FIELDS, 60);
+      break;
 
     case "vat-cert":
-      return evaluate(docType, data, VAT_CERT_FIELDS, 50);
+      result = evaluate(docType, data, VAT_CERT_FIELDS, 50);
+      break;
 
     case "main-moa":
     case "amended-moa":
-      return evaluate(docType, data, MOA_FIELDS, 60);
+      result = evaluate(docType, data, MOA_FIELDS, 60);
+      break;
 
     case "passport":
-      return evaluate(docType, data, PASSPORT_FIELDS, 70);
+      result = evaluate(docType, data, PASSPORT_FIELDS, 70);
+      break;
 
     default: {
       // Emirates ID documents arrive with a "kyc::" prefix — strip it
       if (docType.startsWith("kyc::") || docType === "eid") {
         const normalizedType = docType.startsWith("kyc::") ? docType.slice(5) : docType;
-        return evaluate(normalizedType, data, EID_FIELDS, 60);
+        result = evaluate(normalizedType, data, EID_FIELDS, 60);
+        break;
       }
 
       // Unknown document type — nothing to validate
@@ -185,4 +195,47 @@ export function validateDocCompleteness(
       };
     }
   }
+
+  /* ── AI metadata adjustments ── */
+
+  if (aiMeta) {
+    // If AI confirms the document is complete and confidence is high,
+    // boost acceptability even if field-presence checks fell short
+    if (aiMeta.isComplete && aiMeta.confidence >= 70 && !result.isAcceptable) {
+      result = { ...result, isAcceptable: true };
+    }
+
+    // If AI detected blank sections, flag them as additional missing fields
+    // (only add ones not already in the missing list)
+    if (aiMeta.blankSections.length > 0) {
+      const existingMissing = new Set(result.missingFields.map((f) => f.field));
+      const aiMissing: FieldCheck[] = aiMeta.blankSections
+        .filter((section) => !existingMissing.has(section))
+        .map((section) => ({
+          field: section,
+          label: `${section} (AI-detected blank)`,
+          present: false,
+        }));
+
+      if (aiMissing.length > 0) {
+        const newMissing = [...result.missingFields, ...aiMissing];
+        const newAllFields = [...result.allFields, ...aiMissing];
+        const newTotal = result.totalFields + aiMissing.length;
+        const newPercentage =
+          newTotal > 0 ? Math.round((result.presentCount / newTotal) * 100) : 100;
+
+        result = {
+          ...result,
+          missingFields: newMissing,
+          allFields: newAllFields,
+          totalFields: newTotal,
+          percentage: newPercentage,
+          // Blank sections from AI can revoke acceptability
+          isAcceptable: result.isAcceptable && aiMissing.length === 0,
+        };
+      }
+    }
+  }
+
+  return result;
 }

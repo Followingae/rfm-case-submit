@@ -12,6 +12,7 @@ import type { DocCompletenessResult } from "@/lib/doc-completeness";
 import type { DocTypeDetectionResult } from "@/lib/doc-type-detector";
 import type { ParsedTradeLicense } from "@/lib/ocr-engine";
 import type { UploadValidation } from "@/lib/upload-validator";
+import type { AIExtractionMeta } from "@/lib/ai-types";
 
 /* ───────────────────────── Constants ───────────────────────── */
 
@@ -34,7 +35,7 @@ const EXCEPTION_OPTIONS: ExceptionOption[] = [
   },
   {
     id: "ocr-failed",
-    label: "OCR couldn\u2019t read \u2014 manual confirm",
+    label: "AI couldn\u2019t read \u2014 manual confirm",
     requiresNote: false,
   },
   {
@@ -135,6 +136,7 @@ export function computeReadiness(
   uploadValidations?: Map<string, UploadValidation>,
   kycExpiryFlags?: Map<string, KycExpiryFlag>,
   docCompleteness?: Map<string, DocCompletenessResult>,
+  aiMetadata?: Map<string, AIExtractionMeta>,
 ): ReadinessResult {
   const items: ReadinessItem[] = [];
 
@@ -343,7 +345,7 @@ export function computeReadiness(
       itemId: "mdf-validation",
       label: "MDF field check unavailable",
       status: "exception",
-      reason: "MDF uploaded but OCR may have failed \u2014 manual verification recommended",
+      reason: "MDF uploaded but AI extraction may have failed \u2014 manual verification recommended",
       confidence: 0,
       exceptionOptions: [...EXCEPTION_OPTIONS],
     });
@@ -369,6 +371,81 @@ export function computeReadiness(
           entry.reason = `Exception: ${ex.reason}`;
         }
         items.push(entry);
+      }
+    }
+  }
+
+  /* ── Step 3c: AI metadata checks (signatures, stamps, completeness) ── */
+
+  if (aiMetadata) {
+    for (const [slotId, meta] of aiMetadata) {
+      // Signature check — MDF must be signed
+      if (slotId === "mdf" && !meta.hasSignature) {
+        items.push({
+          itemId: "ai::mdf-signature",
+          label: "MDF signature not detected",
+          status: "fail",
+          reason: "AI analysis did not detect a signature on the MDF. The MDF must be signed by the authorized signatory.",
+          confidence: meta.confidence,
+          exceptionOptions: [...EXCEPTION_OPTIONS],
+        });
+      }
+
+      // Stamp check — MDF and Trade License should be stamped
+      if ((slotId === "mdf" || slotId === "trade-license") && !meta.hasStamp) {
+        items.push({
+          itemId: `ai::${slotId}-stamp`,
+          label: `${slotId === "mdf" ? "MDF" : "Trade License"} stamp not detected`,
+          status: "exception",
+          reason: `AI analysis did not detect an official stamp on the ${slotId === "mdf" ? "MDF" : "Trade License"}.`,
+          confidence: meta.confidence,
+          exceptionOptions: [...EXCEPTION_OPTIONS],
+        });
+      }
+
+      // Blank sections — flag any document with blank sections
+      if (meta.blankSections.length > 0) {
+        items.push({
+          itemId: `ai::${slotId}-blank`,
+          label: `${slotId} has ${meta.blankSections.length} blank section(s)`,
+          status: "exception",
+          reason: `AI detected blank sections: ${meta.blankSections.join(", ")}`,
+          confidence: meta.confidence,
+          exceptionOptions: [...EXCEPTION_OPTIONS],
+        });
+      }
+
+      // Document type mismatch — AI detected a different doc type than expected
+      const expectedTypes: Record<string, string[]> = {
+        mdf: ["mdf"],
+        "trade-license": ["trade-license"],
+        "bank-statement": ["bank-statement"],
+        "vat-cert": ["vat-certificate"],
+        "main-moa": ["moa"],
+        "amended-moa": ["moa"],
+      };
+      const expected = expectedTypes[slotId];
+      if (expected && meta.detectedDocType !== "unknown" && !expected.includes(meta.detectedDocType)) {
+        items.push({
+          itemId: `ai::${slotId}-wrong-type`,
+          label: `Possible wrong document in ${slotId} slot`,
+          status: "fail",
+          reason: `AI detected this as "${meta.detectedDocType}" but it was uploaded to the "${slotId}" slot.`,
+          confidence: meta.confidence,
+          exceptionOptions: [...EXCEPTION_OPTIONS],
+        });
+      }
+
+      // Low confidence extraction — warn if AI is not confident
+      if (meta.confidence < 40) {
+        items.push({
+          itemId: `ai::${slotId}-low-confidence`,
+          label: `Low AI confidence for ${slotId} (${meta.confidence}%)`,
+          status: "exception",
+          reason: `AI extraction confidence is only ${meta.confidence}% — manual review recommended.`,
+          confidence: meta.confidence,
+          exceptionOptions: [...EXCEPTION_OPTIONS],
+        });
       }
     }
   }

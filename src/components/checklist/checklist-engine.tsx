@@ -24,6 +24,9 @@ import {
   ChevronDown,
   Check,
   CloudUpload,
+  Sparkles,
+  PenLine,
+  Stamp,
 } from "lucide-react";
 import {
   Tooltip,
@@ -43,6 +46,7 @@ import type { FileClassificationResult, ConfirmedMapping } from "@/lib/types";
 import type { MergePlan } from "@/lib/pdf-merger";
 import type { MDFValidationResult } from "@/lib/mdf-validation";
 import type { TemplateMatchResult } from "@/lib/types";
+import type { AIExtractionMeta } from "@/lib/ai-types";
 
 /* ───────────────────────── Types ───────────────────────── */
 
@@ -66,6 +70,7 @@ interface ChecklistEngineProps {
   onSkipMdfMergeChange?: (skip: boolean) => void;
   mdfValidation?: MDFValidationResult | null;
   templateWarnings?: Map<string, TemplateMatchResult>;
+  aiMetadata?: Map<string, AIExtractionMeta>;
 }
 
 interface CategoryStat {
@@ -113,24 +118,37 @@ function formatSize(bytes: number): string {
 /* ───────────────────── Upload Progress Bar ────────────────── */
 
 function UploadProgressBar({ progress, onCancel }: { progress: UploadProgress; onCancel: () => void }) {
+  const isAI = progress.phase === "analyzing";
+
   return (
     <div
       className="mt-3 space-y-2"
       onClick={(e) => e.stopPropagation()}
     >
-      {/* Thin shimmer bar */}
-      <div className="h-0.5 w-full overflow-hidden rounded-full bg-primary/10">
+      {/* Shimmer bar — violet for AI analysis, primary for other phases */}
+      <div className={cn(
+        "h-0.5 w-full overflow-hidden rounded-full",
+        isAI ? "bg-violet-500/10" : "bg-primary/10"
+      )}>
         <div
           className="h-full rounded-full"
           style={{
             animation: "checklist-shimmer 1.5s ease-in-out infinite",
-            background: "linear-gradient(90deg, hsl(var(--primary) / 0.2) 0%, hsl(var(--primary) / 0.7) 50%, hsl(var(--primary) / 0.2) 100%)",
+            background: isAI
+              ? "linear-gradient(90deg, rgba(139,92,246,0.2) 0%, rgba(139,92,246,0.8) 50%, rgba(139,92,246,0.2) 100%)"
+              : "linear-gradient(90deg, hsl(var(--primary) / 0.2) 0%, hsl(var(--primary) / 0.7) 50%, hsl(var(--primary) / 0.2) 100%)",
             backgroundSize: "200% 100%",
           }}
         />
       </div>
       <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">{progress.message}</span>
+        <span className={cn(
+          "text-sm",
+          isAI ? "text-violet-600 dark:text-violet-400 font-medium" : "text-muted-foreground"
+        )}>
+          {isAI && <Sparkles className="mr-1.5 inline h-3 w-3" />}
+          {progress.message}
+        </span>
         <button
           onClick={(e) => { e.stopPropagation(); onCancel(); }}
           className="rounded-full p-1 text-muted-foreground/40 transition-colors hover:bg-destructive/10 hover:text-destructive"
@@ -586,6 +604,7 @@ function UploadSlot({
   onCancelUpload,
   mdfValidation,
   templateMatch,
+  aiMeta,
 }: {
   item: ChecklistItem;
   isDragging: boolean;
@@ -607,11 +626,14 @@ function UploadSlot({
   onCancelUpload?: () => void;
   mdfValidation?: MDFValidationResult | null;
   templateMatch?: TemplateMatchResult | null;
+  aiMeta?: AIExtractionMeta;
 }) {
   const isUploaded = item.status === "uploaded";
   const isProcessing = !!slotProgress;
+  const isAnalyzing = slotProgress?.phase === "analyzing";
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
   const [showFieldGrid, setShowFieldGrid] = useState(false);
+  const [showSectionGrid, setShowSectionGrid] = useState(false);
 
   // Auto-dismiss remove confirmation after 2 seconds
   useEffect(() => {
@@ -632,7 +654,11 @@ function UploadSlot({
         "group relative cursor-pointer rounded-xl border transition-all duration-200",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         isProcessing
-          ? "border-primary/30 bg-primary/[0.03]"
+          ? isAnalyzing
+            ? "border-violet-500/30 bg-violet-500/[0.03]"
+            : "border-primary/30 bg-primary/[0.03]"
+          : isUploaded && aiMeta
+          ? "border-violet-500/20 bg-violet-500/[0.03]"
           : isUploaded
           ? "border-emerald-500/20 bg-emerald-500/5"
           : "border-border/40 bg-muted/30 hover:border-border/60 hover:bg-muted/40",
@@ -681,10 +707,14 @@ function UploadSlot({
           <div className="flex items-start gap-3">
             <div className={cn(
               "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-              isProcessing ? "bg-primary/10" : "bg-emerald-500/10"
+              isProcessing ? "bg-primary/10"
+                : aiMeta ? "bg-violet-500/10"
+                : "bg-emerald-500/10"
             )}>
               {isProcessing ? (
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              ) : aiMeta ? (
+                <Sparkles className="h-5 w-5 text-violet-500" />
               ) : (
                 <CheckCircle2 className="h-5 w-5 text-emerald-500" />
               )}
@@ -697,6 +727,15 @@ function UploadSlot({
                 )}>
                   {item.label}
                 </span>
+                {/* Inline AI Analyzing indicator */}
+                {isAnalyzing && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium text-violet-600 dark:text-violet-400">
+                    <span
+                      className="inline-block h-3 w-3 rounded-full border-[1.5px] border-violet-500 border-t-transparent animate-spin"
+                    />
+                    AI Analyzing&hellip;
+                  </span>
+                )}
                 {/* Inline MDF field count pill — click to expand field grid */}
                 {mdfValidation && !isProcessing && (
                   <button
@@ -718,6 +757,33 @@ function UploadSlot({
                     )} />
                   </button>
                 )}
+                {/* Inline template match pill — click to expand section grid */}
+                {templateMatch && templateMatch.matched && !isProcessing && (() => {
+                  const totalSections = templateMatch.matchedSections.length + templateMatch.missingSections.length;
+                  const matchedCount = templateMatch.matchedSections.length;
+                  const allMatch = matchedCount === totalSections;
+                  const hasMajorGaps = totalSections > 0 && matchedCount / totalSections < 0.5;
+                  return (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowSectionGrid(!showSectionGrid); }}
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors",
+                        allMatch
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+                          : hasMajorGaps
+                          ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                          : "bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
+                      )}
+                    >
+                      {matchedCount}/{totalSections} sections
+                      <ChevronDown className={cn(
+                        "ml-1 inline h-3 w-3 transition-transform duration-200",
+                        showSectionGrid && "rotate-180"
+                      )} />
+                    </button>
+                  );
+                })()}
                 {docTypeWarning && (
                   <Tooltip delayDuration={0}>
                     <TooltipTrigger onClick={(e) => e.stopPropagation()}>
@@ -734,18 +800,101 @@ function UploadSlot({
                 {hasDuplicateFile && (
                   <Tooltip delayDuration={0}>
                     <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                        <AlertTriangle className="h-3 w-3" />
                         Duplicate
                       </span>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <p className="text-xs">Duplicate file in another slot</p>
+                      <p className="text-xs">Same file uploaded in another slot — remove the duplicate</p>
                     </TooltipContent>
                   </Tooltip>
+                )}
+                {/* AI Verified pill — shows when doc type confirmed */}
+                {uploadValidation?.status === "pass" && !isProcessing && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 className="h-3 w-3" />
+                    AI Verified
+                  </span>
                 )}
               </div>
             </div>
           </div>
+
+          {/* AI Intelligence Row */}
+          {aiMeta && !isProcessing && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              {/* Confidence */}
+              <span className={cn(
+                "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums",
+                aiMeta.confidence >= 80
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : aiMeta.confidence >= 50
+                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                  : "bg-red-500/10 text-red-600 dark:text-red-400"
+              )}>
+                <Sparkles className="h-3 w-3" />
+                {aiMeta.confidence}%
+              </span>
+              {/* Signature */}
+              <span className={cn(
+                "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
+                aiMeta.hasSignature
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : "bg-muted/50 text-muted-foreground/60"
+              )}>
+                <PenLine className="h-2.5 w-2.5" />
+                {aiMeta.hasSignature ? "Signed" : "No sig"}
+              </span>
+              {/* Stamp */}
+              <span className={cn(
+                "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
+                aiMeta.hasStamp
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : "bg-muted/50 text-muted-foreground/60"
+              )}>
+                <Stamp className="h-2.5 w-2.5" />
+                {aiMeta.hasStamp ? "Stamped" : "No stamp"}
+              </span>
+              {/* Complete/Incomplete */}
+              {aiMeta.isComplete ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="h-2.5 w-2.5" />
+                  Complete
+                </span>
+              ) : aiMeta.blankSections.length > 0 && (
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-2.5 w-2.5" />
+                      {aiMeta.blankSections.length} blank
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p className="text-xs">Blank: {aiMeta.blankSections.join(", ")}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              {/* AI Warnings */}
+              {aiMeta.warnings.length > 0 && (
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-2.5 w-2.5" />
+                      {aiMeta.warnings.length} warning{aiMeta.warnings.length !== 1 ? "s" : ""}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <div className="space-y-0.5">
+                      {aiMeta.warnings.map((w, i) => (
+                        <p key={i} className="text-xs">{w}</p>
+                      ))}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          )}
 
           {/* File list — stacked vertically */}
           <div className="mt-3 space-y-2">
@@ -852,6 +1001,40 @@ function UploadSlot({
             )}
           </AnimatePresence>
 
+          {/* Expandable template section grid */}
+          <AnimatePresence>
+            {showSectionGrid && templateMatch && templateMatch.matched && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="mt-3 rounded-lg border border-border/20 bg-muted/20 p-3">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Template: {templateMatch.matched.label}
+                  </p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    {templateMatch.matchedSections.map((s) => (
+                      <div key={s} className="flex items-center gap-1.5 text-xs">
+                        <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+                        <span className="text-muted-foreground">{s}</span>
+                      </div>
+                    ))}
+                    {templateMatch.missingSections.map((s) => (
+                      <div key={s} className="flex items-center gap-1.5 text-xs">
+                        <X className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                        <span className="text-foreground">{s}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {item.multiFile && (
             <button
               onClick={(e) => {
@@ -901,10 +1084,19 @@ function UploadSlot({
               {item.notes[0]}
             </p>
           )}
+          {/* AI Analyzing indicator in empty state */}
+          {isAnalyzing && (
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-600 dark:text-violet-400">
+              <span
+                className="inline-block h-3.5 w-3.5 rounded-full border-[1.5px] border-violet-500 border-t-transparent animate-spin"
+              />
+              AI Analyzing&hellip;
+            </div>
+          )}
           {!slotProgress && (
             <p className="mt-2 text-xs text-muted-foreground/60">
               <span className="sm:hidden">Tap to upload</span>
-              <span className="hidden sm:inline">Drop file or click to upload</span>
+              <span className="hidden sm:inline">Drop file or click &mdash; AI will analyze automatically</span>
             </p>
           )}
           {docTypeWarning && (
@@ -1004,6 +1196,7 @@ export function ChecklistEngine({
   onSkipMdfMergeChange,
   mdfValidation,
   templateWarnings,
+  aiMetadata,
 }: ChecklistEngineProps) {
   const [activeCategoryIndex, setActiveCategoryIndex] = useState<number | null>(null);
   const [flashingCategory, setFlashingCategory] = useState<string | null>(null);
@@ -1446,6 +1639,7 @@ export function ChecklistEngine({
     // Slot-specific intelligence data
     const slotMdfValidation = item.id === "mdf" ? mdfValidation : undefined;
     const slotTemplateMatch = templateWarnings?.get(item.id) ?? undefined;
+    const slotAiMeta = aiMetadata?.get(item.id);
 
     return (
       <div key={item.id}>
@@ -1476,6 +1670,7 @@ export function ChecklistEngine({
           onAnalyzePages={hasMultiPagePdf && onMultiSlotFulfill ? () => handleAnalyzePages(item.id) : undefined}
           mdfValidation={slotMdfValidation}
           templateMatch={slotTemplateMatch}
+          aiMeta={slotAiMeta}
         />
         {showMerge && (
           <MDFMergeIndicator

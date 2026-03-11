@@ -24,6 +24,7 @@ import {
   Mail,
   ArrowRight as ArrowRightIcon,
   Info,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +47,7 @@ import type { MergePlan } from "@/lib/pdf-merger";
 import { validateCase } from "@/lib/validation";
 import { updateCaseStatus } from "@/lib/storage";
 import { MDFValidationResult } from "@/lib/mdf-validation";
+import type { AIExtractionMeta } from "@/lib/ai-types";
 import { ExceptionModal } from "@/components/readiness/exception-modal";
 import { addException, getExceptions, removeException } from "@/lib/exception-store";
 import { OCRFieldsSheet } from "@/components/fields/ocr-fields-sheet";
@@ -68,6 +70,7 @@ interface StepReviewProps {
   submissionDetails: SubmissionDetails;
   onSubmissionDetailsChange: (details: SubmissionDetails) => void;
   consistencyWarnings?: ConsistencyWarning[];
+  aiMetadata?: Map<string, AIExtractionMeta>;
   mdfMergePlan?: MergePlan | null;
   skipMdfMerge?: boolean;
   onPrev: () => void;
@@ -89,6 +92,7 @@ export function StepReview({
   submissionDetails,
   onSubmissionDetailsChange,
   consistencyWarnings,
+  aiMetadata,
   mdfMergePlan,
   skipMdfMerge,
   onPrev,
@@ -257,6 +261,63 @@ export function StepReview({
               <XCircle className="h-3.5 w-3.5" />
               {readiness.redCount} Failed
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── AI Document Analysis ── */}
+      {aiMetadata && aiMetadata.size > 0 && (
+        <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.02] p-6 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)]">
+          <div className="mb-4 flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-violet-500" />
+            <span className="text-sm font-medium">AI Document Analysis</span>
+            <Badge variant="outline" className="ml-auto">{aiMetadata.size} documents analyzed</Badge>
+          </div>
+          <div className="space-y-2">
+            {Array.from(aiMetadata.entries()).map(([slotId, meta]) => (
+              <div key={slotId} className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm">
+                {/* Confidence badge */}
+                <span className={cn("inline-flex min-w-[3rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold",
+                  meta.confidence >= 80 ? "bg-emerald-500/10 text-emerald-600" :
+                  meta.confidence >= 50 ? "bg-amber-500/10 text-amber-600" :
+                  "bg-red-500/10 text-red-600"
+                )}>
+                  {meta.confidence}%
+                </span>
+
+                {/* Slot name */}
+                <span className="font-medium">{formatSlotName(slotId)}</span>
+
+                {/* Status pills */}
+                <div className="ml-auto flex items-center gap-1.5">
+                  {meta.hasSignature && <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 text-[10px]">Signed</Badge>}
+                  {!meta.hasSignature && <Badge variant="outline" className="border-red-500/30 text-red-600 text-[10px]">No Signature</Badge>}
+                  {meta.hasStamp && <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 text-[10px]">Stamped</Badge>}
+                  {!meta.hasStamp && <Badge variant="outline" className="border-amber-500/30 text-amber-600 text-[10px]">No Stamp</Badge>}
+                  {meta.isComplete && <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 text-[10px]">Complete</Badge>}
+                  {!meta.isComplete && meta.blankSections.length > 0 && (
+                    <Badge variant="outline" className="border-red-500/30 text-red-600 text-[10px]">
+                      {meta.blankSections.length} blank
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {/* AI Warnings */}
+            {Array.from(aiMetadata.values()).some(m => m.warnings.length > 0) && (
+              <div className="mt-3 space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">AI Warnings</p>
+                {Array.from(aiMetadata.entries()).flatMap(([slotId, meta]) =>
+                  meta.warnings.map((w, i) => (
+                    <div key={`${slotId}-${i}`} className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                      <span><strong>{formatSlotName(slotId)}:</strong> {w}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -515,8 +576,8 @@ export function StepReview({
       {extractedFields.size > 0 && (
         <div className="rounded-xl border border-border/50 bg-card p-6">
           <div className="mb-3 flex items-center gap-2">
-            <ScanSearch className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Extracted Fields</span>
+            <Sparkles className="h-4 w-4 text-violet-500" />
+            <span className="text-sm font-medium">AI-Extracted Fields</span>
             <span className="text-xs text-muted-foreground">
               ({Array.from(extractedFields.values()).reduce((s, f) => s + f.length, 0)} fields)
             </span>
@@ -541,7 +602,7 @@ export function StepReview({
         </div>
       )}
 
-      {/* OCR Fields Sheet */}
+      {/* AI Extracted Fields Sheet */}
       {activeFieldSheet && extractedFields.has(activeFieldSheet) && (
         <OCRFieldsSheet
           open={!!activeFieldSheet}
@@ -661,6 +722,23 @@ export function StepReview({
       />
     </div>
   );
+}
+
+// ── AI Document Analysis Helpers ──
+
+function formatSlotName(slotId: string): string {
+  const map: Record<string, string> = {
+    mdf: "MDF",
+    "trade-license": "Trade License",
+    "bank-statement": "Bank Statement",
+    "vat-cert": "VAT Certificate",
+    "main-moa": "MOA (Main)",
+    "amended-moa": "MOA (Amended)",
+  };
+  if (map[slotId]) return map[slotId];
+  if (slotId.startsWith("passport::")) return `Passport — ${slotId.split("::")[1]?.slice(0, 8)}`;
+  if (slotId.startsWith("eid::")) return `Emirates ID — ${slotId.split("::")[1]?.slice(0, 8)}`;
+  return slotId.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
 // ── Collapsible Folder Group ──

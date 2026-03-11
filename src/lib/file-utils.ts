@@ -325,7 +325,7 @@ export async function createCaseZip(
     }
     issues.push(``);
   } else {
-    issues.push(`MDF FIELD SCAN: Not performed (MDF not uploaded or OCR failed)`);
+    issues.push(`MDF FIELD SCAN: Not performed (MDF not uploaded or AI extraction failed)`);
     issues.push(``);
   }
 
