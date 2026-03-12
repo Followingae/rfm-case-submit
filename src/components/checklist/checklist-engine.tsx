@@ -185,11 +185,10 @@ function CategoryCard({
   const catColor = CATEGORY_COLORS[category] || "var(--cat-forms)";
 
   return (
-    <motion.button
+    <button
       onClick={onClick}
-      whileTap={{ scale: 0.97 }}
       className={cn(
-        "relative flex flex-col items-center gap-2 rounded-xl border px-3 py-4 transition-all duration-200",
+        "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-all duration-200",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         stat.complete
           ? "border-emerald-500/20 bg-emerald-500/5"
@@ -201,54 +200,27 @@ function CategoryCard({
       style={isActive && !stat.complete ? {
         borderColor: `color-mix(in oklch, ${catColor} 30%, transparent)`,
         backgroundColor: `color-mix(in oklch, ${catColor} 5%, transparent)`,
-        boxShadow: `inset 0 0 0 1px color-mix(in oklch, ${catColor} 15%, transparent)`,
       } : undefined}
     >
-      {/* Left accent bar — category-colored */}
-      {isActive && !stat.complete && (
-        <div
-          className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full"
-          style={{ backgroundColor: catColor }}
+      {stat.complete ? (
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+      ) : (
+        <Icon
+          className={cn("h-4 w-4 shrink-0", !isActive && "text-muted-foreground")}
+          style={isActive ? { color: catColor } : undefined}
         />
       )}
-
-      {/* Icon — category-colored background tint */}
-      <div
-        className={cn(
-          "flex h-10 w-10 items-center justify-center rounded-lg",
-          stat.complete && "bg-emerald-500/10",
-          !stat.complete && !isActive && "bg-muted/50",
-        )}
-        style={!stat.complete && isActive ? {
-          backgroundColor: `color-mix(in oklch, ${catColor} 12%, transparent)`,
-        } : !stat.complete && !isActive ? undefined : undefined}
-      >
-        {stat.complete ? (
-          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-        ) : (
-          <Icon
-            className={cn("h-5 w-5", !isActive && "text-muted-foreground")}
-            style={isActive ? { color: catColor } : undefined}
-          />
-        )}
-      </div>
-
-      {/* Label */}
       <span className={cn(
-        "text-sm font-medium tracking-tight",
+        "text-sm font-medium whitespace-nowrap",
         stat.complete
           ? "text-emerald-600 dark:text-emerald-400"
-          : isActive
-          ? "text-foreground"
-          : "text-foreground/80"
+          : isActive ? "text-foreground" : "text-foreground/80"
       )}>
         {category}
       </span>
-
-      {/* Fraction — category-colored when active */}
       <span
         className={cn(
-          "text-sm font-medium tabular-nums",
+          "text-xs font-medium tabular-nums",
           stat.complete && "text-emerald-500/60",
           !stat.complete && !isActive && "text-muted-foreground/50",
         )}
@@ -256,7 +228,7 @@ function CategoryCard({
       >
         {stat.uploaded}/{stat.total}
       </span>
-    </motion.button>
+    </button>
   );
 }
 
@@ -280,13 +252,13 @@ function QuestionCard({
       "rounded-xl border transition-all duration-200",
       isActive ? "border-primary/20 bg-primary/[0.02]" : "border-border/30 bg-card/40"
     )}>
-      <div className="flex items-center gap-3 px-4 py-4">
-        <p className="flex-1 text-sm leading-snug text-foreground/80">{label}</p>
-        <div className="flex shrink-0 gap-2">
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <p className="flex-1 text-xs leading-snug text-foreground/80">{label}</p>
+        <div className="flex shrink-0 gap-1.5">
           <button
             onClick={(e) => { e.stopPropagation(); if (!isActive) onToggle(); }}
             className={cn(
-              "rounded-lg px-4 py-2 text-xs font-semibold transition-all",
+              "rounded-md px-3 py-1.5 text-[11px] font-semibold transition-all",
               isActive
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
@@ -297,7 +269,7 @@ function QuestionCard({
           <button
             onClick={(e) => { e.stopPropagation(); if (isActive) onToggle(); }}
             className={cn(
-              "rounded-lg px-4 py-2 text-xs font-semibold transition-all",
+              "rounded-md px-3 py-1.5 text-[11px] font-semibold transition-all",
               !isActive
                 ? "bg-muted/50 text-foreground/70"
                 : "bg-muted/30 text-muted-foreground hover:bg-muted/50"
@@ -315,10 +287,10 @@ function QuestionCard({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: "easeInOut" }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
             className="overflow-hidden"
           >
-            <div className="border-t border-border/20 px-4 pb-4 pt-4 space-y-4">
+            <div className="border-t border-border/20 px-3 pb-3 pt-2 space-y-1.5">
               {children}
             </div>
           </motion.div>
@@ -703,20 +675,20 @@ function UploadSlot({
 
       {isUploaded ? (
         /* ── Uploaded state ── */
-        <div className="p-4">
-          <div className="flex items-start gap-3">
+        <div className="px-4 py-3.5">
+          <div className="flex items-center gap-3">
             <div className={cn(
-              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
               isProcessing ? "bg-primary/10"
                 : aiMeta ? "bg-violet-500/10"
                 : "bg-emerald-500/10"
             )}>
               {isProcessing ? (
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               ) : aiMeta ? (
-                <Sparkles className="h-5 w-5 text-violet-500" />
+                <Sparkles className="h-4 w-4 text-violet-500" />
               ) : (
-                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
               )}
             </div>
             <div className="min-w-0 flex-1">
@@ -727,13 +699,13 @@ function UploadSlot({
                 )}>
                   {item.label}
                 </span>
-                {/* Inline AI Analyzing indicator */}
+                {/* Inline analyzing indicator */}
                 {isAnalyzing && (
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium text-violet-600 dark:text-violet-400">
                     <span
                       className="inline-block h-3 w-3 rounded-full border-[1.5px] border-violet-500 border-t-transparent animate-spin"
                     />
-                    AI Analyzing&hellip;
+                    Analyzing&hellip;
                   </span>
                 )}
                 {/* Inline MDF field count pill — click to expand field grid */}
@@ -810,20 +782,20 @@ function UploadSlot({
                     </TooltipContent>
                   </Tooltip>
                 )}
-                {/* AI Verified pill — shows when doc type confirmed */}
+                {/* Verified pill — shows when doc type confirmed */}
                 {uploadValidation?.status === "pass" && !isProcessing && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="h-3 w-3" />
-                    AI Verified
+                    Verified
                   </span>
                 )}
               </div>
             </div>
           </div>
 
-          {/* AI Intelligence Row */}
+          {/* Document intelligence row */}
           {aiMeta && !isProcessing && (
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               {/* Confidence */}
               <span className={cn(
                 "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums",
@@ -901,7 +873,7 @@ function UploadSlot({
             {item.files.map((f) => (
               <div
                 key={f.id}
-                className="group/file flex items-center gap-3 rounded-lg bg-muted/50 px-3 py-2"
+                className="group/file flex items-center gap-3 rounded-lg bg-muted/40 px-4 py-2.5"
                 onClick={(e) => e.stopPropagation()}
               >
                 <span className="shrink-0 text-muted-foreground">
@@ -1065,56 +1037,53 @@ function UploadSlot({
         </div>
       ) : (
         /* ── Empty state ── */
-        <div className="flex flex-col items-center justify-center px-4 py-6">
+        <div className="flex items-center gap-3 px-4 py-3.5">
           <div className={cn(
-            "mb-3 flex h-12 w-12 items-center justify-center rounded-xl transition-colors",
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
             "bg-muted/40 group-hover:bg-primary/10"
           )}>
             <CloudUpload className={cn(
-              "h-6 w-6 transition-colors",
+              "h-4 w-4 transition-colors",
               "text-muted-foreground/40 group-hover:text-primary/60"
             )} />
           </div>
-          <span className="text-sm font-medium text-foreground">{item.label}</span>
-          {item.required && (
-            <span className="mt-0.5 text-xs text-muted-foreground">Required</span>
-          )}
-          {item.notes && item.notes.length > 0 && (
-            <p className="mt-1 text-center text-xs leading-relaxed text-muted-foreground">
-              {item.notes[0]}
-            </p>
-          )}
-          {/* AI Analyzing indicator in empty state */}
-          {isAnalyzing && (
-            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-600 dark:text-violet-400">
-              <span
-                className="inline-block h-3.5 w-3.5 rounded-full border-[1.5px] border-violet-500 border-t-transparent animate-spin"
-              />
-              AI Analyzing&hellip;
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-foreground">{item.label}</span>
+              {item.required && (
+                <span className="text-[10px] font-medium uppercase text-muted-foreground/50">Required</span>
+              )}
+              {docTypeWarning && (
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger onClick={(e) => e.stopPropagation()}>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-2.5 w-2.5" />
+                      Note
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="text-xs">{docTypeWarning}</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </div>
-          )}
-          {!slotProgress && (
-            <p className="mt-2 text-xs text-muted-foreground/60">
-              <span className="sm:hidden">Tap to upload</span>
-              <span className="hidden sm:inline">Drop file or click &mdash; AI will analyze automatically</span>
-            </p>
-          )}
-          {docTypeWarning && (
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                  <AlertTriangle className="h-3 w-3" />
-                  Note
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">{docTypeWarning}</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-          {/* Upload progress in empty state */}
+            {item.notes && item.notes.length > 0 && (
+              <p className="truncate text-xs text-muted-foreground/60">{item.notes[0]}</p>
+            )}
+          </div>
+          {isAnalyzing ? (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-1 text-[11px] font-medium text-violet-600 dark:text-violet-400">
+              <span className="inline-block h-3 w-3 rounded-full border-[1.5px] border-violet-500 border-t-transparent animate-spin" />
+              Analyzing&hellip;
+            </span>
+          ) : !slotProgress ? (
+            <span className="shrink-0 text-xs text-muted-foreground/40">
+              <span className="sm:hidden">Tap</span>
+              <span className="hidden sm:inline">Drop or click</span>
+            </span>
+          ) : null}
           {slotProgress && onCancelUpload && (
-            <div className="mt-3 w-full">
+            <div className="shrink-0 w-36">
               <UploadProgressBar progress={slotProgress} onCancel={onCancelUpload} />
             </div>
           )}
@@ -1685,18 +1654,13 @@ export function ChecklistEngine({
 
   return (
     <>
-    <div className="space-y-6">
-      {/* ── Overall progress bar — Stripe-style thin line ── */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-foreground">
-            Documents
-          </span>
-          <span className="text-sm font-medium tabular-nums text-muted-foreground">
-            {uploaded} of {total}
-          </span>
-        </div>
-        <div className="relative h-1 w-full overflow-hidden rounded-full bg-muted/50">
+    <div className="space-y-5">
+      {/* ── Inline progress + category pills ── */}
+      <div className="flex items-center gap-4">
+        <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+          {uploaded}/{total}
+        </span>
+        <div className="relative h-1 min-w-[60px] max-w-[100px] flex-shrink-0 overflow-hidden rounded-full bg-muted/50">
           <div
             className={cn(
               "h-full rounded-full transition-all duration-500 ease-out",
@@ -1705,10 +1669,8 @@ export function ChecklistEngine({
             style={{ width: `${progress}%` }}
           />
         </div>
-      </div>
-
-      {/* ── Category Grid ── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="h-4 w-px bg-border/30" />
+        <div className="flex flex-wrap gap-2">
         {visibleCategories.map((cat, idx) => (
           <CategoryCard
             key={cat}
@@ -1719,6 +1681,7 @@ export function ChecklistEngine({
             onClick={() => handleCategoryTap(idx)}
           />
         ))}
+        </div>
       </div>
 
       {/* ── Active Section Panel ── */}
@@ -1726,34 +1689,23 @@ export function ChecklistEngine({
         {activeCategory && (
           <motion.div
             key={activeCategory}
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.25, ease: "easeInOut" }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
             className="space-y-4"
           >
-            {/* Section divider */}
-            <div className="border-t border-border/30" />
-
-            {/* Section header */}
-            <div className="flex items-center gap-3">
+            {/* Subtle section divider with label */}
+            <div className="flex items-center gap-2 border-t border-border/30 pt-3">
               {(() => {
                 const Icon = CATEGORY_ICONS[activeCategory] || FileStack;
-                return (
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-                    <Icon className="h-4 w-4 text-primary" />
-                  </div>
-                );
+                return <Icon className="h-3.5 w-3.5 text-primary/70" />;
               })()}
-              <div>
-                <h3 className="text-base font-semibold tracking-tight text-foreground">{activeCategory}</h3>
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {categoryStats[activeCategory].uploaded} of {categoryStats[activeCategory].total} uploaded
-                </span>
-              </div>
+              <span className="text-xs font-medium text-foreground">{activeCategory}</span>
+              <span className="text-[11px] tabular-nums text-muted-foreground/60">
+                {categoryStats[activeCategory].uploaded}/{categoryStats[activeCategory].total}
+              </span>
             </div>
-
-            {/* Intelligence moved inline to each UploadSlot */}
 
             {/* Conditional question cards + their nested doc slots */}
             {(() => {
@@ -1769,7 +1721,7 @@ export function ChecklistEngine({
               let lastSectionHeader: string | null = null;
 
               return (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {/* Required items first */}
                   {requiredItems.map((item) => {
                     const header = item.sectionHeader && item.sectionHeader !== lastSectionHeader
@@ -1779,8 +1731,8 @@ export function ChecklistEngine({
                     return (
                       <div key={item.id}>
                         {header && (
-                          <div className="mb-2 mt-2">
-                            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">
+                          <div className="mb-1 mt-1.5">
+                            <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
                               {header}
                             </span>
                           </div>
@@ -1806,8 +1758,8 @@ export function ChecklistEngine({
                     return (
                       <div key={toggle.key}>
                         {sectionHdr && (
-                          <div className="mb-2 mt-2">
-                            <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground/60">
+                          <div className="mb-1 mt-1.5">
+                            <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
                               {sectionHdr}
                             </span>
                           </div>

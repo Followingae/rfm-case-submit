@@ -64,6 +64,17 @@ async function fileToImages(file: File): Promise<string[]> {
   throw new Error(`Unsupported file type: ${file.type}`);
 }
 
+// ── Extraction Cache ─────────────────────────────────────────────────
+
+const extractionCache = new Map<string, AIExtractionResult>();
+
+async function hashFile(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // ── Default AI Metadata ──────────────────────────────────────────────
 
 function defaultMeta(): AIExtractionMeta {
@@ -94,7 +105,16 @@ export async function aiExtractDocument(
   docType: string,
   signal?: AbortSignal,
 ): Promise<AIExtractionResult | null> {
-  try {
+  // Check cache first (keyed by file hash + docType)
+  const fileHash = await hashFile(file);
+  const cacheKey = `${fileHash}:${docType}`;
+  const cached = extractionCache.get(cacheKey);
+  if (cached) {
+    console.info("[AI Extract] Cache hit for", docType);
+    return cached;
+  }
+
+  const attempt = async (): Promise<AIExtractionResult | null> => {
     // 1. Render file to images
     const images = await fileToImages(file);
     if (signal?.aborted) return null;
@@ -116,6 +136,27 @@ export async function aiExtractDocument(
 
     // 4. Parse result
     const result: AIExtractionResult = await response.json();
+    return result;
+  };
+
+  try {
+    // First attempt
+    let result = await attempt();
+
+    // Auto-retry once on failure with 2s delay
+    if (!result && !signal?.aborted) {
+      console.info("[AI Extract] Retrying", docType, "in 2s...");
+      await new Promise((r) => setTimeout(r, 2000));
+      if (!signal?.aborted) {
+        result = await attempt();
+      }
+    }
+
+    // Cache successful result
+    if (result) {
+      extractionCache.set(cacheKey, result);
+    }
+
     return result;
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") return null;

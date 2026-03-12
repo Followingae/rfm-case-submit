@@ -15,7 +15,7 @@ const sourceLabels: Record<ExtractedField["extractionMethod"], string> = {
   ocr: "Legacy",
   "pdf-text": "PDF",
   mrz: "MRZ",
-  ai: "AI Vision",
+  ai: "Gemini",
   "user-override": "Manual",
 };
 

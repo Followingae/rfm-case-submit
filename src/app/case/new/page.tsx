@@ -191,7 +191,7 @@ export default function NewCasePage() {
           expectedLabel: slotLabel,
           suggestedSlotId: null,
           suggestedSlotLabel: null,
-          message: "AI verified document type",
+          message: "Document type verified",
           referenceUsed: false,
         });
         return next;
@@ -219,8 +219,8 @@ export default function NewCasePage() {
           confidence: meta.confidence,
           isMatch: false,
           suggestion: suggestedSlotLabel
-            ? `AI detected this as a ${detectedLabel} — move to ${suggestedSlotLabel}?`
-            : `AI detected this as a ${detectedLabel}, not ${expectedLabel}`,
+            ? `Detected as ${detectedLabel} — move to ${suggestedSlotLabel}?`
+            : `Detected as ${detectedLabel}, not ${expectedLabel}`,
         });
         return next;
       });
@@ -517,7 +517,7 @@ export default function NewCasePage() {
             // ── MDF ──
             if (itemId === "mdf") {
               // AI extraction
-              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              setSlotProgress(itemId, { phase: "analyzing", message: "Analyzing..." });
               const aiResult = await aiExtractDocument(file, "mdf", signal);
               if (signal.aborted) return;
 
@@ -586,7 +586,7 @@ export default function NewCasePage() {
                 storeAiMeta("mdf", aiResult.meta);
                 checkSlotDocType("mdf", aiResult.meta);
               } else {
-                toast.error("AI extraction failed for MDF", { description: "Please check your internet connection and try again." });
+                toast.error("Extraction failed for MDF", { description: "Please check your internet connection and try again." });
               }
 
               // Phase 3: Process
@@ -650,7 +650,7 @@ export default function NewCasePage() {
             // ── Trade License ──
             else if (itemId === "trade-license") {
               // AI extraction
-              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              setSlotProgress(itemId, { phase: "analyzing", message: "Analyzing..." });
               const aiResult = await aiExtractDocument(file, "trade-license", signal);
               if (signal.aborted) return;
 
@@ -696,14 +696,14 @@ export default function NewCasePage() {
                 runConsistencyChecks();
                 recomputeReadiness();
               } else {
-                toast.error("AI extraction failed for Trade License", { description: "Please check your internet connection and try again." });
+                toast.error("Extraction failed for Trade License", { description: "Please check your internet connection and try again." });
               }
             }
 
             // ── Bank Statement ──
             else if (itemId === "bank-statement") {
               // AI extraction
-              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              setSlotProgress(itemId, { phase: "analyzing", message: "Analyzing..." });
               const aiResult = await aiExtractDocument(file, "bank-statement", signal);
               if (signal.aborted) return;
 
@@ -751,14 +751,14 @@ export default function NewCasePage() {
                 runConsistencyChecks();
                 recomputeReadiness();
               } else {
-                toast.error("AI extraction failed for Bank Statement", { description: "Please check your internet connection and try again." });
+                toast.error("Extraction failed for Bank Statement", { description: "Please check your internet connection and try again." });
               }
             }
 
             // ── VAT Certificate ──
             else if (itemId === "vat-cert") {
               // AI extraction
-              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              setSlotProgress(itemId, { phase: "analyzing", message: "Analyzing..." });
               const aiResult = await aiExtractDocument(file, "vat-cert", signal);
               if (signal.aborted) return;
 
@@ -800,14 +800,14 @@ export default function NewCasePage() {
                 runConsistencyChecks();
                 recomputeReadiness();
               } else {
-                toast.error("AI extraction failed for VAT Certificate", { description: "Please check your internet connection and try again." });
+                toast.error("Extraction failed for VAT Certificate", { description: "Please check your internet connection and try again." });
               }
             }
 
             // ── MOA ──
             else if (itemId === "main-moa" || itemId === "amended-moa") {
               // AI extraction (use "main-moa" as docType for the AI prompt)
-              setSlotProgress(itemId, { phase: "analyzing", message: "AI analyzing..." });
+              setSlotProgress(itemId, { phase: "analyzing", message: "Analyzing..." });
               const aiResult = await aiExtractDocument(file, "main-moa", signal);
               if (signal.aborted) return;
 
@@ -868,7 +868,34 @@ export default function NewCasePage() {
 
                 runConsistencyChecks();
               } else {
-                toast.error("AI extraction failed for MOA", { description: "Please check your internet connection and try again." });
+                toast.error("Extraction failed for MOA", { description: "Please check your internet connection and try again." });
+              }
+            }
+
+            // ── PEP Form: AI extraction ──
+            else if (itemId === "pep-form") {
+              setSlotProgress(itemId, { phase: "analyzing", message: "Analyzing PEP form..." });
+              const aiResult = await aiExtractDocument(file, "pep-form", signal);
+              if (signal.aborted) return;
+
+              if (aiResult) {
+                const confidence = aiResult.meta?.confidence ?? 0;
+                storeAiMeta(itemId, aiResult.meta);
+                checkSlotDocType(itemId, aiResult.meta);
+
+                // Surface PEP status in toast
+                const isPEP = aiResult.data?.isPEP;
+                if (isPEP === true) {
+                  toast.warning("PEP declared", {
+                    description: "This merchant has declared politically exposed persons. Enhanced due diligence required.",
+                  });
+                } else if (isPEP === false) {
+                  toast.success("PEP form analyzed", {
+                    description: `No PEP declared. Confidence: ${confidence}%`,
+                  });
+                }
+              } else {
+                runDocTypeDetection(itemId, file);
               }
             }
 
@@ -882,7 +909,7 @@ export default function NewCasePage() {
 
           // Run upload slot validation only for slots without dedicated parsers
           // (MDF, trade-license, bank-statement, vat-cert, main-moa, amended-moa already AI + validate inline)
-          const hasInlineParser = ["mdf", "trade-license", "bank-statement", "vat-cert", "main-moa", "amended-moa"].includes(itemId);
+          const hasInlineParser = ["mdf", "trade-license", "bank-statement", "vat-cert", "main-moa", "amended-moa", "pep-form"].includes(itemId);
           if (!signal.aborted && !hasInlineParser) runUploadValidation(itemId, file);
         } else {
           // Non-image/PDF: just run doc type detection
@@ -999,7 +1026,7 @@ export default function NewCasePage() {
 
                 recomputeReadiness();
               } else {
-                toast.error("AI extraction failed for Passport", { description: "Please check your internet connection and try again." });
+                toast.error("Extraction failed for Passport", { description: "Please check your internet connection and try again." });
               }
             } else {
               // EID — AI extraction
@@ -1058,7 +1085,7 @@ export default function NewCasePage() {
 
                 recomputeReadiness();
               } else {
-                toast.error("AI extraction failed for Emirates ID", { description: "Please check your internet connection and try again." });
+                toast.error("Extraction failed for Emirates ID", { description: "Please check your internet connection and try again." });
               }
             }
           } catch {
@@ -1260,7 +1287,7 @@ export default function NewCasePage() {
   }, [recomputeReadiness]);
 
   return (
-    <div className="px-8 pb-12 pt-8 lg:px-12">
+    <div className="flex h-[calc(100dvh-3.5rem)] flex-col overflow-hidden md:h-dvh">
       <WizardShell currentStep={step}>
         {step === 0 && (
           <StepMerchant

@@ -257,6 +257,36 @@ Note: The back side of the Emirates ID contains a Machine Readable Zone (MRZ) in
 ${META_INSTRUCTIONS}
 `.trim();
 
+// ── PEP Form (Politically Exposed Person) ────────────────────────────
+
+export const PEP_PROMPT = `
+You are analyzing a PEP (Politically Exposed Person) Declaration Form from a UAE payment service provider onboarding package.
+
+Extract ALL of the following fields:
+- "isPEP": boolean (whether any individual is declared as a PEP)
+- "declarantName": string (full name of the person making the declaration)
+- "declarantPosition": string (role/position of the declarant)
+- "pepIndividuals": array of objects, each with:
+  - "name": string (full name of the PEP individual)
+  - "position": string (government/political position held)
+  - "country": string (country where position was held)
+  - "relationship": string (relationship to the merchant, e.g., "Director", "Shareholder", "Beneficial Owner", "Self")
+  - "yearsInPosition": string (how long they held the position)
+  - "currentlyActive": boolean (whether they currently hold the position)
+- "familyMembers": array of objects, each with:
+  - "name": string (full name)
+  - "relationship": string (e.g., "Spouse", "Child", "Parent", "Sibling")
+  - "pepConnection": string (which PEP they are connected to)
+- "closeAssociates": array of objects, each with:
+  - "name": string (full name)
+  - "relationship": string (nature of close association)
+  - "pepConnection": string (which PEP they are connected to)
+- "signatureDate": string (DD/MM/YYYY)
+- "hasSignature": boolean
+
+${META_INSTRUCTIONS}
+`.trim();
+
 // ── Document Type Detection ──────────────────────────────────────────
 
 export const DOC_TYPE_DETECT_PROMPT = `
@@ -280,6 +310,7 @@ const PROMPT_MAP: Record<string, string> = {
   "amended-moa": MOA_PROMPT,
   passport: PASSPORT_PROMPT,
   eid: EID_PROMPT,
+  "pep-form": PEP_PROMPT,
   "doc-detect": DOC_TYPE_DETECT_PROMPT,
 };
 

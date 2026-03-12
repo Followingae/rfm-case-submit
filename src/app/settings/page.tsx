@@ -23,6 +23,7 @@ import {
 } from "@/components/settings/reference-doc-slot";
 import { aiExtractDocument } from "@/lib/ai-extract";
 import type { CaseType } from "@/lib/types";
+import { LAYOUT } from "@/lib/layout";
 
 // IDs to exclude — indefinite-style docs validated via OCR, no standard template
 const EXCLUDE_IDS = new Set([
@@ -102,7 +103,7 @@ export default function SettingsPage() {
         return;
       }
       await fetchDocs();
-      toast.success(`Saved: ${file.name}`, { description: "Running AI extraction..." });
+      toast.success(`Saved: ${file.name}`, { description: "Running extraction..." });
 
       // 2. Run AI in background to extract reference text
       if (file.type.startsWith("image/") || file.type === "application/pdf") {
@@ -116,7 +117,7 @@ export default function SettingsPage() {
               await updateReferenceText(templateId, text);
               await fetchDocs();
               toast.success(`Reference data extracted for ${file.name}`, {
-                description: `AI analysis complete — will be used for template matching`,
+                description: `Extraction complete — will be used for template matching`,
               });
             }
           }
@@ -145,11 +146,11 @@ export default function SettingsPage() {
   }, [fetchDocs]);
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-8 space-y-8 md:px-10">
+    <div className="h-full overflow-y-auto"><div className={`${LAYOUT.page} space-y-10`}>
       {/* Header */}
       <div>
         <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">Settings</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">Reference Documents</h1>
+        <h1 className="mt-1 text-xl font-semibold tracking-tight text-foreground">Reference Documents</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Upload gold-standard copies of standard forms for better document matching
         </p>
@@ -245,7 +246,7 @@ export default function SettingsPage() {
                   {!isSaving && !isExtracting && hasText && (
                     <span className="flex items-center gap-1.5 text-xs text-emerald-500">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      AI ready
+                      Ready
                     </span>
                   )}
                   {!isSaving && !isExtracting && !hasText && ref && (
@@ -274,9 +275,9 @@ export default function SettingsPage() {
         <ul className="mt-3 space-y-2.5">
           {[
             "When you upload a document to a case, the system runs template matching against the reference copy",
-            "AI analyzes the reference and compares it with uploaded files to detect missing sections",
+            "The system compares uploaded files against references to detect missing sections",
             "Reference files and extracted text are stored in the database — accessible across all devices",
-            "Documents like Trade License, MOA, Photos, and IBAN letters are excluded — they vary by source and are validated via AI rules instead",
+            "Documents like Trade License, MOA, Photos, and IBAN letters are excluded — they vary by source and are validated via rules instead",
           ].map((text, i) => (
             <li key={i} className="flex items-start gap-3 text-sm text-muted-foreground">
               <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
@@ -285,6 +286,7 @@ export default function SettingsPage() {
           ))}
         </ul>
       </div>
+    </div>
     </div>
   );
 }

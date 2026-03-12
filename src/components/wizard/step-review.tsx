@@ -24,7 +24,6 @@ import {
   Mail,
   ArrowRight as ArrowRightIcon,
   Info,
-  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +52,7 @@ import { addException, getExceptions, removeException } from "@/lib/exception-st
 import { OCRFieldsSheet } from "@/components/fields/ocr-fields-sheet";
 import type { LabeledField } from "@/lib/field-adapter";
 import { useRouter } from "next/navigation";
+import { LAYOUT } from "@/lib/layout";
 
 interface StepReviewProps {
   merchantInfo: MerchantInfo;
@@ -176,22 +176,22 @@ export function StepReview({
   // Post-export success
   if (exported) {
     return (
-      <div className="mx-auto max-w-lg py-16 text-center">
-        <div className="mb-5 inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10">
+      <div className="flex h-full flex-col items-center justify-center px-8 text-center">
+        <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10">
           <CheckCircle2 className="h-8 w-8 text-emerald-500" />
         </div>
-        <h2 className="mb-2 text-2xl font-semibold">Case Exported</h2>
+        <h2 className="mb-2 text-xl font-semibold">Case Exported</h2>
         <p className="mb-1 text-sm text-muted-foreground">
           {merchantInfo.legalName || "Merchant"} &middot; {renameMappings.length} files packaged
         </p>
-        <p className="mb-8 font-mono text-xs text-muted-foreground/60">{caseId}</p>
+        <p className="mb-10 font-mono text-xs text-muted-foreground/60">{caseId}</p>
         <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-          <Button variant="outline" onClick={handleExport} className="gap-2 rounded-lg">
-            <Download className="h-4 w-4" />
+          <Button variant="outline" size="lg" onClick={handleExport} className="h-12 gap-2.5 rounded-xl px-6 text-[15px] font-semibold">
+            <Download className="h-4.5 w-4.5" />
             Download Again
           </Button>
-          <Button onClick={handleNewCase} className="gap-2 rounded-lg">
-            <FilePlus2 className="h-4 w-4" />
+          <Button size="lg" onClick={handleNewCase} className="h-12 gap-2.5 rounded-xl px-6 text-[15px] font-semibold shadow-md shadow-primary/15">
+            <FilePlus2 className="h-4.5 w-4.5" />
             Start New Case
           </Button>
         </div>
@@ -202,12 +202,15 @@ export function StepReview({
   const issueItems = readiness?.items.filter((i) => i.status !== "pass") ?? [];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="flex h-full flex-col">
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto">
+        <div className={`${LAYOUT.page} space-y-8`}>
       {/* Page header */}
       <div>
         <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">Step 3</p>
-        <h2 className="mt-1 text-2xl font-semibold tracking-tight">Review & Export</h2>
-        <p className="mt-1.5 text-sm text-muted-foreground">Review your case details and export when ready</p>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight">Review & Export</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Review your case details and export when ready</p>
       </div>
 
       {/* ── Readiness Score Card ── */}
@@ -261,63 +264,6 @@ export function StepReview({
               <XCircle className="h-3.5 w-3.5" />
               {readiness.redCount} Failed
             </span>
-          </div>
-        </div>
-      )}
-
-      {/* ── AI Document Analysis ── */}
-      {aiMetadata && aiMetadata.size > 0 && (
-        <div className="rounded-xl border border-violet-500/20 bg-violet-500/[0.02] p-6 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)]">
-          <div className="mb-4 flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-violet-500" />
-            <span className="text-sm font-medium">AI Document Analysis</span>
-            <Badge variant="outline" className="ml-auto">{aiMetadata.size} documents analyzed</Badge>
-          </div>
-          <div className="space-y-2">
-            {Array.from(aiMetadata.entries()).map(([slotId, meta]) => (
-              <div key={slotId} className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm">
-                {/* Confidence badge */}
-                <span className={cn("inline-flex min-w-[3rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold",
-                  meta.confidence >= 80 ? "bg-emerald-500/10 text-emerald-600" :
-                  meta.confidence >= 50 ? "bg-amber-500/10 text-amber-600" :
-                  "bg-red-500/10 text-red-600"
-                )}>
-                  {meta.confidence}%
-                </span>
-
-                {/* Slot name */}
-                <span className="font-medium">{formatSlotName(slotId)}</span>
-
-                {/* Status pills */}
-                <div className="ml-auto flex items-center gap-1.5">
-                  {meta.hasSignature && <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 text-[10px]">Signed</Badge>}
-                  {!meta.hasSignature && <Badge variant="outline" className="border-red-500/30 text-red-600 text-[10px]">No Signature</Badge>}
-                  {meta.hasStamp && <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 text-[10px]">Stamped</Badge>}
-                  {!meta.hasStamp && <Badge variant="outline" className="border-amber-500/30 text-amber-600 text-[10px]">No Stamp</Badge>}
-                  {meta.isComplete && <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 text-[10px]">Complete</Badge>}
-                  {!meta.isComplete && meta.blankSections.length > 0 && (
-                    <Badge variant="outline" className="border-red-500/30 text-red-600 text-[10px]">
-                      {meta.blankSections.length} blank
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            {/* AI Warnings */}
-            {Array.from(aiMetadata.values()).some(m => m.warnings.length > 0) && (
-              <div className="mt-3 space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">AI Warnings</p>
-                {Array.from(aiMetadata.entries()).flatMap(([slotId, meta]) =>
-                  meta.warnings.map((w, i) => (
-                    <div key={`${slotId}-${i}`} className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
-                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                      <span><strong>{formatSlotName(slotId)}:</strong> {w}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -576,8 +522,8 @@ export function StepReview({
       {extractedFields.size > 0 && (
         <div className="rounded-xl border border-border/50 bg-card p-6">
           <div className="mb-3 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-violet-500" />
-            <span className="text-sm font-medium">AI-Extracted Fields</span>
+            <ScanSearch className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Extracted Fields</span>
             <span className="text-xs text-muted-foreground">
               ({Array.from(extractedFields.values()).reduce((s, f) => s + f.length, 0)} fields)
             </span>
@@ -636,80 +582,85 @@ export function StepReview({
         )}
       </div>
 
-      {/* ── Export Button Area ── */}
-      <div className="border-t border-border/30 pt-6">
-        <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <Button
-            variant="ghost"
-            size="lg"
-            onClick={onPrev}
-            className="group h-10 gap-2 rounded-lg px-6 text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
-            Back
-          </Button>
-
-          <div className="flex items-center gap-3">
-            {tier === "amber" && (
-              <Button
-                variant="outline"
-                size="lg"
-                className="h-12 gap-2 rounded-xl px-6 border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
-                onClick={async () => {
-                  await updateCaseStatus(caseId, "submitted");
-                }}
-              >
-                <Send className="h-4 w-4" />
-                Send to Review
-              </Button>
-            )}
-
-            <Button
-              size="lg"
-              onClick={
-                tier === "red"
-                  ? onPrev
-                  : handleExport
-              }
-              disabled={tier !== "red" && (isExporting || renameMappings.length === 0)}
-              className={cn(
-                "h-12 gap-2 rounded-xl px-8 text-base font-semibold transition-all duration-200",
-                tier === "green"
-                  ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-700 hover:to-emerald-600 text-white shadow-[0_2px_8px_rgba(16,185,129,0.25)] hover:shadow-[0_4px_14px_rgba(16,185,129,0.35)]"
-                  : tier === "amber"
-                  ? "bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-700 hover:to-amber-600 text-white shadow-[0_2px_8px_rgba(245,158,11,0.25)]"
-                  : ""
-              )}
-            >
-              {isExporting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating ZIP...
-                </>
-              ) : tier === "red" ? (
-                <>
-                  <AlertTriangle className="h-4 w-4" />
-                  Resolve Issues
-                </>
-              ) : tier === "amber" ? (
-                <>
-                  <Download className="h-4 w-4" />
-                  Export with Exceptions ({exceptions.length})
-                </>
-              ) : (
-                <>
-                  <Download className="h-4 w-4" />
-                  Export Case Package
-                </>
-              )}
-            </Button>
-          </div>
         </div>
-        {tier !== "red" && (
-          <p className="mt-2 text-right text-xs text-muted-foreground">
-            {renameMappings.length} files will be packaged into a ZIP archive
-          </p>
-        )}
+      </div>
+
+      {/* Pinned bottom bar */}
+      <div className="shrink-0 border-t border-border/30 bg-background/80 backdrop-blur-sm">
+        <div className={cn(LAYOUT.bottomBar, "")}>
+          <div className="flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={onPrev}
+              className="h-10 gap-2 rounded-lg px-5 text-sm"
+            >
+              <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+              Back
+            </Button>
+
+            <div className="flex items-center gap-3">
+              {tier === "amber" && (
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="h-12 gap-2 rounded-xl px-6 border-amber-500/30 text-amber-600 hover:bg-amber-500/10"
+                  onClick={async () => {
+                    await updateCaseStatus(caseId, "submitted");
+                  }}
+                >
+                  <Send className="h-4.5 w-4.5" />
+                  Send to Review
+                </Button>
+              )}
+
+              <Button
+                size="lg"
+                onClick={
+                  tier === "red"
+                    ? onPrev
+                    : handleExport
+                }
+                disabled={tier !== "red" && (isExporting || renameMappings.length === 0)}
+                className={cn(
+                  "h-12 gap-2.5 rounded-xl px-8 text-[15px] font-semibold transition-all duration-200",
+                  tier === "green"
+                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 hover:shadow-lg hover:shadow-emerald-600/30"
+                    : tier === "amber"
+                    ? "bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-600/20"
+                    : ""
+                )}
+              >
+                {isExporting ? (
+                  <>
+                    <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                    Generating ZIP...
+                  </>
+                ) : tier === "red" ? (
+                  <>
+                    <AlertTriangle className="h-4.5 w-4.5" />
+                    Resolve Issues
+                  </>
+                ) : tier === "amber" ? (
+                  <>
+                    <Download className="h-4.5 w-4.5" />
+                    Export with Exceptions ({exceptions.length})
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4.5 w-4.5" />
+                    Export Case Package
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+          {tier !== "red" && (
+            <p className="mt-2 text-right text-xs text-muted-foreground">
+              {renameMappings.length} files will be packaged into a ZIP archive
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Exception Modal */}
@@ -722,23 +673,6 @@ export function StepReview({
       />
     </div>
   );
-}
-
-// ── AI Document Analysis Helpers ──
-
-function formatSlotName(slotId: string): string {
-  const map: Record<string, string> = {
-    mdf: "MDF",
-    "trade-license": "Trade License",
-    "bank-statement": "Bank Statement",
-    "vat-cert": "VAT Certificate",
-    "main-moa": "MOA (Main)",
-    "amended-moa": "MOA (Amended)",
-  };
-  if (map[slotId]) return map[slotId];
-  if (slotId.startsWith("passport::")) return `Passport — ${slotId.split("::")[1]?.slice(0, 8)}`;
-  if (slotId.startsWith("eid::")) return `Emirates ID — ${slotId.split("::")[1]?.slice(0, 8)}`;
-  return slotId.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
 // ── Collapsible Folder Group ──

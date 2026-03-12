@@ -11,7 +11,6 @@ import {
   Moon,
   Menu,
   X,
-  Sparkles,
 } from "lucide-react";
 import { useTheme } from "./theme-provider";
 import { Button } from "@/components/ui/button";
@@ -28,56 +27,32 @@ export function Sidebar() {
   const { theme, toggle } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const navContent = (mobile: boolean) => (
-    <nav
-      className="flex flex-1 flex-col gap-0.5 px-3 pt-2"
-      aria-label="Main navigation"
-    >
-      {navItems.map((item) => {
-        const isActive =
-          item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-
-        return (
-          <Link
-            key={item.label}
-            href={item.href}
-            onClick={mobile ? () => setMobileOpen(false) : undefined}
-            className={cn(
-              "relative flex h-9 items-center gap-3 rounded-md px-3 text-[13px] font-medium transition-colors",
-              isActive
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-            )}
-          >
-            <item.icon className="h-4 w-4 shrink-0" />
-            {item.label}
-          </Link>
-        );
-      })}
-    </nav>
-  );
-
   return (
     <>
-      {/* Mobile top bar */}
-      <div className="fixed left-0 right-0 top-0 z-50 flex h-14 items-center justify-between border-b border-border/40 bg-card px-4 md:hidden">
-        <span className="text-sm font-semibold">RFM</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9"
-          onClick={() => setMobileOpen(!mobileOpen)}
-          aria-label={mobileOpen ? "Close menu" : "Open menu"}
-        >
-          {mobileOpen ? (
-            <X className="h-5 w-5" />
-          ) : (
-            <Menu className="h-5 w-5" />
-          )}
-        </Button>
+      {/* ── Mobile top bar ── */}
+      <div className="fixed inset-x-0 top-0 z-50 flex h-14 items-center justify-between border-b border-border/40 bg-card px-4 md:hidden">
+        <span className="text-sm font-semibold tracking-tight">RFM Portal</span>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground"
+            onClick={toggle}
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setMobileOpen(!mobileOpen)}
+          >
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        </div>
       </div>
 
-      {/* Mobile overlay */}
+      {/* ── Mobile overlay ── */}
       {mobileOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
@@ -85,63 +60,84 @@ export function Sidebar() {
         />
       )}
 
-      {/* Mobile slide-out nav */}
+      {/* ── Mobile slide-out nav ── */}
       <div
         className={cn(
-          "fixed left-0 top-14 z-40 flex h-[calc(100vh-3.5rem)] w-64 flex-col border-r border-border/40 bg-card transition-transform duration-200 ease-out md:hidden",
+          "fixed left-0 top-14 z-40 flex h-[calc(100dvh-3.5rem)] w-64 flex-col border-r border-border/40 bg-card transition-transform duration-200 ease-out md:hidden",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {navContent(true)}
-        <div className="border-t border-border/40 p-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggle}
-            className="w-full justify-start gap-3 rounded-md text-[13px] text-muted-foreground hover:text-foreground"
-          >
-            {theme === "dark" ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
-            {theme === "dark" ? "Light Mode" : "Dark Mode"}
-          </Button>
-        </div>
+        <nav className="flex flex-1 flex-col gap-1 px-3 pt-4">
+          {navItems.map((item) => {
+            const isActive =
+              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.label}
+                href={item.href}
+                onClick={() => setMobileOpen(false)}
+                className={cn(
+                  "flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-primary/8 text-primary font-semibold"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                )}
+              >
+                <item.icon className="h-4 w-4 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
       </div>
 
-      {/* Desktop sidebar */}
-      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-[var(--sidebar-width)] flex-col border-r border-border/40 bg-card md:flex">
+      {/* ── Desktop sidebar — fixed left, full height ── */}
+      <aside className="fixed left-0 top-0 z-40 hidden h-dvh w-[var(--sidebar-width)] flex-col border-r border-border/30 bg-card md:flex">
         {/* Brand */}
-        <div className="flex h-14 items-center gap-2 px-5">
-          <span className="text-sm font-semibold tracking-tight text-foreground">
-            RFM
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-500">
-            <Sparkles className="h-2.5 w-2.5" />
-            AI
-          </span>
+        <div className="flex h-14 items-center px-5">
+          <Link href="/" className="text-sm font-semibold tracking-tight text-foreground">
+            RFM Portal
+          </Link>
         </div>
 
         {/* Nav */}
-        {navContent(false)}
+        <nav className="flex flex-1 flex-col gap-1 px-3" aria-label="Main navigation">
+          {navItems.map((item) => {
+            const isActive =
+              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={cn(
+                  "relative flex h-9 items-center gap-3 rounded-lg px-3 text-[13px] font-medium transition-colors",
+                  isActive
+                    ? "bg-primary/8 text-primary font-semibold"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                )}
+              >
+                <item.icon className="h-4 w-4 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
 
         {/* Bottom */}
-        <div className="border-t border-border/40 p-3">
+        <div className="border-t border-border/30 p-3 space-y-2">
           <Button
             variant="ghost"
             size="sm"
             onClick={toggle}
-            className="w-full justify-start gap-3 rounded-md text-[13px] text-muted-foreground hover:text-foreground"
+            className="w-full justify-start gap-3 rounded-lg text-[13px] text-muted-foreground hover:text-foreground"
             aria-label="Toggle theme"
           >
-            {theme === "dark" ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             <span>{theme === "dark" ? "Light" : "Dark"}</span>
           </Button>
+          <div className="px-3">
+            <span className="text-[10px] text-muted-foreground/40">Powered by Google Gemini</span>
+          </div>
         </div>
       </aside>
     </>

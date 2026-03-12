@@ -33,9 +33,9 @@ export default function RootLayout({
       >
         <ThemeProvider>
           <TooltipProvider delayDuration={0}>
-            <div className="flex min-h-screen bg-background">
+            <div className="flex h-dvh overflow-hidden bg-background">
               <Sidebar />
-              <main className="flex-1 pt-14 md:pt-0 md:pl-[var(--sidebar-width)]">
+              <main className="flex-1 overflow-hidden pt-14 md:pt-0 md:pl-[var(--sidebar-width)]">
                 {children}
               </main>
             </div>

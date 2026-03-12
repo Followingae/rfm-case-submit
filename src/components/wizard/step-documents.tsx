@@ -8,11 +8,6 @@ import {
   Info,
   X,
   AlertTriangle,
-  Sparkles,
-  CheckCircle2,
-  PenLine,
-  Stamp,
-  FileCheck,
   Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,6 +29,7 @@ import type { MergePlan } from "@/lib/pdf-merger";
 import { MDFValidationResult } from "@/lib/mdf-validation";
 import { DocTypeDetectionResult } from "@/lib/doc-type-detector";
 import type { UploadValidation } from "@/lib/upload-validator";
+import { LAYOUT } from "@/lib/layout";
 
 import { TemplateMatchResult } from "@/lib/types";
 
@@ -114,188 +110,106 @@ export function StepDocuments({
   }, [duplicateWarnings]);
 
   return (
-    <div className="mx-auto max-w-5xl">
-      {/* Page header */}
-      <div className="max-w-3xl space-y-1 mb-6">
-        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">Step 2</p>
-        <h2 className="mt-1 text-2xl font-semibold tracking-tight">Document Checklist</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">Upload documents &mdash; AI Vision analyzes, extracts fields, and validates each file</p>
-        <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">{merchantInfo.legalName || "Merchant"}</span>
-          <span>&middot;</span>
-          <span className="capitalize">{merchantInfo.caseType.replace("-", " ")}</span>
-        </div>
-      </div>
+    <div className="flex h-full flex-col">
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto">
+        <div className={LAYOUT.pageWide}>
+          {/* Page header */}
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold tracking-tight text-foreground">Document Checklist</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {merchantInfo.legalName || "Merchant"} &middot; <span className="capitalize">{merchantInfo.caseType.replace("-", " ")}</span>
+            </p>
+          </div>
 
-      {/* AI Intelligence Summary */}
-      {aiMetadata && aiMetadata.size > 0 && (
-        <AIIntelligenceBanner aiMetadata={aiMetadata} />
-      )}
+          {/* Duplicate file warnings */}
+          {duplicateWarnings.length > 0 && (
+            <DuplicateWarningBanner warnings={duplicateWarnings} items={items} />
+          )}
 
-      {/* Duplicate file warnings */}
-      {duplicateWarnings.length > 0 && (
-        <DuplicateWarningBanner warnings={duplicateWarnings} items={items} />
-      )}
+          {/* Consistency warnings banner */}
+          {consistencyWarnings && consistencyWarnings.length > 0 && (
+            <ConsistencyBanner warnings={consistencyWarnings} />
+          )}
 
-      {/* Consistency warnings banner */}
-      {consistencyWarnings && consistencyWarnings.length > 0 && (
-        <ConsistencyBanner warnings={consistencyWarnings} />
-      )}
+          {/* Two-column layout: main content + sticky sidebar */}
+          <div className="flex gap-8 items-start">
+            {/* Main content */}
+            <div className="min-w-0 flex-1 space-y-5">
+              <ChecklistEngine
+                items={items}
+                onItemUpdate={onItemUpdate}
+                onFileRemove={onFileRemove}
+                conditionals={conditionals}
+                onConditionalToggle={onConditionalToggle}
+                onRawFilesAdded={onRawFilesAdded}
+                onMultiSlotFulfill={onMultiSlotFulfill}
+                onClassificationProgress={onClassificationProgress}
+                docTypeWarnings={docTypeWarnings}
+                duplicateFileNames={duplicateFileNames}
+                uploadValidations={uploadValidations}
+                uploadProgress={uploadProgress}
+                onCancelUpload={onCancelUpload}
+                onMoveFile={onMoveFile}
+                mdfMergePlan={mdfMergePlan}
+                skipMdfMerge={skipMdfMerge}
+                onSkipMdfMergeChange={onSkipMdfMergeChange}
+                mdfValidation={mdfValidation}
+                templateWarnings={templateWarnings}
+                aiMetadata={aiMetadata}
+              />
 
-      {/* Two-column layout: main content + sticky sidebar */}
-      <div className="flex gap-6 items-start">
-        {/* Main content */}
-        <div className="min-w-0 flex-1 space-y-6">
-          <ChecklistEngine
-            items={items}
-            onItemUpdate={onItemUpdate}
-            onFileRemove={onFileRemove}
-            conditionals={conditionals}
-            onConditionalToggle={onConditionalToggle}
-            onRawFilesAdded={onRawFilesAdded}
-            onMultiSlotFulfill={onMultiSlotFulfill}
-            onClassificationProgress={onClassificationProgress}
-            docTypeWarnings={docTypeWarnings}
-            duplicateFileNames={duplicateFileNames}
-            uploadValidations={uploadValidations}
-            uploadProgress={uploadProgress}
-            onCancelUpload={onCancelUpload}
-            onMoveFile={onMoveFile}
-            mdfMergePlan={mdfMergePlan}
-            skipMdfMerge={skipMdfMerge}
-            onSkipMdfMergeChange={onSkipMdfMergeChange}
-            mdfValidation={mdfValidation}
-            templateWarnings={templateWarnings}
-            aiMetadata={aiMetadata}
-          />
+              <ShareholderKYCSection
+                shareholders={shareholders}
+                onUpdate={onShareholdersUpdate}
+                onRawFilesAdded={onShareholderRawFiles}
+              />
+            </div>
 
-          <ShareholderKYCSection
-            shareholders={shareholders}
-            onUpdate={onShareholdersUpdate}
-            onRawFilesAdded={onShareholderRawFiles}
-          />
-
-          {/* Bottom navigation */}
-          <div className="border-t border-border/30 pt-4 mt-6">
-            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <Button
-                variant="ghost"
-                size="lg"
-                onClick={onPrev}
-                className="group h-10 gap-2 rounded-lg px-6 text-muted-foreground hover:text-foreground"
-              >
-                <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
-                Back
-              </Button>
-
-              <div className="flex items-center gap-3">
-                {missingRequired.length > 0 && hasAnyUpload && (
-                  <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-600">
-                    {missingRequired.length} required missing
-                  </span>
-                )}
-                <Button
-                  size="lg"
-                  disabled={!hasAnyUpload}
-                  onClick={onNext}
-                  className="group h-10 gap-2 rounded-lg px-8 font-medium"
-                >
-                  Review & Export
-                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                </Button>
-              </div>
+            {/* Sticky progress sidebar — hidden on small screens */}
+            <div className="hidden xl:block">
+              <DocProgressSidebar
+                items={items}
+                conditionals={conditionals}
+                uploadProgress={uploadProgress ?? new Map()}
+              />
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Sticky progress sidebar — hidden on small screens */}
-        <div className="hidden xl:block">
-          <DocProgressSidebar
-            items={items}
-            conditionals={conditionals}
-            uploadProgress={uploadProgress ?? new Map()}
-          />
+      {/* Pinned bottom bar */}
+      <div className="shrink-0 border-t border-border/30 bg-background/80 backdrop-blur-sm">
+        <div className={cn(LAYOUT.bottomBarWide, "flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between")}>
+          <Button
+            variant="ghost"
+            size="lg"
+            onClick={onPrev}
+            className="h-10 gap-2 rounded-lg px-5 text-sm"
+          >
+            <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" />
+            Back
+          </Button>
+
+          <div className="flex items-center gap-3">
+            {missingRequired.length > 0 && hasAnyUpload && (
+              <span className="inline-flex items-center rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                {missingRequired.length} required missing
+              </span>
+            )}
+            <Button
+              size="lg"
+              disabled={!hasAnyUpload}
+              onClick={onNext}
+              className="group h-12 gap-2.5 rounded-xl px-8 text-[15px] font-semibold shadow-md shadow-primary/15 hover:shadow-lg hover:shadow-primary/25 transition-all duration-200"
+            >
+              Review & Export
+              <ArrowRight className="h-4.5 w-4.5 transition-transform group-hover:translate-x-0.5" />
+            </Button>
+          </div>
         </div>
       </div>
     </div>
-  );
-}
-
-/* ───────────────────── AI Intelligence Banner ───────────── */
-
-function AIIntelligenceBanner({ aiMetadata }: { aiMetadata: Map<string, AIExtractionMeta> }) {
-  const entries = Array.from(aiMetadata.entries());
-  const avgConfidence = Math.round(entries.reduce((s, [, m]) => s + m.confidence, 0) / entries.length);
-  const signedCount = entries.filter(([, m]) => m.hasSignature).length;
-  const stampedCount = entries.filter(([, m]) => m.hasStamp).length;
-  const completeCount = entries.filter(([, m]) => m.isComplete).length;
-  const warningCount = entries.reduce((s, [, m]) => s + m.warnings.length, 0);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="mb-4 rounded-xl border border-violet-500/20 bg-gradient-to-r from-violet-500/[0.04] to-indigo-500/[0.04] p-4"
-    >
-      <div className="flex items-center gap-2.5 mb-3">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/10">
-          <Sparkles className="h-4 w-4 text-violet-500" />
-        </div>
-        <span className="text-sm font-medium text-foreground">AI Analysis</span>
-        <span className="text-xs text-muted-foreground">{entries.length} document{entries.length !== 1 ? "s" : ""} analyzed</span>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {/* Confidence */}
-        <span className={cn(
-          "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold",
-          avgConfidence >= 80
-            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-            : avgConfidence >= 50
-            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-            : "bg-red-500/10 text-red-600 dark:text-red-400"
-        )}>
-          {avgConfidence}% avg confidence
-        </span>
-        {/* Signatures */}
-        <span className={cn(
-          "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium",
-          signedCount > 0
-            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-            : "bg-muted/50 text-muted-foreground"
-        )}>
-          <PenLine className="h-3 w-3" />
-          {signedCount} signed
-        </span>
-        {/* Stamps */}
-        <span className={cn(
-          "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium",
-          stampedCount > 0
-            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-            : "bg-muted/50 text-muted-foreground"
-        )}>
-          <Stamp className="h-3 w-3" />
-          {stampedCount} stamped
-        </span>
-        {/* Complete */}
-        <span className={cn(
-          "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium",
-          completeCount === entries.length
-            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-            : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-        )}>
-          <FileCheck className="h-3 w-3" />
-          {completeCount}/{entries.length} complete
-        </span>
-        {/* Warnings */}
-        {warningCount > 0 && (
-          <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-            <AlertTriangle className="h-3 w-3" />
-            {warningCount} warning{warningCount !== 1 ? "s" : ""}
-          </span>
-        )}
-      </div>
-    </motion.div>
   );
 }
 

@@ -97,7 +97,7 @@ export function DocProgressSidebar({
   );
 
   return (
-    <div className="sticky top-8 w-48 shrink-0 select-none">
+    <div className="sticky top-6 w-56 shrink-0 select-none">
       <div className="rounded-xl border border-border/30 bg-card/80 backdrop-blur-sm overflow-hidden">
         {/* Header */}
         <div className="border-b border-border/20 px-3.5 py-2.5">

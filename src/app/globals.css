@@ -89,7 +89,7 @@
   --duration-slow: 300ms;
 
   /* Layout */
-  --sidebar-width: 220px;
+  --sidebar-width: 240px;
 
   --radius: 0.625rem;
   --background: oklch(0.995 0.004 260);
