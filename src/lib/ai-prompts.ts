@@ -299,10 +299,79 @@ Return a JSON object with:
 - "suggestedSlot": string (which upload slot this document best fits, using the same IDs as detectedType)
 `.trim();
 
+// ── MDF Gold Standard Verification ───────────────────────────────────
+
+export const MDF_VERIFY_PROMPT = `
+You are verifying a Network International Merchant Details Form (MDF/MAF) for completeness against the gold-standard template. This is a multi-page (typically 8-10 pages) merchant onboarding agreement form.
+
+Your job: check each section below and determine whether it is PRESENT in the uploaded document and whether the required fields are FILLED IN with actual values (not blank). A field is "filled" only if it contains a real written/typed value — the label alone does not count.
+
+This document could be digitally filled OR a scanned handwritten/stamped copy. Both are valid.
+
+SECTIONS TO VERIFY:
+
+1. MERCHANT DETAILS (Section A, typically page 2)
+   Required: Trade License Number, Legal Entity Name, Trade Name (DBA), Legal Type, Emirate, Business Address
+   Optional: PO Box, TIN, Sole Proprietor details
+
+2. BUSINESS DETAILS (typically page 3)
+   Required: Products/Services offered, Projected annual sales or existing annual sales
+   Optional: Number of years in business, Number of employees, Number of branches
+
+3. CONTACT PERSON (typically page 3)
+   Required: Contact Person Name, Phone or Mobile Number, Email Address
+   Optional: Designation, Website, Social Media, Chargeback email
+
+4. BANK ACCOUNT / SETTLEMENT (typically page 4)
+   Required: Account Holder Name, Bank Name, IBAN Number, SWIFT Code
+   Optional: Branch Name, Payout Services details
+
+5. AUTHORIZED SIGNATORY & BENEFICIAL OWNER (typically page 5)
+   Required: At least one signatory with Passport Number and Emirates ID, At least one shareholder/UBO with Name and Shareholding Percentage
+   Optional: Residential address, Place of birth, Nationality
+
+6. FEE SCHEDULE (typically pages 6-7)
+   Required: At least some card type rates filled (POS and/or ECOM columns), Setup/rental/transaction fees
+   Optional: DCC rates, BNPL fees, Additional service fees
+
+7. DECLARATION & SANCTIONS (typically page 8)
+   Required: Sanctions questions answered (Yes/No responses visible for questions A-E), PEP declaration answered
+   Optional: Sanctioned country details (only required if any answer is Yes)
+
+8. SIGNATURES & STAMPS
+   Required: Authorized Signatory signature on Declaration page, Company stamp/seal on Declaration page
+   Required: Direct Debit Mandate signature (typically page 9)
+   Optional: Additional signatory signatures
+
+9. DIRECT DEBIT MANDATE (typically page 9)
+   Required: Account details (Account Name, IBAN, Bank Name), Merchant Number or Category Code
+   Optional: Number of POS terminals, E-commerce type
+
+For each section, determine status:
+- "complete": all required fields are filled
+- "partial": some required fields filled, some missing
+- "missing": section not found or all required fields blank
+
+Return a JSON object with exactly these keys:
+- "sections": array of objects, each with:
+  - "name": string (section name exactly as listed above, e.g. "Merchant Details")
+  - "status": "complete" | "partial" | "missing"
+  - "filledFields": string[] (names of required fields that have values)
+  - "missingFields": string[] (names of required fields that are blank/missing)
+- "overallScore": number 0-100 (percentage of total required fields that are filled)
+- "isComplete": boolean (true ONLY if ALL sections are complete AND all signatures present)
+- "hasSignature": boolean (at least one authorized signature found)
+- "hasStamp": boolean (company stamp or seal found)
+- "warnings": string[] (any concerns, e.g. "Fee schedule appears mostly blank", "Signature is illegible")
+
+Return valid JSON only, no markdown fences, no explanation text.
+`.trim();
+
 // ── Prompt Lookup ────────────────────────────────────────────────────
 
 const PROMPT_MAP: Record<string, string> = {
   mdf: MDF_PROMPT,
+  "mdf-verify": MDF_VERIFY_PROMPT,
   "trade-license": TRADE_LICENSE_PROMPT,
   "bank-statement": BANK_STATEMENT_PROMPT,
   "vat-cert": VAT_CERT_PROMPT,

@@ -24,6 +24,7 @@ import {
   Mail,
   ArrowRight as ArrowRightIcon,
   Info,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +74,7 @@ interface StepReviewProps {
   aiMetadata?: Map<string, AIExtractionMeta>;
   mdfMergePlan?: MergePlan | null;
   skipMdfMerge?: boolean;
+  autofilledFields?: Set<string>;
   onPrev: () => void;
 }
 
@@ -95,6 +97,7 @@ export function StepReview({
   aiMetadata,
   mdfMergePlan,
   skipMdfMerge,
+  autofilledFields,
   onPrev,
 }: StepReviewProps) {
   const router = useRouter();
@@ -320,6 +323,7 @@ export function StepReview({
         onChange={onSubmissionDetailsChange}
         expanded={submissionExpanded}
         onToggle={() => setSubmissionExpanded(!submissionExpanded)}
+        autofilledFields={autofilledFields}
         copiedHtml={copiedHtml}
         copiedText={copiedText}
         onCopyHtml={() => {
@@ -743,6 +747,7 @@ function SubmissionEmailSection({
   copiedText,
   onCopyHtml,
   onCopyText,
+  autofilledFields,
 }: {
   merchantInfo: MerchantInfo;
   details: SubmissionDetails;
@@ -753,6 +758,7 @@ function SubmissionEmailSection({
   copiedText: boolean;
   onCopyHtml: () => void;
   onCopyText: () => void;
+  autofilledFields?: Set<string>;
 }) {
   const update = (key: keyof SubmissionDetails, value: string) => {
     onChange({ ...details, [key]: value });
@@ -791,6 +797,14 @@ function SubmissionEmailSection({
 
       {expanded && (
         <div className="border-t border-border/30 px-6 py-5">
+          {autofilledFields && autofilledFields.size > 0 && (
+            <div className="mb-4 flex items-center gap-2 rounded-lg bg-violet-500/5 border border-violet-500/10 px-3 py-2">
+              <Sparkles className="h-3.5 w-3.5 text-violet-500 shrink-0" />
+              <span className="text-xs text-violet-600 dark:text-violet-400">
+                {autofilledFields.size} fields auto-populated from MDF by AI
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground uppercase tracking-wider">Name of Merchant</Label>
@@ -802,13 +816,19 @@ function SubmissionEmailSection({
             </div>
             {SUBMISSION_FIELDS.map(({ key, label }) => (
               <div key={key} className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground uppercase tracking-wider">{label}</Label>
+                <Label className="flex items-center gap-1.5 text-xs text-muted-foreground uppercase tracking-wider">
+                  {label}
+                  {autofilledFields?.has(key) && (
+                    <Sparkles className="h-2.5 w-2.5 text-violet-500" />
+                  )}
+                </Label>
                 <Input
                   value={details[key]}
                   onChange={(e) => update(key, e.target.value)}
                   placeholder="\u2014"
                   className={cn(
                     "h-9 rounded-lg text-sm",
+                    autofilledFields?.has(key) && details[key] ? "border-violet-500/20" : "",
                     details[key] ? "" : "text-muted-foreground"
                   )}
                 />

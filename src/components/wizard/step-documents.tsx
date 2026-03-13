@@ -59,6 +59,9 @@ interface StepDocumentsProps {
   skipMdfMerge?: boolean;
   onSkipMdfMergeChange?: (skip: boolean) => void;
   aiMetadata?: Map<string, AIExtractionMeta>;
+  kycExpiryFlags?: Map<string, import("@/lib/readiness-engine").KycExpiryFlag>;
+  docCompleteness?: Map<string, import("@/lib/doc-completeness").DocCompletenessResult>;
+  scanQuality?: Map<string, import("@/lib/types").ScanQualityResult>;
   onPrev: () => void;
   onNext: () => void;
 }
@@ -89,6 +92,9 @@ export function StepDocuments({
   skipMdfMerge,
   onSkipMdfMergeChange,
   aiMetadata,
+  kycExpiryFlags,
+  docCompleteness,
+  scanQuality,
   onPrev,
   onNext,
 }: StepDocumentsProps) {
@@ -157,12 +163,16 @@ export function StepDocuments({
                 mdfValidation={mdfValidation}
                 templateWarnings={templateWarnings}
                 aiMetadata={aiMetadata}
+                docCompleteness={docCompleteness}
+                scanQuality={scanQuality}
               />
 
               <ShareholderKYCSection
                 shareholders={shareholders}
                 onUpdate={onShareholdersUpdate}
                 onRawFilesAdded={onShareholderRawFiles}
+                kycExpiryFlags={kycExpiryFlags}
+                aiMetadata={aiMetadata}
               />
             </div>
 

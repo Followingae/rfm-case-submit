@@ -71,12 +71,15 @@ interface ChecklistEngineProps {
   mdfValidation?: MDFValidationResult | null;
   templateWarnings?: Map<string, TemplateMatchResult>;
   aiMetadata?: Map<string, AIExtractionMeta>;
+  docCompleteness?: Map<string, import("@/lib/doc-completeness").DocCompletenessResult>;
+  scanQuality?: Map<string, import("@/lib/types").ScanQualityResult>;
 }
 
 interface CategoryStat {
   total: number;
   uploaded: number;
   complete: boolean;
+  hasMismatch: boolean;
   visible: boolean;
 }
 
@@ -192,18 +195,22 @@ function CategoryCard({
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         stat.complete
           ? "border-emerald-500/20 bg-emerald-500/5"
+          : stat.hasMismatch
+          ? "border-amber-500/20 bg-amber-500/5"
           : isActive
           ? "shadow-sm"
           : "border-border/40 bg-card hover:border-border/60 hover:bg-muted/30",
-        isFlashing && "animate-pulse border-emerald-500/40 bg-emerald-500/10"
+        isFlashing && !stat.hasMismatch && "animate-pulse border-emerald-500/40 bg-emerald-500/10"
       )}
-      style={isActive && !stat.complete ? {
+      style={isActive && !stat.complete && !stat.hasMismatch ? {
         borderColor: `color-mix(in oklch, ${catColor} 30%, transparent)`,
         backgroundColor: `color-mix(in oklch, ${catColor} 5%, transparent)`,
       } : undefined}
     >
       {stat.complete ? (
         <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+      ) : stat.hasMismatch ? (
+        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
       ) : (
         <Icon
           className={cn("h-4 w-4 shrink-0", !isActive && "text-muted-foreground")}
@@ -214,6 +221,8 @@ function CategoryCard({
         "text-sm font-medium whitespace-nowrap",
         stat.complete
           ? "text-emerald-600 dark:text-emerald-400"
+          : stat.hasMismatch
+          ? "text-amber-600 dark:text-amber-400"
           : isActive ? "text-foreground" : "text-foreground/80"
       )}>
         {category}
@@ -222,9 +231,10 @@ function CategoryCard({
         className={cn(
           "text-xs font-medium tabular-nums",
           stat.complete && "text-emerald-500/60",
-          !stat.complete && !isActive && "text-muted-foreground/50",
+          stat.hasMismatch && !stat.complete && "text-amber-500/60",
+          !stat.complete && !stat.hasMismatch && !isActive && "text-muted-foreground/50",
         )}
-        style={!stat.complete && isActive ? { color: `color-mix(in oklch, ${catColor} 60%, transparent)` } : undefined}
+        style={!stat.complete && !stat.hasMismatch && isActive ? { color: `color-mix(in oklch, ${catColor} 60%, transparent)` } : undefined}
       >
         {stat.uploaded}/{stat.total}
       </span>
@@ -432,17 +442,19 @@ function CategoryIntelligence({
   // Count validation statuses
   let passCount = 0;
   let warnCount = 0;
+  let mismatchCount = 0;
   for (const item of uploadedItems) {
     if (dismissedValidations.has(item.id)) continue;
     const v = uploadValidations?.get(item.id);
     if (v?.status === "pass") passCount++;
     else if (v?.status === "warn") warnCount++;
+    else if (v?.status === "mismatch" || v?.status === "unknown") mismatchCount++;
   }
 
-  const hasAnything = hasMdf || passCount > 0 || warnCount > 0;
+  const hasAnything = hasMdf || passCount > 0 || warnCount > 0 || mismatchCount > 0;
   if (!hasAnything) return null;
 
-  const isAllGood = (!hasMdf || fieldPct >= 80) && warnCount === 0;
+  const isAllGood = (!hasMdf || fieldPct >= 80) && warnCount === 0 && mismatchCount === 0;
 
   return (
     <div className="rounded-xl border border-border/30 bg-card/50">
@@ -456,6 +468,10 @@ function CategoryIntelligence({
           {isAllGood ? (
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/10">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            </div>
+          ) : mismatchCount > 0 ? (
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500/10">
+              <ShieldAlert className="h-3.5 w-3.5 text-red-500" />
             </div>
           ) : (
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-500/10">
@@ -483,6 +499,11 @@ function CategoryIntelligence({
             {warnCount > 0 && (
               <span className="rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
                 {warnCount} uncertain
+              </span>
+            )}
+            {mismatchCount > 0 && (
+              <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
+                {mismatchCount} wrong doc{mismatchCount !== 1 ? "s" : ""}
               </span>
             )}
           </div>
@@ -536,7 +557,14 @@ function CategoryIntelligence({
                   <div key={item.id} className="flex items-center gap-2.5 text-sm">
                     {v.status === "pass" && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
                     {v.status === "warn" && <AlertTriangle className="h-4 w-4 text-amber-500" />}
+                    {v.status === "mismatch" && <ShieldAlert className="h-4 w-4 text-red-500" />}
+                    {v.status === "unknown" && <AlertTriangle className="h-4 w-4 text-red-400" />}
                     <span className="text-foreground/80">{item.label}</span>
+                    {(v.status === "mismatch" || v.status === "unknown") && (
+                      <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-400">
+                        {v.status === "mismatch" ? `looks like ${v.detectedLabel}` : "unrecognized"}
+                      </span>
+                    )}
                     {v.status === "warn" && (
                       <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
                         verify manually
@@ -577,6 +605,8 @@ function UploadSlot({
   mdfValidation,
   templateMatch,
   aiMeta,
+  docCompleteness,
+  scanQualityResult,
 }: {
   item: ChecklistItem;
   isDragging: boolean;
@@ -599,13 +629,18 @@ function UploadSlot({
   mdfValidation?: MDFValidationResult | null;
   templateMatch?: TemplateMatchResult | null;
   aiMeta?: AIExtractionMeta;
+  docCompleteness?: import("@/lib/doc-completeness").DocCompletenessResult;
+  scanQualityResult?: import("@/lib/types").ScanQualityResult;
 }) {
   const isUploaded = item.status === "uploaded";
   const isProcessing = !!slotProgress;
   const isAnalyzing = slotProgress?.phase === "analyzing";
+  const isMismatch = uploadValidation?.status === "mismatch";
+  const isUnknownType = uploadValidation?.status === "unknown";
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
   const [showFieldGrid, setShowFieldGrid] = useState(false);
   const [showSectionGrid, setShowSectionGrid] = useState(false);
+  const [showCompletenessGrid, setShowCompletenessGrid] = useState(false);
 
   // Auto-dismiss remove confirmation after 2 seconds
   useEffect(() => {
@@ -629,13 +664,17 @@ function UploadSlot({
           ? isAnalyzing
             ? "border-violet-500/30 bg-violet-500/[0.03]"
             : "border-primary/30 bg-primary/[0.03]"
+          : isMismatch
+          ? "border-red-500/30 bg-red-500/[0.04]"
+          : isUnknownType
+          ? "border-amber-500/30 bg-amber-500/[0.04]"
           : isUploaded && aiMeta
           ? "border-violet-500/20 bg-violet-500/[0.03]"
           : isUploaded
           ? "border-emerald-500/20 bg-emerald-500/5"
           : "border-border/40 bg-muted/30 hover:border-border/60 hover:bg-muted/40",
         isDragging && "border-primary bg-primary/5 ring-2 ring-primary/20",
-        !isProcessing && isRecentlyFulfilled && "ring-2 ring-emerald-400/40"
+        !isProcessing && isRecentlyFulfilled && !isMismatch && "ring-2 ring-emerald-400/40"
       )}
       onClick={() => {
         if (!isUploaded || item.multiFile) {
@@ -680,11 +719,17 @@ function UploadSlot({
             <div className={cn(
               "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
               isProcessing ? "bg-primary/10"
+                : isMismatch ? "bg-red-500/10"
+                : isUnknownType ? "bg-amber-500/10"
                 : aiMeta ? "bg-violet-500/10"
                 : "bg-emerald-500/10"
             )}>
               {isProcessing ? (
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              ) : isMismatch ? (
+                <ShieldAlert className="h-4 w-4 text-red-500" />
+              ) : isUnknownType ? (
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
               ) : aiMeta ? (
                 <Sparkles className="h-4 w-4 text-violet-500" />
               ) : (
@@ -695,7 +740,10 @@ function UploadSlot({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className={cn(
                   "text-sm font-medium",
-                  isProcessing ? "text-primary" : "text-foreground"
+                  isProcessing ? "text-primary"
+                    : isMismatch ? "text-red-600 dark:text-red-400"
+                    : isUnknownType ? "text-amber-600 dark:text-amber-400"
+                    : "text-foreground"
                 )}>
                   {item.label}
                 </span>
@@ -756,6 +804,27 @@ function UploadSlot({
                     </button>
                   );
                 })()}
+                {/* Document completeness pill (non-MDF slots — MDF has its own field pill) */}
+                {docCompleteness && !isProcessing && item.id !== "mdf" && (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setShowCompletenessGrid(!showCompletenessGrid); }}
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors",
+                      docCompleteness.percentage >= 80
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
+                        : docCompleteness.percentage >= 50
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
+                        : "bg-destructive/10 text-destructive hover:bg-destructive/20"
+                    )}
+                  >
+                    {docCompleteness.presentCount}/{docCompleteness.totalFields} fields
+                    <ChevronDown className={cn(
+                      "ml-1 inline h-3 w-3 transition-transform duration-200",
+                      showCompletenessGrid && "rotate-180"
+                    )} />
+                  </button>
+                )}
                 {docTypeWarning && (
                   <Tooltip delayDuration={0}>
                     <TooltipTrigger onClick={(e) => e.stopPropagation()}>
@@ -792,6 +861,16 @@ function UploadSlot({
               </div>
             </div>
           </div>
+
+          {/* Validation action card — ABOVE intelligence row for maximum visibility */}
+          {uploadValidation && (isMismatch || isUnknownType) && (
+            <ValidationIndicator
+              validation={uploadValidation}
+              itemId={item.id}
+              onMove={onMoveFile}
+              onKeep={onDismissValidation}
+            />
+          )}
 
           {/* Document intelligence row */}
           {aiMeta && !isProcessing && (
@@ -865,6 +944,26 @@ function UploadSlot({
                   </TooltipContent>
                 </Tooltip>
               )}
+            </div>
+          )}
+
+          {/* Scan quality warning */}
+          {scanQualityResult && !scanQualityResult.passable && !isProcessing && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {scanQualityResult.issues.map((issue, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
+                    issue.severity === "critical"
+                      ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                  )}
+                >
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  {issue.message}
+                </span>
+              ))}
             </div>
           )}
 
@@ -985,20 +1084,73 @@ function UploadSlot({
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="mt-3 rounded-lg border border-border/20 bg-muted/20 p-3">
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Template: {templateMatch.matched.label}
-                  </p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                    {templateMatch.matchedSections.map((s) => (
-                      <div key={s} className="flex items-center gap-1.5 text-xs">
-                        <Check className="h-3 w-3 shrink-0 text-emerald-500" />
-                        <span className="text-muted-foreground">{s}</span>
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Gold Standard Verification
+                    </p>
+                    {templateMatch.reason && (
+                      <span className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                        templateMatch.isComplete
+                          ? "bg-emerald-500/10 text-emerald-600"
+                          : "bg-amber-500/10 text-amber-600"
+                      )}>
+                        {templateMatch.reason}
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    {templateMatch.missingSections.length > 0 && (
+                      <div className="space-y-1">
+                        {templateMatch.missingSections.map((s) => (
+                          <div key={s} className="flex items-start gap-1.5 text-xs">
+                            <X className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+                            <span className="text-foreground/80">{s}</span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                    {templateMatch.missingSections.map((s) => (
-                      <div key={s} className="flex items-center gap-1.5 text-xs">
-                        <X className="h-3 w-3 shrink-0 text-muted-foreground/40" />
-                        <span className="text-foreground">{s}</span>
+                    )}
+                    {templateMatch.matchedSections.length > 0 && (
+                      <div className="space-y-1">
+                        {templateMatch.matchedSections.map((s) => (
+                          <div key={s} className="flex items-center gap-1.5 text-xs">
+                            <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+                            <span className="text-muted-foreground">{s}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Expandable document completeness grid */}
+          <AnimatePresence>
+            {showCompletenessGrid && docCompleteness && item.id !== "mdf" && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="mt-3 rounded-lg border border-border/20 bg-muted/20 p-3">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    {docCompleteness.allFields.map((field) => (
+                      <div key={field.field} className="flex items-center gap-1.5 text-xs">
+                        {field.present ? (
+                          <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+                        ) : (
+                          <X className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+                        )}
+                        <span className={cn(
+                          field.present ? "text-muted-foreground" : "text-foreground"
+                        )}>
+                          {field.label}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -1023,16 +1175,6 @@ function UploadSlot({
           {/* Upload progress */}
           {slotProgress && onCancelUpload && (
             <UploadProgressBar progress={slotProgress} onCancel={onCancelUpload} />
-          )}
-
-          {/* Validation action card (mismatch/unknown only — pass/warn in CategoryIntelligence) */}
-          {uploadValidation && (uploadValidation.status === "mismatch" || uploadValidation.status === "unknown") && (
-            <ValidationIndicator
-              validation={uploadValidation}
-              itemId={item.id}
-              onMove={onMoveFile}
-              onKeep={onDismissValidation}
-            />
           )}
         </div>
       ) : (
@@ -1166,6 +1308,8 @@ export function ChecklistEngine({
   mdfValidation,
   templateWarnings,
   aiMetadata,
+  docCompleteness,
+  scanQuality,
 }: ChecklistEngineProps) {
   const [activeCategoryIndex, setActiveCategoryIndex] = useState<number | null>(null);
   const [flashingCategory, setFlashingCategory] = useState<string | null>(null);
@@ -1202,15 +1346,20 @@ export function ChecklistEngine({
         (i) => i.required || (i.conditionalKey && conditionals[i.conditionalKey])
       );
       const done = visible.filter((i) => i.status === "uploaded");
+      const mismatched = visible.filter((i) => {
+        const v = uploadValidations?.get(i.id);
+        return v?.status === "mismatch" || v?.status === "unknown";
+      }).length;
       stats[cat] = {
         total: visible.length,
         uploaded: done.length,
-        complete: visible.length > 0 && done.length >= visible.length,
+        complete: visible.length > 0 && done.length >= visible.length && mismatched === 0,
+        hasMismatch: mismatched > 0,
         visible: catItems.length > 0,
       };
     }
     return stats;
-  }, [grouped, conditionals]);
+  }, [grouped, conditionals, uploadValidations]);
 
   /* ── Visible categories (those with items) ── */
   const visibleCategories = useMemo(
@@ -1609,6 +1758,8 @@ export function ChecklistEngine({
     const slotMdfValidation = item.id === "mdf" ? mdfValidation : undefined;
     const slotTemplateMatch = templateWarnings?.get(item.id) ?? undefined;
     const slotAiMeta = aiMetadata?.get(item.id);
+    const slotCompleteness = docCompleteness?.get(item.id);
+    const slotScanQuality = scanQuality?.get(item.id);
 
     return (
       <div key={item.id}>
@@ -1640,6 +1791,8 @@ export function ChecklistEngine({
           mdfValidation={slotMdfValidation}
           templateMatch={slotTemplateMatch}
           aiMeta={slotAiMeta}
+          docCompleteness={slotCompleteness}
+          scanQualityResult={slotScanQuality}
         />
         {showMerge && (
           <MDFMergeIndicator

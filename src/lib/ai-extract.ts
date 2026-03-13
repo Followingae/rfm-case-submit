@@ -165,6 +165,71 @@ export async function aiExtractDocument(
   }
 }
 
+// ── MDF Gold Standard Verification ──────────────────────────────────
+
+interface MdfSectionResult {
+  name: string;
+  status: "complete" | "partial" | "missing";
+  filledFields: string[];
+  missingFields: string[];
+}
+
+interface MdfVerifyResponse {
+  sections: MdfSectionResult[];
+  overallScore: number;
+  isComplete: boolean;
+  hasSignature: boolean;
+  hasStamp: boolean;
+  warnings: string[];
+}
+
+/**
+ * Verify an MDF document against the gold-standard template using AI.
+ * Returns a TemplateMatchResult for the template warnings UI.
+ */
+export async function aiVerifyMdf(
+  file: File,
+  signal?: AbortSignal,
+): Promise<{
+  matchedSections: string[];
+  missingSections: string[];
+  confidence: number;
+  isComplete: boolean;
+  reason: string;
+  warnings: string[];
+} | null> {
+  const result = await aiExtractDocument(file, "mdf-verify", signal);
+  if (!result) return null;
+
+  const d = result.data as unknown as MdfVerifyResponse;
+  if (!d.sections || !Array.isArray(d.sections)) return null;
+
+  const matched: string[] = [];
+  const missing: string[] = [];
+
+  for (const section of d.sections) {
+    if (section.status === "complete") {
+      matched.push(section.name);
+    } else if (section.status === "partial") {
+      const missingDetail = section.missingFields?.length
+        ? ` (missing: ${section.missingFields.join(", ")})`
+        : "";
+      missing.push(`${section.name}${missingDetail}`);
+    } else {
+      missing.push(section.name);
+    }
+  }
+
+  return {
+    matchedSections: matched,
+    missingSections: missing,
+    confidence: d.overallScore ?? 0,
+    isComplete: d.isComplete ?? false,
+    reason: `${matched.length} of ${matched.length + missing.length} sections complete`,
+    warnings: d.warnings ?? [],
+  };
+}
+
 /**
  * Convenience: extract and split into { data, meta } with defaults.
  */

@@ -7,23 +7,33 @@ import {
   Plus,
   CheckCircle2,
   User,
+  AlertTriangle,
+  Sparkles,
+  ShieldAlert,
+  Calendar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ShareholderKYC, UploadedFile } from "@/lib/types";
+import type { KycExpiryFlag } from "@/lib/readiness-engine";
+import type { AIExtractionMeta } from "@/lib/ai-types";
 import { v4 as uuid } from "uuid";
 
 interface ShareholderKYCProps {
   shareholders: ShareholderKYC[];
   onUpdate: (shareholders: ShareholderKYC[]) => void;
   onRawFilesAdded: (key: string, files: File[]) => void;
+  kycExpiryFlags?: Map<string, KycExpiryFlag>;
+  aiMetadata?: Map<string, AIExtractionMeta>;
 }
 
 export function ShareholderKYCSection({
   shareholders,
   onUpdate,
   onRawFilesAdded,
+  kycExpiryFlags,
+  aiMetadata,
 }: ShareholderKYCProps) {
   const addShareholder = () => {
     onUpdate([
@@ -109,10 +119,15 @@ export function ShareholderKYCSection({
     0
   );
 
-  // Count how many shareholders have complete KYC
+  // Count how many shareholders have complete KYC (without expired docs)
   const completeCount = shareholders.filter(
     (s) => s.passportFiles.length > 0 && s.eidFiles.length > 0
   ).length;
+
+  const expiredCount = shareholders.filter((s) => {
+    const flag = kycExpiryFlags?.get(s.id);
+    return flag?.passportExpired || flag?.eidExpired;
+  }).length;
 
   return (
     <div className="space-y-3">
@@ -121,14 +136,23 @@ export function ShareholderKYCSection({
         <div className="flex items-center gap-2.5">
           <h4 className="text-sm font-semibold text-foreground">Shareholder KYC</h4>
           {shareholders.length > 0 && (
-            <span className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums",
-              completeCount === shareholders.length && shareholders.length > 0
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                : "bg-muted text-muted-foreground"
-            )}>
-              {completeCount}/{shareholders.length} complete
-            </span>
+            <>
+              <span className={cn(
+                "rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums",
+                expiredCount > 0
+                  ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                  : completeCount === shareholders.length && shareholders.length > 0
+                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                  : "bg-muted text-muted-foreground"
+              )}>
+                {completeCount}/{shareholders.length} complete
+              </span>
+              {expiredCount > 0 && (
+                <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400">
+                  {expiredCount} expired
+                </span>
+              )}
+            </>
           )}
         </div>
         <span className="text-[11px] text-muted-foreground/60">
@@ -155,12 +179,20 @@ export function ShareholderKYCSection({
           const pctNum = parseFloat(sh.percentage);
           const isBelow25 = !isNaN(pctNum) && pctNum < 25;
 
+          // AI data for this shareholder
+          const expiryFlag = kycExpiryFlags?.get(sh.id);
+          const passportMeta = aiMetadata?.get(`passport::${sh.id}`);
+          const eidMeta = aiMetadata?.get(`eid::${sh.id}`);
+          const hasExpiredDoc = expiryFlag?.passportExpired || expiryFlag?.eidExpired;
+
           return (
             <div
               key={sh.id}
               className={cn(
                 "rounded-xl border p-3.5 transition-colors",
-                passportDone && eidDone
+                hasExpiredDoc
+                  ? "border-red-500/20 bg-red-500/[0.02]"
+                  : passportDone && eidDone
                   ? "border-emerald-500/20 bg-emerald-500/[0.03]"
                   : "border-border/40"
               )}
@@ -170,7 +202,9 @@ export function ShareholderKYCSection({
                 {/* Shareholder badge */}
                 <div className={cn(
                   "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold",
-                  passportDone && eidDone
+                  hasExpiredDoc
+                    ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                    : passportDone && eidDone
                     ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                     : "bg-primary/10 text-primary"
                 )}>
@@ -232,12 +266,24 @@ export function ShareholderKYCSection({
                     onClick={() => document.getElementById(`passport-${sh.id}`)?.click()}
                     className={cn(
                       "flex h-7 items-center gap-1 rounded-md px-2.5 text-[11px] font-medium transition-colors",
-                      passportDone
+                      passportDone && expiryFlag?.passportExpired
+                        ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                        : passportDone && passportMeta
+                        ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                        : passportDone
                         ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                         : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
-                    {passportDone ? <CheckCircle2 className="h-3 w-3" /> : <Upload className="h-3 w-3" />}
+                    {passportDone && expiryFlag?.passportExpired ? (
+                      <ShieldAlert className="h-3 w-3" />
+                    ) : passportDone && passportMeta ? (
+                      <Sparkles className="h-3 w-3" />
+                    ) : passportDone ? (
+                      <CheckCircle2 className="h-3 w-3" />
+                    ) : (
+                      <Upload className="h-3 w-3" />
+                    )}
                     Passport
                   </button>
 
@@ -252,12 +298,24 @@ export function ShareholderKYCSection({
                     onClick={() => document.getElementById(`eid-${sh.id}`)?.click()}
                     className={cn(
                       "flex h-7 items-center gap-1 rounded-md px-2.5 text-[11px] font-medium transition-colors",
-                      eidDone
+                      eidDone && expiryFlag?.eidExpired
+                        ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                        : eidDone && eidMeta
+                        ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                        : eidDone
                         ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                         : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
-                    {eidDone ? <CheckCircle2 className="h-3 w-3" /> : <Upload className="h-3 w-3" />}
+                    {eidDone && expiryFlag?.eidExpired ? (
+                      <ShieldAlert className="h-3 w-3" />
+                    ) : eidDone && eidMeta ? (
+                      <Sparkles className="h-3 w-3" />
+                    ) : eidDone ? (
+                      <CheckCircle2 className="h-3 w-3" />
+                    ) : (
+                      <Upload className="h-3 w-3" />
+                    )}
                     EID
                   </button>
 
@@ -304,6 +362,79 @@ export function ShareholderKYCSection({
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* AI Intelligence row — expiry dates + confidence */}
+              {(expiryFlag || passportMeta || eidMeta) && (
+                <div className="mt-2 ml-11 flex flex-wrap gap-1.5">
+                  {/* Passport expiry badge */}
+                  {expiryFlag?.passportExpired && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400">
+                      <Calendar className="h-2.5 w-2.5" />
+                      Passport expired{expiryFlag.passportExpiryDate ? ` ${expiryFlag.passportExpiryDate}` : ""}
+                    </span>
+                  )}
+                  {expiryFlag?.passportExpiryDate && !expiryFlag.passportExpired && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      <Calendar className="h-2.5 w-2.5" />
+                      Passport valid until {expiryFlag.passportExpiryDate}
+                    </span>
+                  )}
+                  {/* EID expiry badge */}
+                  {expiryFlag?.eidExpired && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400">
+                      <Calendar className="h-2.5 w-2.5" />
+                      EID expired{expiryFlag.eidExpiryDate ? ` ${expiryFlag.eidExpiryDate}` : ""}
+                    </span>
+                  )}
+                  {expiryFlag?.eidExpiryDate && !expiryFlag.eidExpired && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                      <Calendar className="h-2.5 w-2.5" />
+                      EID valid until {expiryFlag.eidExpiryDate}
+                    </span>
+                  )}
+                  {/* Passport AI confidence */}
+                  {passportMeta && (
+                    <span className={cn(
+                      "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
+                      passportMeta.confidence >= 80
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        : passportMeta.confidence >= 50
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        : "bg-red-500/10 text-red-600 dark:text-red-400"
+                    )}>
+                      <Sparkles className="h-2.5 w-2.5" />
+                      Passport {passportMeta.confidence}%
+                    </span>
+                  )}
+                  {/* EID AI confidence */}
+                  {eidMeta && (
+                    <span className={cn(
+                      "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
+                      eidMeta.confidence >= 80
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        : eidMeta.confidence >= 50
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        : "bg-red-500/10 text-red-600 dark:text-red-400"
+                    )}>
+                      <Sparkles className="h-2.5 w-2.5" />
+                      EID {eidMeta.confidence}%
+                    </span>
+                  )}
+                  {/* AI warnings for passport/EID */}
+                  {passportMeta?.warnings && passportMeta.warnings.length > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-2.5 w-2.5" />
+                      {passportMeta.warnings.length} passport warning{passportMeta.warnings.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {eidMeta?.warnings && eidMeta.warnings.length > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-2.5 w-2.5" />
+                      {eidMeta.warnings.length} EID warning{eidMeta.warnings.length !== 1 ? "s" : ""}
+                    </span>
+                  )}
                 </div>
               )}
 

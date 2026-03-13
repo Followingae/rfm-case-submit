@@ -47,8 +47,8 @@ import {
   validateMDFFields,
   MDFValidationResult,
 } from "@/lib/mdf-validation";
-import { detectDocumentType, DocTypeDetectionResult, DOC_TYPES, SLOT_TO_DOCTYPE } from "@/lib/doc-type-detector";
-import { validateSlotUpload, UploadValidation } from "@/lib/upload-validator";
+import { DocTypeDetectionResult, DOC_TYPES, SLOT_TO_DOCTYPE } from "@/lib/doc-type-detector";
+import type { UploadValidation } from "@/lib/upload-validator";
 import { detectEnhancedDuplicates } from "@/lib/duplicate-detector";
 import type { EnhancedDuplicateWarning } from "@/lib/types";
 import { computeReadiness, type KycExpiryFlag } from "@/lib/readiness-engine";
@@ -68,8 +68,11 @@ import type { ParsedTradeLicense, ParsedMDF } from "@/lib/ocr-engine";
 import { detectMDFMergePlan, type MergePlan } from "@/lib/pdf-merger";
 import { validateDocCompleteness, type DocCompletenessResult } from "@/lib/doc-completeness";
 import { autofillSubmissionFromMDF } from "@/lib/submission-autofill";
-import { aiExtractDocument } from "@/lib/ai-extract";
+import { aiExtractDocument, aiVerifyMdf } from "@/lib/ai-extract";
 import type { AIExtractionMeta } from "@/lib/ai-types";
+import { getTemplateById } from "@/lib/template-registry";
+import { assessScanQuality } from "@/lib/scan-quality";
+import type { ScanQualityResult } from "@/lib/types";
 
 export default function NewCasePage() {
   const [step, setStep] = useState(0);
@@ -115,6 +118,12 @@ export default function NewCasePage() {
 
   // AI extraction metadata tracking
   const [aiMetadata, setAiMetadata] = useState<Map<string, AIExtractionMeta>>(new Map());
+
+  // Scan quality results for uploaded images
+  const [scanQuality, setScanQuality] = useState<Map<string, ScanQualityResult>>(new Map());
+
+  // Track which submission fields were auto-populated by AI
+  const [autofilledFields, setAutofilledFields] = useState<Set<string>>(new Set());
 
   // Submission email table
   const [submissionDetails, setSubmissionDetails] = useState<SubmissionDetails>({
@@ -425,57 +434,42 @@ export default function NewCasePage() {
     setDuplicateWarnings(dupes);
   }, []);
 
-  const runDocTypeDetection = useCallback(
-    async (itemId: string, file: File) => {
-      if (!file.type.startsWith("image/") && file.type !== "application/pdf") return;
-      try {
-        // Use AI doc-type detection instead of OCR
-        const aiResult = await aiExtractDocument(file, "doc-detect");
-        if (aiResult?.meta?.detectedDocType) {
-          const detected = aiResult.meta.detectedDocType.toLowerCase();
-          const slotId = itemId.toLowerCase();
-          // If detected type doesn't match the slot, surface a warning
-          if (detected !== "unknown" && !detected.includes(slotId) && !slotId.includes(detected)) {
-            const result = detectDocumentType(detected, itemId);
-            if (result.suggestion) {
-              setDocTypeWarnings((prev) => {
-                const next = new Map(prev);
-                next.set(itemId, result);
-                return next;
-              });
-            }
-          }
-        }
-      } catch {
-        // Silent fail
-      }
-    },
-    []
-  );
+  // runDocTypeDetection and runUploadValidation REMOVED — all slots now route
+  // through storeAiMeta() + checkSlotDocType() which uses SLOT_TO_DOCTYPE mapping.
 
-  // Run upload slot validation
-  const runUploadValidation = useCallback(
-    async (itemId: string, file: File) => {
-      if (!file.type.startsWith("image/") && file.type !== "application/pdf") return;
-      try {
-        // Use AI doc-detect to validate the upload matches the slot
-        const aiResult = await aiExtractDocument(file, "doc-detect");
-        if (aiResult?.meta?.detectedDocType) {
-          const detected = aiResult.meta.detectedDocType;
-          const currentItems = checklist.map((i) => ({ id: i.id, label: i.label, status: i.status }));
-          const result = await validateSlotUpload(detected, itemId, currentItems);
-          setUploadValidations((prev) => {
-            const next = new Map(prev);
-            next.set(itemId, result);
-            return next;
-          });
-        }
-      } catch {
-        // Silent fail
+  // Run scan quality assessment on uploaded images (blur, resolution, skew, glare)
+  const runScanQualityCheck = useCallback(async (itemId: string, file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    try {
+      const canvas = await new Promise<HTMLCanvasElement | null>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement("canvas");
+          c.width = img.naturalWidth;
+          c.height = img.naturalHeight;
+          const ctx = c.getContext("2d");
+          if (!ctx) { resolve(null); return; }
+          ctx.drawImage(img, 0, 0);
+          URL.revokeObjectURL(img.src);
+          resolve(c);
+        };
+        img.onerror = () => { URL.revokeObjectURL(img.src); resolve(null); };
+        img.src = URL.createObjectURL(file);
+      });
+      if (!canvas) return;
+      const result = await assessScanQuality(canvas);
+      setScanQuality((prev) => { const m = new Map(prev); m.set(itemId, result); return m; });
+      // Surface critical quality issues as toasts
+      const critical = result.issues.filter((i) => i.severity === "critical");
+      if (critical.length > 0) {
+        toast.warning("Scan quality issue", {
+          description: critical.map((i) => i.message).join(". "),
+        });
       }
-    },
-    [checklist]
-  );
+    } catch {
+      // Silent fail — quality check is best-effort
+    }
+  }, []);
 
   const handleRawFilesAdded = useCallback(
     async (itemId: string, rawFiles: File[]) => {
@@ -506,6 +500,11 @@ export default function NewCasePage() {
           if (signal.aborted) return;
         } else {
           toast.error(`Upload failed for ${file.name}`, { description: "Could not save file to storage. Please try again." });
+        }
+
+        // Run scan quality check in background for image files
+        if (file.type.startsWith("image/")) {
+          runScanQualityCheck(itemId, file);
         }
 
         // AI extraction based on slot type
@@ -616,7 +615,20 @@ export default function NewCasePage() {
                 });
 
                 // Auto-fill submission details from MDF (rates, projections, contact, etc.)
-                setSubmissionDetails((prev) => autofillSubmissionFromMDF(prev, parsed!));
+                setSubmissionDetails((prev) => {
+                  const filled = autofillSubmissionFromMDF(prev, parsed!);
+                  // Track which fields were auto-populated by comparing before/after
+                  const newAutoFilled = new Set<string>();
+                  for (const key of Object.keys(filled) as Array<keyof SubmissionDetails>) {
+                    if (!prev[key]?.trim() && filled[key]?.trim()) {
+                      newAutoFilled.add(key);
+                    }
+                  }
+                  if (newAutoFilled.size > 0) {
+                    setAutofilledFields((existing) => new Set([...existing, ...newAutoFilled]));
+                  }
+                  return filled;
+                });
 
                 // Extract fields for review step
                 const mdfFields = mdfToExtractedFields(parsed, confidence);
@@ -644,6 +656,25 @@ export default function NewCasePage() {
 
                 runConsistencyChecks();
                 recomputeReadiness();
+              }
+
+              // ── MDF Gold Standard Verification (parallel, non-blocking) ──
+              setSlotProgress(itemId, { phase: "analyzing", message: "Verifying MDF completeness..." });
+              const verifyResult = await aiVerifyMdf(file, signal);
+              if (verifyResult && !signal.aborted) {
+                const mdfTemplate = getTemplateById("mdf-v1") ?? null;
+                setTemplateWarnings(prev => {
+                  const next = new Map(prev);
+                  next.set("mdf", {
+                    matched: mdfTemplate,
+                    confidence: verifyResult.confidence,
+                    matchedSections: verifyResult.matchedSections,
+                    missingSections: verifyResult.missingSections,
+                    isComplete: verifyResult.isComplete,
+                    reason: verifyResult.reason,
+                  });
+                  return next;
+                });
               }
             }
 
@@ -895,27 +926,30 @@ export default function NewCasePage() {
                   });
                 }
               } else {
-                runDocTypeDetection(itemId, file);
+                // PEP extraction failed — still run doc-detect for type verification
+                setSlotProgress(itemId, { phase: "analyzing", message: "Verifying document..." });
+                const fallbackResult = await aiExtractDocument(file, "doc-detect", signal);
+                if (fallbackResult && !signal.aborted) {
+                  storeAiMeta(itemId, fallbackResult.meta);
+                  checkSlotDocType(itemId, fallbackResult.meta);
+                }
               }
             }
 
-            // ── Other files: AI-based doc type detection ──
+            // ── Other files: AI doc-detect for type verification ──
             else {
-              runDocTypeDetection(itemId, file);
+              setSlotProgress(itemId, { phase: "analyzing", message: "Verifying document..." });
+              const aiResult = await aiExtractDocument(file, "doc-detect", signal);
+              if (aiResult && !signal.aborted) {
+                storeAiMeta(itemId, aiResult.meta);
+                checkSlotDocType(itemId, aiResult.meta);
+              }
             }
           } catch {
             // Silent fail — AI is best-effort
           }
-
-          // Run upload slot validation only for slots without dedicated parsers
-          // (MDF, trade-license, bank-statement, vat-cert, main-moa, amended-moa already AI + validate inline)
-          const hasInlineParser = ["mdf", "trade-license", "bank-statement", "vat-cert", "main-moa", "amended-moa", "pep-form"].includes(itemId);
-          if (!signal.aborted && !hasInlineParser) runUploadValidation(itemId, file);
         } else {
-          // Non-image/PDF: just run doc type detection
-          if (itemId !== "mdf" && itemId !== "trade-license") {
-            runDocTypeDetection(itemId, file);
-          }
+          // Non-image/PDF files can't be AI-analyzed — skip detection
         }
 
         // Done — clear progress
@@ -933,7 +967,7 @@ export default function NewCasePage() {
         if (itemId === "mdf") runMdfMergeDetection();
       }, 100);
     },
-    [runDuplicateCheck, runDocTypeDetection, runConsistencyChecks, recomputeReadiness, runUploadValidation, mergeParsedMDF, runMdfMergeDetection, setSlotProgress, storeAiMeta, checkSlotDocType]
+    [runDuplicateCheck, runConsistencyChecks, recomputeReadiness, mergeParsedMDF, runMdfMergeDetection, setSlotProgress, storeAiMeta, checkSlotDocType, runScanQualityCheck]
   );
 
   const handleShareholderRawFiles = useCallback(
@@ -1322,6 +1356,9 @@ export default function NewCasePage() {
             skipMdfMerge={skipMdfMerge}
             onSkipMdfMergeChange={setSkipMdfMerge}
             aiMetadata={aiMetadata}
+            kycExpiryFlags={kycExpiryFlags}
+            docCompleteness={docCompleteness}
+            scanQuality={scanQuality}
             onPrev={() => setStep(0)}
             onNext={handleNextToReview}
           />
@@ -1346,6 +1383,7 @@ export default function NewCasePage() {
             mdfMergePlan={mdfMergePlan}
             skipMdfMerge={skipMdfMerge}
             aiMetadata={aiMetadata}
+            autofilledFields={autofilledFields}
             onPrev={() => setStep(1)}
           />
         )}

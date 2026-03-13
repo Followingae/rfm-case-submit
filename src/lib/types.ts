@@ -217,6 +217,8 @@ export interface TemplateMatchResult {
   confidence: number;
   matchedSections: string[];
   missingSections: string[];
+  isComplete?: boolean;
+  reason?: string;
 }
 
 // ── Structured Extraction Types ──
