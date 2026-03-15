@@ -23,8 +23,10 @@ const CRITICAL_DOC_IDS = new Set(["mdf", "trade-license", "main-moa"]);
 const PENALTY_FAIL_CRITICAL = 15;
 const PENALTY_FAIL_STANDARD = 10;
 const PENALTY_EXCEPTION = 3;
-/** High-confidence threshold for doc-type mismatch detection. */
-const DOC_TYPE_MISMATCH_CONFIDENCE = 50;
+/** Graduated confidence thresholds for doc-type mismatch detection. */
+const DOC_TYPE_CONFIDENCE_FAIL = 30;    // below this → definite rejection
+const DOC_TYPE_CONFIDENCE_PASS = 60;    // above this → accepted
+// between FAIL and PASS → "exception" (needs review)
 
 /** Exception options that can be attached to non-pass items. */
 const EXCEPTION_OPTIONS: ExceptionOption[] = [
@@ -110,6 +112,8 @@ function isItemActive(
   item: ChecklistItem,
   conditionals: Record<string, boolean>,
 ): boolean {
+  // Items with optionalWhen: skip evaluation when their waiver conditional is active
+  if (item.optionalWhen && conditionals[item.optionalWhen]) return false;
   if (item.required) return true;
   if (item.conditionalKey && conditionals[item.conditionalKey]) return true;
   return false;
@@ -153,10 +157,7 @@ export function computeReadiness(
 
     const isCritical = CRITICAL_DOC_IDS.has(item.id);
     const warning = docTypeWarnings.get(item.id);
-    const hasHighConfidenceMismatch =
-      warning !== undefined &&
-      !warning.isMatch &&
-      warning.confidence > DOC_TYPE_MISMATCH_CONFIDENCE;
+    const hasMismatchWarning = warning !== undefined && !warning.isMatch;
 
     // Check upload validation (new system)
     const uploadVal = uploadValidations?.get(item.id);
@@ -168,18 +169,34 @@ export function computeReadiness(
     let reason: string;
     let confidence = 100;
 
-    if (item.status === "uploaded" && !hasHighConfidenceMismatch && !hasValidationMismatch) {
+    if (item.status === "uploaded" && !hasMismatchWarning && !hasValidationMismatch) {
       // Document present and no type mismatch
       status = "pass";
       reason = "Document uploaded";
       confidence = 100;
-    } else if (item.status === "uploaded" && (hasHighConfidenceMismatch || hasValidationMismatch)) {
-      // Uploaded but wrong document type detected
-      status = "fail";
-      reason = hasValidationMismatch
-        ? `Wrong document type: ${uploadVal!.detectedLabel || "unrecognized"}`
-        : "Wrong document type detected";
-      confidence = hasValidationMismatch ? uploadVal!.confidence : warning!.confidence;
+    } else if (item.status === "uploaded" && (hasMismatchWarning || hasValidationMismatch)) {
+      // Uploaded but wrong document type detected — graduated assessment
+      const mismatchConfidence = hasValidationMismatch
+        ? uploadVal!.confidence
+        : warning!.confidence;
+      if (mismatchConfidence > DOC_TYPE_CONFIDENCE_PASS) {
+        // High confidence mismatch → definite pass on detection, so fail the item
+        status = "fail";
+        reason = hasValidationMismatch
+          ? `Wrong document type: ${uploadVal!.detectedLabel || "unrecognized"}`
+          : "Wrong document type detected";
+      } else if (mismatchConfidence >= DOC_TYPE_CONFIDENCE_FAIL) {
+        // Medium confidence mismatch → needs review
+        status = "exception";
+        reason = hasValidationMismatch
+          ? `Possible wrong document type: ${uploadVal!.detectedLabel || "unrecognized"} — review needed`
+          : "Possible wrong document type — review needed";
+      } else {
+        // Low confidence mismatch → ignore, treat as pass
+        status = "pass";
+        reason = "Document uploaded";
+      }
+      confidence = mismatchConfidence;
     } else {
       // status === "missing"
       status = "fail";
@@ -301,25 +318,25 @@ export function computeReadiness(
       items.push(entry);
     }
 
-    /* ── Step 2c: Nearly-expired KYC documents (within 6 months) ── */
+    /* ── Step 2c: Nearly-expired KYC documents (within 3 months) ── */
 
-    if (flags?.passportExpiryDate && !flags.passportExpired && isDateExpiringSoon(flags.passportExpiryDate, 6)) {
+    if (flags?.passportExpiryDate && !flags.passportExpired && isDateExpiringSoon(flags.passportExpiryDate, 3)) {
       items.push({
         itemId: `kyc::${sh.id}::passport-expiring-soon`,
         label: `Passport expiring soon — ${shDisplayName}`,
         status: "exception",
-        reason: `Passport for ${shDisplayName} expires within 6 months`,
+        reason: `Passport for ${shDisplayName} expires within 3 months`,
         confidence: 90,
         exceptionOptions: [...EXCEPTION_OPTIONS],
       });
     }
 
-    if (flags?.eidExpiryDate && !flags.eidExpired && isDateExpiringSoon(flags.eidExpiryDate, 6)) {
+    if (flags?.eidExpiryDate && !flags.eidExpired && isDateExpiringSoon(flags.eidExpiryDate, 3)) {
       items.push({
         itemId: `kyc::${sh.id}::eid-expiring-soon`,
         label: `Emirates ID expiring soon — ${shDisplayName}`,
         status: "exception",
-        reason: `Emirates ID for ${shDisplayName} expires within 6 months`,
+        reason: `Emirates ID for ${shDisplayName} expires within 3 months`,
         confidence: 90,
         exceptionOptions: [...EXCEPTION_OPTIONS],
       });
@@ -340,16 +357,9 @@ export function computeReadiness(
       confidence: mdfValidation.percentage,
       exceptionOptions: [...EXCEPTION_OPTIONS],
     });
-  } else if (mdfValidation === null && mdfIsUploaded) {
-    items.push({
-      itemId: "mdf-validation",
-      label: "MDF field check unavailable",
-      status: "exception",
-      reason: "MDF uploaded but AI extraction may have failed \u2014 manual verification recommended",
-      confidence: 0,
-      exceptionOptions: [...EXCEPTION_OPTIONS],
-    });
   }
+  // Note: if mdfValidation is null but MDF is uploaded, extraction may still be in the queue.
+  // Don't warn — the field check will appear once extraction completes.
 
   /* ── Step 3b: Document completeness checks ── */
 
@@ -357,17 +367,18 @@ export function computeReadiness(
     for (const [slotId, result] of docCompleteness) {
       if (!result.isAcceptable && result.totalFields > 0) {
         const label = `${slotId} completeness: ${result.percentage}%`;
+        // Low completeness is a QA warning (exception), not a hard failure.
+        // The document IS uploaded — AI extraction quality shouldn't tank the score.
         const entry: ReadinessItem = {
           itemId: `doc-completeness::${slotId}`,
           label,
-          status: result.percentage < 30 ? "fail" : "exception",
+          status: "exception",
           reason: `Only ${result.presentCount}/${result.totalFields} fields detected — ${result.missingFields.map(f => f.label).join(", ")}`,
           confidence: result.percentage,
           exceptionOptions: [...EXCEPTION_OPTIONS],
         };
         if (exceptionByItem.has(entry.itemId)) {
           const ex = exceptionByItem.get(entry.itemId)!;
-          entry.status = "exception";
           entry.reason = `Exception: ${ex.reason}`;
         }
         items.push(entry);
@@ -379,6 +390,9 @@ export function computeReadiness(
 
   if (aiMetadata) {
     for (const [slotId, meta] of aiMetadata) {
+      // Skip KYC entries — they're handled in the shareholder section above
+      if (slotId.startsWith("passport::") || slotId.startsWith("eid::")) continue;
+
       // Signature check — MDF must be signed
       if (slotId === "mdf" && !meta.hasSignature) {
         items.push({
@@ -391,28 +405,38 @@ export function computeReadiness(
         });
       }
 
-      // Stamp check — MDF and Trade License should be stamped
-      if ((slotId === "mdf" || slotId === "trade-license") && !meta.hasStamp) {
+      // Stamp check — only MDF needs a company stamp (TL is a government document, no stamp expected)
+      if (slotId === "mdf" && !meta.hasStamp) {
         items.push({
           itemId: `ai::${slotId}-stamp`,
-          label: `${slotId === "mdf" ? "MDF" : "Trade License"} stamp not detected`,
+          label: "MDF stamp not detected",
           status: "exception",
-          reason: `AI analysis did not detect an official stamp on the ${slotId === "mdf" ? "MDF" : "Trade License"}.`,
+          reason: "AI analysis did not detect an official stamp on the MDF.",
           confidence: meta.confidence,
           exceptionOptions: [...EXCEPTION_OPTIONS],
         });
       }
 
-      // Blank sections — flag any document with blank sections
-      if (meta.blankSections.length > 0) {
-        items.push({
-          itemId: `ai::${slotId}-blank`,
-          label: `${slotId} has ${meta.blankSections.length} blank section(s)`,
-          status: "exception",
-          reason: `AI detected blank sections: ${meta.blankSections.join(", ")}`,
-          confidence: meta.confidence,
-          exceptionOptions: [...EXCEPTION_OPTIONS],
-        });
+      // Blank sections — only flag truly critical missing MDF sections, not optional fields
+      if (slotId === "mdf" && meta.blankSections.length > 0) {
+        const OPTIONAL_FIELDS = new Set([
+          "swift code", "po box", "source of income", "source of capital",
+          "years in uae", "web address", "telephone", "email 2", "fax",
+          "dcc", "portal fee", "business insight fee",
+        ]);
+        const criticalBlanks = meta.blankSections.filter(
+          (s) => !OPTIONAL_FIELDS.has(s.toLowerCase())
+        );
+        if (criticalBlanks.length > 0) {
+          items.push({
+            itemId: `ai::${slotId}-blank`,
+            label: `MDF has ${criticalBlanks.length} blank required section(s)`,
+            status: "exception",
+            reason: `Missing: ${criticalBlanks.join(", ")}`,
+            confidence: meta.confidence,
+            exceptionOptions: [...EXCEPTION_OPTIONS],
+          });
+        }
       }
 
       // Document type mismatch — AI detected a different doc type than expected
@@ -425,7 +449,7 @@ export function computeReadiness(
         "amended-moa": ["moa"],
       };
       const expected = expectedTypes[slotId];
-      if (expected && meta.detectedDocType !== "unknown" && !expected.includes(meta.detectedDocType)) {
+      if (expected && meta.detectedDocType !== "unknown" && meta.detectedDocType !== "other" && !expected.includes(meta.detectedDocType)) {
         items.push({
           itemId: `ai::${slotId}-wrong-type`,
           label: `Possible wrong document in ${slotId} slot`,
@@ -436,8 +460,8 @@ export function computeReadiness(
         });
       }
 
-      // Low confidence extraction — warn if AI is not confident
-      if (meta.confidence < 40) {
+      // Low confidence extraction — only warn for critical docs where extraction matters
+      if (meta.confidence < 40 && CRITICAL_DOC_IDS.has(slotId)) {
         items.push({
           itemId: `ai::${slotId}-low-confidence`,
           label: `Low AI confidence for ${slotId} (${meta.confidence}%)`,
@@ -446,6 +470,60 @@ export function computeReadiness(
           confidence: meta.confidence,
           exceptionOptions: [...EXCEPTION_OPTIONS],
         });
+      }
+
+      // Sanctions exposure — flag countries where merchant declared business
+      if (slotId === "mdf" && meta.sanctionsFlags && meta.sanctionsFlags.length > 0) {
+        const countries = meta.sanctionsFlags.map(s => s.country).join(", ");
+        items.push({
+          itemId: "ai::mdf-sanctions",
+          label: `Sanctions exposure: ${countries}`,
+          status: "fail",
+          reason: `Merchant declared business ties with sanctioned countries: ${countries}. Enhanced due diligence required.`,
+          confidence: meta.confidence,
+          exceptionOptions: [...EXCEPTION_OPTIONS],
+        });
+      }
+
+      // PEP flag — warn when politically exposed persons are declared
+      if (slotId === "pep-form" && meta.pepDetails && meta.pepDetails.length > 0) {
+        const pepNames = meta.pepDetails.map(p => p.name).join(", ");
+        items.push({
+          itemId: "ai::pep-declared",
+          label: `PEP declared: ${pepNames}`,
+          status: "exception",
+          reason: `Politically exposed persons identified: ${pepNames}. Enhanced due diligence required.`,
+          confidence: meta.confidence,
+          exceptionOptions: [...EXCEPTION_OPTIONS],
+        });
+      }
+
+      // Document freshness — flag expired or stale documents
+      if (meta.documentExpiryDate) {
+        if (isDateExpired(meta.documentExpiryDate)) {
+          const entry: ReadinessItem = {
+            itemId: `ai::${slotId}-expired`,
+            label: `${slotId} document expired`,
+            status: "fail",
+            reason: `Document expired on ${meta.documentExpiryDate}`,
+            confidence: 90,
+            exceptionOptions: [...EXCEPTION_OPTIONS],
+          };
+          if (exceptionByItem.has(entry.itemId)) {
+            entry.status = "exception";
+            entry.reason = `Exception: ${exceptionByItem.get(entry.itemId)!.reason}`;
+          }
+          items.push(entry);
+        } else if (isDateExpiringSoon(meta.documentExpiryDate, 3)) {
+          items.push({
+            itemId: `ai::${slotId}-expiring-soon`,
+            label: `${slotId} expires within 3 months`,
+            status: "exception",
+            reason: `Document expires on ${meta.documentExpiryDate} — within 3 months`,
+            confidence: 90,
+            exceptionOptions: [...EXCEPTION_OPTIONS],
+          });
+        }
       }
     }
   }

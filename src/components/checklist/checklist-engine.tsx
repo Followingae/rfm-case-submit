@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useCallback, useState, useRef, useEffect } from "react";
+import { useMemo, useCallback, useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle2,
@@ -19,14 +19,11 @@ import {
   ShieldAlert,
   HelpCircle,
 
-  Layers,
   Link2,
   ChevronDown,
   Check,
   CloudUpload,
   Sparkles,
-  PenLine,
-  Stamp,
 } from "lucide-react";
 import {
   Tooltip,
@@ -47,6 +44,7 @@ import type { MergePlan } from "@/lib/pdf-merger";
 import type { MDFValidationResult } from "@/lib/mdf-validation";
 import type { TemplateMatchResult } from "@/lib/types";
 import type { AIExtractionMeta } from "@/lib/ai-types";
+import { BulkUploadInline } from "./bulk-drop-zone";
 
 /* ───────────────────────── Types ───────────────────────── */
 
@@ -73,6 +71,11 @@ interface ChecklistEngineProps {
   aiMetadata?: Map<string, AIExtractionMeta>;
   docCompleteness?: Map<string, import("@/lib/doc-completeness").DocCompletenessResult>;
   scanQuality?: Map<string, import("@/lib/types").ScanQualityResult>;
+  consistencyWarnings?: import("@/lib/types").ConsistencyWarning[];
+  onActiveCategoryChange?: (category: string | null) => void;
+  onNavStateChange?: (hasNext: boolean, allComplete: boolean) => void;
+  /** KYC stats from parent (shareholders are managed outside the checklist) */
+  kycStats?: { total: number; uploaded: number; complete: boolean };
 }
 
 interface CategoryStat {
@@ -98,11 +101,18 @@ const CATEGORY_COLORS: Record<string, string> = {
   Forms: "var(--cat-forms)",
   Legal: "var(--cat-legal)",
   KYC: "var(--cat-kyc)",
-  Bank: "var(--cat-bank)",
-  Shop: "var(--cat-shop)",
+  Banking: "var(--cat-bank)",
+  Premises: "var(--cat-shop)",
 };
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx,.gif,.bmp,.tiff";
+
+/** Slots where a signature is expected on the document */
+const SLOTS_NEEDING_SIGNATURE = new Set([
+  "mdf", "ack-form", "pep-form", "aml-questionnaire", "addendum", "branch-form", "pg-questionnaire",
+]);
+/** Slots where a company stamp/seal is expected */
+const SLOTS_NEEDING_STAMP = new Set(["mdf"]);
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -137,7 +147,7 @@ function UploadProgressBar({ progress, onCancel }: { progress: UploadProgress; o
           className="h-full rounded-full"
           style={{
             animation: "checklist-shimmer 1.5s ease-in-out infinite",
-            background: isAI
+            backgroundImage: isAI
               ? "linear-gradient(90deg, rgba(139,92,246,0.2) 0%, rgba(139,92,246,0.8) 50%, rgba(139,92,246,0.2) 100%)"
               : "linear-gradient(90deg, hsl(var(--primary) / 0.2) 0%, hsl(var(--primary) / 0.7) 50%, hsl(var(--primary) / 0.2) 100%)",
             backgroundSize: "200% 100%",
@@ -435,8 +445,10 @@ function CategoryIntelligence({
   const uploadedItems = items.filter((i) => i.status === "uploaded");
   if (uploadedItems.length === 0) return null;
 
-  // MDF field data (only if MDF is in this category)
-  const hasMdf = uploadedItems.some((i) => i.id === "mdf") && !!mdfValidation;
+  // MDF field data (only if MDF is in this category AND not a wrong document)
+  const mdfValidationStatus = uploadValidations?.get("mdf");
+  const mdfIsWrongDoc = mdfValidationStatus?.status === "mismatch" || mdfValidationStatus?.status === "unknown";
+  const hasMdf = uploadedItems.some((i) => i.id === "mdf") && !!mdfValidation && !mdfIsWrongDoc;
   const fieldPct = mdfValidation ? mdfValidation.percentage : 0;
 
   // Count validation statuses
@@ -638,9 +650,7 @@ function UploadSlot({
   const isMismatch = uploadValidation?.status === "mismatch";
   const isUnknownType = uploadValidation?.status === "unknown";
   const [removeConfirm, setRemoveConfirm] = useState<string | null>(null);
-  const [showFieldGrid, setShowFieldGrid] = useState(false);
-  const [showSectionGrid, setShowSectionGrid] = useState(false);
-  const [showCompletenessGrid, setShowCompletenessGrid] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   // Auto-dismiss remove confirmation after 2 seconds
   useEffect(() => {
@@ -661,31 +671,31 @@ function UploadSlot({
         "group relative cursor-pointer rounded-xl border transition-all duration-200",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         isProcessing
-          ? isAnalyzing
-            ? "border-violet-500/30 bg-violet-500/[0.03]"
-            : "border-primary/30 bg-primary/[0.03]"
+          ? "border-primary/30 bg-primary/[0.03]"
           : isMismatch
           ? "border-red-500/30 bg-red-500/[0.04]"
           : isUnknownType
           ? "border-amber-500/30 bg-amber-500/[0.04]"
-          : isUploaded && aiMeta
-          ? "border-violet-500/20 bg-violet-500/[0.03]"
           : isUploaded
-          ? "border-emerald-500/20 bg-emerald-500/5"
+          ? "border-emerald-500/20 bg-emerald-500/[0.03]"
           : "border-border/40 bg-muted/30 hover:border-border/60 hover:bg-muted/40",
         isDragging && "border-primary bg-primary/5 ring-2 ring-primary/20",
         !isProcessing && isRecentlyFulfilled && !isMismatch && "ring-2 ring-emerald-400/40"
       )}
       onClick={() => {
-        if (!isUploaded || item.multiFile) {
+        if (!isUploaded) {
           document.getElementById(`file-${item.id}`)?.click();
+        } else if (!isProcessing) {
+          setExpanded((v) => !v);
         }
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          if (!isUploaded || item.multiFile) {
+          if (!isUploaded) {
             document.getElementById(`file-${item.id}`)?.click();
+          } else if (!isProcessing) {
+            setExpanded((v) => !v);
           }
         }
       }}
@@ -713,469 +723,327 @@ function UploadSlot({
       />
 
       {isUploaded ? (
-        /* ── Uploaded state ── */
-        <div className="px-4 py-3.5">
+        /* ── Uploaded state — compact card with expandable findings ── */
+        <div className="px-4 py-3">
+          {/* Top row: icon + label + status */}
           <div className="flex items-center gap-3">
             <div className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
               isProcessing ? "bg-primary/10"
                 : isMismatch ? "bg-red-500/10"
                 : isUnknownType ? "bg-amber-500/10"
-                : aiMeta ? "bg-violet-500/10"
                 : "bg-emerald-500/10"
             )}>
               {isProcessing ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               ) : isMismatch ? (
-                <ShieldAlert className="h-4 w-4 text-red-500" />
+                <ShieldAlert className="h-3.5 w-3.5 text-red-500" />
               ) : isUnknownType ? (
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-              ) : aiMeta ? (
-                <Sparkles className="h-4 w-4 text-violet-500" />
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
               ) : (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
               )}
             </div>
+
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
                 <span className={cn(
                   "text-sm font-medium",
-                  isProcessing ? "text-primary"
-                    : isMismatch ? "text-red-600 dark:text-red-400"
+                  isMismatch ? "text-red-600 dark:text-red-400"
                     : isUnknownType ? "text-amber-600 dark:text-amber-400"
                     : "text-foreground"
                 )}>
                   {item.label}
                 </span>
-                {/* Inline analyzing indicator */}
-                {isAnalyzing && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-500/10 px-2.5 py-0.5 text-[11px] font-medium text-violet-600 dark:text-violet-400">
-                    <span
-                      className="inline-block h-3 w-3 rounded-full border-[1.5px] border-violet-500 border-t-transparent animate-spin"
-                    />
-                    Analyzing&hellip;
-                  </span>
-                )}
-                {/* Inline MDF field count pill — click to expand field grid */}
-                {mdfValidation && !isProcessing && (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setShowFieldGrid(!showFieldGrid); }}
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors",
-                      mdfValidation.percentage >= 80
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
-                        : mdfValidation.percentage >= 50
-                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
-                        : "bg-destructive/10 text-destructive hover:bg-destructive/20"
-                    )}
-                  >
-                    {mdfValidation.totalPresent}/{mdfValidation.totalChecked} fields
-                    <ChevronDown className={cn(
-                      "ml-1 inline h-3 w-3 transition-transform duration-200",
-                      showFieldGrid && "rotate-180"
-                    )} />
-                  </button>
-                )}
-                {/* Inline template match pill — click to expand section grid */}
-                {templateMatch && templateMatch.matched && !isProcessing && (() => {
-                  const totalSections = templateMatch.matchedSections.length + templateMatch.missingSections.length;
-                  const matchedCount = templateMatch.matchedSections.length;
-                  const allMatch = matchedCount === totalSections;
-                  const hasMajorGaps = totalSections > 0 && matchedCount / totalSections < 0.5;
-                  return (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setShowSectionGrid(!showSectionGrid); }}
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors",
-                        allMatch
-                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
-                          : hasMajorGaps
-                          ? "bg-destructive/10 text-destructive hover:bg-destructive/20"
-                          : "bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
-                      )}
-                    >
-                      {matchedCount}/{totalSections} sections
-                      <ChevronDown className={cn(
-                        "ml-1 inline h-3 w-3 transition-transform duration-200",
-                        showSectionGrid && "rotate-180"
-                      )} />
-                    </button>
-                  );
+                {/* Inline finding summary chips */}
+                {!isProcessing && (() => {
+                  const chips: Array<{ text: string; color: "green" | "amber" | "red" }> = [];
+
+                  // MDF: prefer sections from template verification (the gold standard)
+                  // Non-MDF: show docCompleteness field counts if available
+                  if (templateMatch?.matched) {
+                    const total = templateMatch.matchedSections.length + templateMatch.missingSections.length;
+                    chips.push({ text: `${templateMatch.matchedSections.length}/${total} sections`, color: templateMatch.missingSections.length === 0 ? "green" : "amber" });
+                  } else if (docCompleteness) {
+                    chips.push({ text: `${docCompleteness.presentCount}/${docCompleteness.totalFields} fields`, color: docCompleteness.isAcceptable ? "green" : "amber" });
+                  } else if (mdfValidation) {
+                    chips.push({ text: `${mdfValidation.totalPresent}/${mdfValidation.totalChecked} fields`, color: mdfValidation.isAcceptable ? "green" : "amber" });
+                  }
+
+                  if (SLOTS_NEEDING_SIGNATURE.has(item.id) && aiMeta?.hasSignature) chips.push({ text: "Signed", color: "green" });
+                  if (SLOTS_NEEDING_STAMP.has(item.id) && aiMeta?.hasStamp) chips.push({ text: "Stamped", color: "green" });
+                  if (SLOTS_NEEDING_SIGNATURE.has(item.id) && aiMeta && !aiMeta.hasSignature && item.files.length > 0) chips.push({ text: "No signature", color: "amber" });
+                  if (isMismatch) chips.push({ text: "Wrong doc", color: "red" });
+                  if (hasDuplicateFile) chips.push({ text: "Duplicate", color: "amber" });
+                  // Enterprise intelligence chips
+                  if (aiMeta?.sanctionsFlags && aiMeta.sanctionsFlags.length > 0) chips.push({ text: `Sanctions: ${aiMeta.sanctionsFlags.length}`, color: "red" });
+                  if (aiMeta?.pepDetails && aiMeta.pepDetails.length > 0) chips.push({ text: "PEP", color: "red" });
+                  if (aiMeta?.mrzValid === true) chips.push({ text: "MRZ valid", color: "green" });
+                  if (aiMeta?.mrzValid === false) chips.push({ text: "MRZ invalid", color: "red" });
+                  return chips.length > 0 ? (
+                    <div className="flex items-center gap-1.5">
+                      {chips.slice(0, 4).map((c, i) => (
+                        <span key={i} className={cn(
+                          "rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight",
+                          c.color === "green" && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+                          c.color === "amber" && "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                          c.color === "red" && "bg-red-500/10 text-red-600 dark:text-red-400",
+                        )}>
+                          {c.text}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null;
                 })()}
-                {/* Document completeness pill (non-MDF slots — MDF has its own field pill) */}
-                {docCompleteness && !isProcessing && item.id !== "mdf" && (
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setShowCompletenessGrid(!showCompletenessGrid); }}
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors",
-                      docCompleteness.percentage >= 80
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
-                        : docCompleteness.percentage >= 50
-                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
-                        : "bg-destructive/10 text-destructive hover:bg-destructive/20"
-                    )}
-                  >
-                    {docCompleteness.presentCount}/{docCompleteness.totalFields} fields
-                    <ChevronDown className={cn(
-                      "ml-1 inline h-3 w-3 transition-transform duration-200",
-                      showCompletenessGrid && "rotate-180"
-                    )} />
-                  </button>
-                )}
-                {docTypeWarning && (
-                  <Tooltip delayDuration={0}>
-                    <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                        <AlertTriangle className="inline h-3 w-3 -mt-0.5 mr-0.5" />
-                        Check
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">{docTypeWarning}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-                {hasDuplicateFile && (
-                  <Tooltip delayDuration={0}>
-                    <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-                        <AlertTriangle className="h-3 w-3" />
-                        Duplicate
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">Same file uploaded in another slot — remove the duplicate</p>
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-                {/* Verified pill — shows when doc type confirmed */}
-                {uploadValidation?.status === "pass" && !isProcessing && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Verified
-                  </span>
-                )}
               </div>
+              {isProcessing && (
+                <p className="text-xs text-primary mt-0.5">{slotProgress?.message || "Processing..."}</p>
+              )}
+              {!isProcessing && item.files.length > 0 && (
+                <p className="truncate text-xs text-muted-foreground/60 mt-0.5">
+                  {item.files.length === 1 ? item.files[0].name : `${item.files.length} files`}
+                </p>
+              )}
+            </div>
+
+            {/* Right side */}
+            <div className="shrink-0 flex items-center gap-1.5">
+              {!isProcessing && uploadValidation?.status === "pass" && !isMismatch && !isUnknownType && (
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              )}
+              {!isProcessing && (
+                <ChevronDown className={cn(
+                  "h-3.5 w-3.5 text-muted-foreground/40 transition-transform duration-200",
+                  expanded && "rotate-180"
+                )} />
+              )}
             </div>
           </div>
 
-          {/* Validation action card — ABOVE intelligence row for maximum visibility */}
-          {uploadValidation && (isMismatch || isUnknownType) && (
-            <ValidationIndicator
-              validation={uploadValidation}
-              itemId={item.id}
-              onMove={onMoveFile}
-              onKeep={onDismissValidation}
-            />
-          )}
-
-          {/* Document intelligence row */}
-          {aiMeta && !isProcessing && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {/* Confidence */}
-              <span className={cn(
-                "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums",
-                aiMeta.confidence >= 80
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                  : aiMeta.confidence >= 50
-                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                  : "bg-red-500/10 text-red-600 dark:text-red-400"
-              )}>
-                <Sparkles className="h-3 w-3" />
-                {aiMeta.confidence}%
-              </span>
-              {/* Signature */}
-              <span className={cn(
-                "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
-                aiMeta.hasSignature
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                  : "bg-muted/50 text-muted-foreground/60"
-              )}>
-                <PenLine className="h-2.5 w-2.5" />
-                {aiMeta.hasSignature ? "Signed" : "No sig"}
-              </span>
-              {/* Stamp */}
-              <span className={cn(
-                "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
-                aiMeta.hasStamp
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                  : "bg-muted/50 text-muted-foreground/60"
-              )}>
-                <Stamp className="h-2.5 w-2.5" />
-                {aiMeta.hasStamp ? "Stamped" : "No stamp"}
-              </span>
-              {/* Complete/Incomplete */}
-              {aiMeta.isComplete ? (
-                <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="h-2.5 w-2.5" />
-                  Complete
-                </span>
-              ) : aiMeta.blankSections.length > 0 && (
-                <Tooltip delayDuration={0}>
-                  <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                      <AlertTriangle className="h-2.5 w-2.5" />
-                      {aiMeta.blankSections.length} blank
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    <p className="text-xs">Blank: {aiMeta.blankSections.join(", ")}</p>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-              {/* AI Warnings */}
-              {aiMeta.warnings.length > 0 && (
-                <Tooltip delayDuration={0}>
-                  <TooltipTrigger onClick={(e) => e.stopPropagation()}>
-                    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                      <AlertTriangle className="h-2.5 w-2.5" />
-                      {aiMeta.warnings.length} warning{aiMeta.warnings.length !== 1 ? "s" : ""}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    <div className="space-y-0.5">
-                      {aiMeta.warnings.map((w, i) => (
-                        <p key={i} className="text-xs">{w}</p>
-                      ))}
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          )}
-
-          {/* Scan quality warning */}
-          {scanQualityResult && !scanQualityResult.passable && !isProcessing && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {scanQualityResult.issues.map((issue, i) => (
-                <span
-                  key={i}
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
-                    issue.severity === "critical"
-                      ? "bg-red-500/10 text-red-600 dark:text-red-400"
-                      : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                  )}
-                >
-                  <AlertTriangle className="h-2.5 w-2.5" />
-                  {issue.message}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* File list — stacked vertically */}
-          <div className="mt-3 space-y-2">
-            {item.files.map((f) => (
-              <div
-                key={f.id}
-                className="group/file flex items-center gap-3 rounded-lg bg-muted/40 px-4 py-2.5"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <span className="shrink-0 text-muted-foreground">
-                  {getFileIcon(f.type)}
-                </span>
-                <Tooltip delayDuration={300}>
-                  <TooltipTrigger asChild>
-                    <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                      {f.name}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">{f.name}</p>
-                  </TooltipContent>
-                </Tooltip>
-                {pageCount && pageCount > 1 && item.files.length === 1 && (
-                  <span className="shrink-0 text-xs text-muted-foreground">{pageCount}p</span>
+          {/* Processing progress bar */}
+          {isProcessing && slotProgress && (
+            <div className="mt-2">
+              <div className="flex items-center gap-2">
+                <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted/50">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+                    style={{
+                      width: slotProgress.phase === "uploading" ? "20%"
+                        : slotProgress.phase === "scanning" ? "40%"
+                        : slotProgress.phase === "analyzing" ? "70%"
+                        : "90%",
+                    }}
+                  />
+                </div>
+                {onCancelUpload && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onCancelUpload(); }}
+                    className="text-muted-foreground/40 hover:text-destructive transition-colors"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 )}
-                <span className="shrink-0 text-xs text-muted-foreground">{formatSize(f.size)}</span>
-                {isMultiPagePdf && item.files.length === 1 && onAnalyzePages && (
-                  <Tooltip delayDuration={0}>
-                    <TooltipTrigger asChild>
+              </div>
+            </div>
+          )}
+
+          {/* ── Expandable findings section ── */}
+          <AnimatePresence>
+            {expanded && !isProcessing && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="overflow-hidden"
+              >
+                <div className="mt-3 space-y-2 border-t border-border/20 pt-3" onClick={(e) => e.stopPropagation()}>
+                  {/* Findings list */}
+                  {(() => {
+                    const findings: Array<{ icon: "check" | "warn" | "error"; text: string }> = [];
+                    if (SLOTS_NEEDING_SIGNATURE.has(item.id)) {
+                      if (aiMeta?.hasSignature) findings.push({ icon: "check", text: "Signature detected" });
+                      else if (aiMeta && !aiMeta.hasSignature) findings.push({ icon: "warn", text: "Missing signature" });
+                    }
+                    if (SLOTS_NEEDING_STAMP.has(item.id)) {
+                      if (aiMeta?.hasStamp) findings.push({ icon: "check", text: "Company stamp found" });
+                      else if (aiMeta && !aiMeta.hasStamp) findings.push({ icon: "warn", text: "Missing stamp" });
+                    }
+                    if (aiMeta?.isComplete) findings.push({ icon: "check", text: "All sections present" });
+                    else if (aiMeta && !aiMeta.isComplete) findings.push({ icon: "warn", text: "Some sections may be incomplete" });
+                    if (isMismatch && aiMeta?.detectedDescription) findings.push({ icon: "error", text: `This appears to be: ${aiMeta.detectedDescription}` });
+                    // Enterprise intelligence findings
+                    if (aiMeta?.sanctionsFlags && aiMeta.sanctionsFlags.length > 0) {
+                      for (const s of aiMeta.sanctionsFlags) {
+                        findings.push({ icon: "error", text: `Sanctions: business ties with ${s.country}${s.percentage ? ` (${s.percentage})` : ""}${s.goods ? ` — ${s.goods}` : ""}` });
+                      }
+                    }
+                    if (aiMeta?.pepDetails && aiMeta.pepDetails.length > 0) {
+                      for (const p of aiMeta.pepDetails) {
+                        findings.push({ icon: "error", text: `PEP: ${p.name} — ${p.position}, ${p.country}${p.currentlyActive ? " (active)" : ""}` });
+                      }
+                    }
+                    if (aiMeta?.mrzValid === true) findings.push({ icon: "check", text: "MRZ data validated successfully" });
+                    if (aiMeta?.mrzValid === false) findings.push({ icon: "error", text: "MRZ data validation failed — possible data mismatch" });
+                    if (aiMeta?.documentExpiryDate) findings.push({ icon: "check", text: `Valid until ${aiMeta.documentExpiryDate}` });
+                    if (aiMeta?.tradeLicenseNumber) findings.push({ icon: "check", text: `TL# ${aiMeta.tradeLicenseNumber}` });
+                    if (aiMeta?.iban) findings.push({ icon: "check", text: `IBAN ${aiMeta.iban.slice(0, 6)}...${aiMeta.iban.slice(-4)}` });
+                    if (aiMeta?.warnings) {
+                      for (const w of aiMeta.warnings) findings.push({ icon: "warn", text: w });
+                    }
+                    if (findings.length === 0) return null;
+                    return (
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Findings</p>
+                        {findings.map((f, i) => (
+                          <div key={i} className="flex items-start gap-2 py-0.5">
+                            {f.icon === "check" && <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />}
+                            {f.icon === "warn" && <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />}
+                            {f.icon === "error" && <ShieldAlert className="mt-0.5 h-3 w-3 shrink-0 text-red-500" />}
+                            <span className="text-xs text-muted-foreground">{f.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Template sections (MDF gold-standard verification) */}
+                  {templateMatch?.matched && !isMismatch && (
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
+                        Sections — {templateMatch.matchedSections.length}/{templateMatch.matchedSections.length + templateMatch.missingSections.length}
+                      </p>
+                      {templateMatch.missingSections.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {templateMatch.missingSections.map((s) => (
+                            <div key={s} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                              {s}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground/60">All sections verified</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* MDF fields detail (secondary to sections) */}
+                  {mdfValidation && !isMismatch && (
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
+                        Fields — {mdfValidation.totalPresent}/{mdfValidation.totalChecked}
+                      </p>
+                      {mdfValidation.missingFields.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {mdfValidation.missingFields.map((f) => (
+                            <div key={f.field} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                              {f.label}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground/60">All fields present</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Non-MDF document field completeness */}
+                  {docCompleteness && !mdfValidation && !isMismatch && (
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
+                        Fields — {docCompleteness.presentCount}/{docCompleteness.totalFields}
+                      </p>
+                      {docCompleteness.missingFields.length > 0 ? (
+                        <div className="space-y-0.5">
+                          {docCompleteness.missingFields.map((f) => (
+                            <div key={f.field} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                              {f.label}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground/60">All fields present</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* File list with remove */}
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Files</p>
+                    {item.files.map((f) => (
+                      <div key={f.id} className="group/file flex items-center gap-2 rounded-md px-2 py-1.5 -mx-2 hover:bg-muted/30">
+                        <span className="shrink-0 text-muted-foreground/60">
+                          {f.type === "application/pdf" ? <FileText className="h-3 w-3" /> : f.type.startsWith("image/") ? <ImageIcon className="h-3 w-3" /> : <FileIcon className="h-3 w-3" />}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{f.name}</span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground/40">{f.size < 1024 * 1024 ? `${(f.size / 1024).toFixed(0)} KB` : `${(f.size / (1024 * 1024)).toFixed(1)} MB`}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (removeConfirm === f.id) {
+                              setRemoveConfirm(null);
+                              onFileRemove(f.id);
+                            } else {
+                              setRemoveConfirm(f.id);
+                            }
+                          }}
+                          className={cn(
+                            "shrink-0 rounded p-0.5 transition-all",
+                            removeConfirm === f.id
+                              ? "bg-destructive/10 text-destructive"
+                              : "text-muted-foreground/0 group-hover/file:text-muted-foreground/40 hover:!text-destructive"
+                          )}
+                        >
+                          {removeConfirm === f.id ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Multi-file: add more */}
+                  {item.multiFile && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        document.getElementById(`file-${item.id}`)?.click();
+                      }}
+                      className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline transition-colors"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add more files
+                    </button>
+                  )}
+
+                  {/* Mismatch action */}
+                  {isMismatch && uploadValidation?.suggestedSlotId && onMoveFile && (
+                    <div className="flex items-center gap-2 pt-1">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          onAnalyzePages();
+                          onMoveFile(item.id, uploadValidation.suggestedSlotId!);
                         }}
-                        className="shrink-0 rounded-md p-1 text-muted-foreground/40 transition-colors hover:bg-primary/10 hover:text-primary"
+                        className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
                       >
-                        <Layers className="h-3.5 w-3.5" />
+                        <ArrowRightLeft className="h-3 w-3" />
+                        Move to {uploadValidation.suggestedSlotLabel}
                       </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs">Analyze pages — check if this file contains multiple documents</p>
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (removeConfirm === f.id) {
-                      // Second click — actually remove
-                      setRemoveConfirm(null);
-                      onFileRemove(f.id);
-                    } else {
-                      // First click — enter confirm state
-                      setRemoveConfirm(f.id);
-                    }
-                  }}
-                  className={cn(
-                    "shrink-0 rounded-md p-1 transition-all",
-                    removeConfirm === f.id
-                      ? "bg-destructive/10 text-destructive"
-                      : "text-muted-foreground/0 group-hover/file:text-muted-foreground/40 hover:!bg-destructive/10 hover:!text-destructive"
+                      {onDismissValidation && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDismissValidation(); }}
+                          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          Keep here
+                        </button>
+                      )}
+                    </div>
                   )}
-                >
-                  {removeConfirm === f.id ? (
-                    <Check className="h-3.5 w-3.5" />
-                  ) : (
-                    <X className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Expandable MDF field grid */}
-          <AnimatePresence>
-            {showFieldGrid && mdfValidation && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="mt-3 rounded-lg border border-border/20 bg-muted/20 p-3">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                    {mdfValidation.allFields.map((field) => (
-                      <div key={field.field} className="flex items-center gap-1.5 text-xs">
-                        {field.present ? (
-                          <Check className="h-3 w-3 shrink-0 text-emerald-500" />
-                        ) : (
-                          <X className="h-3 w-3 shrink-0 text-muted-foreground/40" />
-                        )}
-                        <span className={cn(
-                          field.present ? "text-muted-foreground" : "text-foreground"
-                        )}>
-                          {field.label}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
-
-          {/* Expandable template section grid */}
-          <AnimatePresence>
-            {showSectionGrid && templateMatch && templateMatch.matched && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="mt-3 rounded-lg border border-border/20 bg-muted/20 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                      Gold Standard Verification
-                    </p>
-                    {templateMatch.reason && (
-                      <span className={cn(
-                        "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                        templateMatch.isComplete
-                          ? "bg-emerald-500/10 text-emerald-600"
-                          : "bg-amber-500/10 text-amber-600"
-                      )}>
-                        {templateMatch.reason}
-                      </span>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    {templateMatch.missingSections.length > 0 && (
-                      <div className="space-y-1">
-                        {templateMatch.missingSections.map((s) => (
-                          <div key={s} className="flex items-start gap-1.5 text-xs">
-                            <X className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
-                            <span className="text-foreground/80">{s}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {templateMatch.matchedSections.length > 0 && (
-                      <div className="space-y-1">
-                        {templateMatch.matchedSections.map((s) => (
-                          <div key={s} className="flex items-center gap-1.5 text-xs">
-                            <Check className="h-3 w-3 shrink-0 text-emerald-500" />
-                            <span className="text-muted-foreground">{s}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Expandable document completeness grid */}
-          <AnimatePresence>
-            {showCompletenessGrid && docCompleteness && item.id !== "mdf" && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="mt-3 rounded-lg border border-border/20 bg-muted/20 p-3">
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                    {docCompleteness.allFields.map((field) => (
-                      <div key={field.field} className="flex items-center gap-1.5 text-xs">
-                        {field.present ? (
-                          <Check className="h-3 w-3 shrink-0 text-emerald-500" />
-                        ) : (
-                          <X className="h-3 w-3 shrink-0 text-muted-foreground/40" />
-                        )}
-                        <span className={cn(
-                          field.present ? "text-muted-foreground" : "text-foreground"
-                        )}>
-                          {field.label}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {item.multiFile && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                document.getElementById(`file-${item.id}`)?.click();
-              }}
-              className="mt-3 flex items-center gap-1.5 text-xs font-medium text-primary hover:underline transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add more files
-            </button>
-          )}
-
-          {/* Upload progress */}
-          {slotProgress && onCancelUpload && (
-            <UploadProgressBar progress={slotProgress} onCancel={onCancelUpload} />
-          )}
         </div>
       ) : (
         /* ── Empty state ── */
@@ -1231,6 +1099,7 @@ function UploadSlot({
           )}
         </div>
       )}
+
     </div>
   );
 }
@@ -1248,38 +1117,22 @@ function MDFMergeIndicator({
 }) {
   return (
     <div
-      className={cn(
-        "mt-2 flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs",
-        skip
-          ? "border border-amber-500/20 bg-amber-500/5"
-          : "border border-blue-500/20 bg-blue-500/5"
-      )}
+      className="mt-2 flex items-center gap-2.5 rounded-lg border border-border/30 bg-muted/20 px-3 py-2 text-xs"
       onClick={(e) => e.stopPropagation()}
     >
-      <Link2 className={cn(
-        "h-3.5 w-3.5 shrink-0",
-        skip ? "text-amber-500" : "text-blue-500"
-      )} />
-      <span className={cn(
-        "font-medium tabular-nums",
-        skip ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"
-      )}>
-        {skip ? "Merge skipped" : (
+      <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="text-muted-foreground">
+        {skip ? "Files will be kept separate" : (
           plan.overlappingPages.length > 0
-            ? `Smart merge: ${plan.mainPageCount}p + ${plan.stampPageCount}p → ${plan.resultPageCount}p`
-            : `Append merge: ${plan.mainPageCount}p + ${plan.stampPageCount}p → ${plan.resultPageCount}p`
+            ? `Sign pages will replace unsigned pages (${plan.resultPageCount} pages total)`
+            : `Files will be combined (${plan.resultPageCount} pages total)`
         )}
       </span>
       <button
         onClick={() => onSkipChange(!skip)}
-        className={cn(
-          "ml-auto shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
-          skip
-            ? "bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 dark:text-blue-400"
-            : "bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
-        )}
+        className="ml-auto shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/10 transition-colors"
       >
-        {skip ? "Enable merge" : "Don't merge"}
+        {skip ? "Combine files" : "Keep separate"}
       </button>
     </div>
   );
@@ -1287,7 +1140,16 @@ function MDFMergeIndicator({
 
 /* ═══════════════════ Main ChecklistEngine ═══════════════════ */
 
-export function ChecklistEngine({
+export interface ChecklistEngineHandle {
+  /** Advance to the next category. Returns true if advanced, false if already on last. */
+  advanceToNextCategory: () => boolean;
+  /** Whether there is a next category after the current one */
+  hasNextCategory: boolean;
+  /** Whether all visible categories are complete */
+  allCategoriesComplete: boolean;
+}
+
+export const ChecklistEngine = forwardRef<ChecklistEngineHandle, ChecklistEngineProps>(function ChecklistEngine({
   items,
   onItemUpdate,
   onFileRemove,
@@ -1310,7 +1172,11 @@ export function ChecklistEngine({
   aiMetadata,
   docCompleteness,
   scanQuality,
-}: ChecklistEngineProps) {
+  consistencyWarnings,
+  onActiveCategoryChange,
+  onNavStateChange,
+  kycStats,
+}, ref) {
   const [activeCategoryIndex, setActiveCategoryIndex] = useState<number | null>(null);
   const [flashingCategory, setFlashingCategory] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
@@ -1338,42 +1204,72 @@ export function ChecklistEngine({
     return map;
   }, [items]);
 
+  /** Check if an item counts as "active" for progress/readiness */
+  const isItemActiveForStats = useCallback((i: ChecklistItem) => {
+    // Waived by inline toggle (e.g., vat-cert when noVat is active)
+    if (i.optionalWhen && conditionals[i.optionalWhen]) return false;
+    if (i.required) return true;
+    if (i.conditionalKey && conditionals[i.conditionalKey]) return true;
+    return false;
+  }, [conditionals]);
+
   /* ── Per-category stats (only counting visible items) ── */
   const categoryStats = useMemo(() => {
     const stats: Record<string, CategoryStat> = {};
     for (const [cat, catItems] of grouped) {
-      const visible = catItems.filter(
-        (i) => i.required || (i.conditionalKey && conditionals[i.conditionalKey])
-      );
+      const visible = catItems.filter(isItemActiveForStats);
       const done = visible.filter((i) => i.status === "uploaded");
       const mismatched = visible.filter((i) => {
         const v = uploadValidations?.get(i.id);
         return v?.status === "mismatch" || v?.status === "unknown";
       }).length;
+      // Don't mark complete if any item is still being processed
+      const stillProcessing = visible.some((i) => uploadProgress?.has(i.id));
       stats[cat] = {
         total: visible.length,
         uploaded: done.length,
-        complete: visible.length > 0 && done.length >= visible.length && mismatched === 0,
+        complete: visible.length > 0 && done.length >= visible.length && mismatched === 0 && !stillProcessing,
         hasMismatch: mismatched > 0,
         visible: catItems.length > 0,
       };
     }
+    // KYC category is managed by ShareholderKYCSection, not checklist items
+    if (kycStats) {
+      stats["KYC"] = {
+        total: kycStats.total,
+        uploaded: kycStats.uploaded,
+        complete: kycStats.complete,
+        hasMismatch: false,
+        visible: true,
+      };
+    }
     return stats;
-  }, [grouped, conditionals, uploadValidations]);
+  }, [grouped, isItemActiveForStats, uploadValidations, uploadProgress, kycStats]);
 
-  /* ── Visible categories (those with items) ── */
+  /* ── Visible categories (those with items, plus KYC which is managed separately) ── */
   const visibleCategories = useMemo(
-    () => CATEGORIES_ORDER.filter((cat) => categoryStats[cat]?.visible),
+    () => CATEGORIES_ORDER.filter((cat) => cat === "KYC" || categoryStats[cat]?.visible),
     [categoryStats]
   );
 
-  /* ── Conditional toggles per category ── */
+  /* ── Conditional keys handled by inline toggles (togglesConditional) ── */
+  const inlineToggleKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const [, catItems] of grouped) {
+      for (const item of catItems) {
+        if (item.togglesConditional) keys.add(item.togglesConditional);
+      }
+    }
+    return keys;
+  }, [grouped]);
+
+  /* ── Conditional toggles per category (exclude inline-toggle-controlled keys) ── */
   const categoryConditionals = useMemo(() => {
     const map = new Map<string, { key: string; label: string; items: ChecklistItem[] }[]>();
     for (const [cat, catItems] of grouped) {
       const seen = new Map<string, { key: string; label: string; items: ChecklistItem[] }>();
       for (const item of catItems) {
-        if (item.conditionalKey) {
+        if (item.conditionalKey && !inlineToggleKeys.has(item.conditionalKey)) {
           if (!seen.has(item.conditionalKey)) {
             seen.set(item.conditionalKey, {
               key: item.conditionalKey,
@@ -1387,13 +1283,11 @@ export function ChecklistEngine({
       if (seen.size > 0) map.set(cat, Array.from(seen.values()));
     }
     return map;
-  }, [grouped]);
+  }, [grouped, inlineToggleKeys]);
 
   /* ── Overall progress ── */
   const { total, uploaded, progress } = useMemo(() => {
-    const visible = items.filter(
-      (i) => i.required || (i.conditionalKey && conditionals[i.conditionalKey])
-    );
+    const visible = items.filter(isItemActiveForStats);
     const done = visible.filter((i) => i.status === "uploaded");
     return {
       total: visible.length,
@@ -1407,6 +1301,35 @@ export function ChecklistEngine({
     const idx = visibleCategories.findIndex((cat) => !categoryStats[cat]?.complete);
     return idx >= 0 ? idx : null;
   }, [visibleCategories, categoryStats]);
+
+  /* ── Derived: navigation state ── */
+  const allCategoriesComplete = useMemo(
+    () => visibleCategories.length > 0 && visibleCategories.every((cat) => categoryStats[cat]?.complete),
+    [visibleCategories, categoryStats]
+  );
+  const hasNextCategory = activeCategoryIndex !== null && activeCategoryIndex < visibleCategories.length - 1;
+
+  /* ── Imperative handle for parent navigation ── */
+  useImperativeHandle(ref, () => ({
+    advanceToNextCategory() {
+      if (activeCategoryIndex === null) {
+        setActiveCategoryIndex(0);
+        return true;
+      }
+      if (activeCategoryIndex < visibleCategories.length - 1) {
+        setActiveCategoryIndex(activeCategoryIndex + 1);
+        return true;
+      }
+      return false;
+    },
+    hasNextCategory,
+    allCategoriesComplete,
+  }), [activeCategoryIndex, visibleCategories, hasNextCategory, allCategoriesComplete]);
+
+  /* ── Notify parent of nav state changes ── */
+  useEffect(() => {
+    onNavStateChange?.(hasNextCategory, allCategoriesComplete);
+  }, [hasNextCategory, allCategoriesComplete, onNavStateChange]);
 
   /* ── Auto-open first incomplete on mount ── */
   useEffect(() => {
@@ -1437,7 +1360,12 @@ export function ChecklistEngine({
     }
     prevCompleteRef.current = next;
 
+    // Don't auto-advance while any slot in the category is still processing
     if (justCompleted) {
+      const catItems = grouped.get(justCompleted) || [];
+      const stillProcessing = catItems.some((i) => uploadProgress?.has(i.id));
+      if (stillProcessing) return; // wait for processing to finish
+
       setFlashingCategory(justCompleted);
       const timer = setTimeout(() => {
         setFlashingCategory(null);
@@ -1684,6 +1612,11 @@ export function ChecklistEngine({
   const activeCategory =
     activeCategoryIndex !== null ? visibleCategories[activeCategoryIndex] : null;
 
+  // Notify parent of active category changes (for conditional rendering of related sections)
+  useEffect(() => {
+    onActiveCategoryChange?.(activeCategory);
+  }, [activeCategory, onActiveCategoryChange]);
+
   const handleMoveFileLocal = useCallback(
     (fromSlotId: string, toSlotId: string) => {
       // Parent's onMoveFile handles file extraction from its own fileStoreRef
@@ -1810,6 +1743,10 @@ export function ChecklistEngine({
     <div className="space-y-5">
       {/* ── Inline progress + category pills ── */}
       <div className="flex items-center gap-4">
+        {/* Compact bulk upload trigger */}
+        {onMultiSlotFulfill && (
+          <BulkUploadInline items={items} onMultiSlotFulfill={onMultiSlotFulfill} />
+        )}
         <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
           {uploaded}/{total}
         </span>
@@ -1836,6 +1773,38 @@ export function ChecklistEngine({
         ))}
         </div>
       </div>
+
+      {/* ── Cross-document notices (subtle, collapsible) ── */}
+      {consistencyWarnings && consistencyWarnings.length > 0 && (() => {
+        const majorCount = consistencyWarnings.filter(w => w.severity === "major").length;
+        return (
+          <details className="group rounded-lg border border-border/30 bg-muted/10">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
+              <AlertTriangle className={cn(
+                "h-3.5 w-3.5 shrink-0",
+                majorCount > 0 ? "text-amber-500" : "text-muted-foreground/60"
+              )} />
+              <span className="text-muted-foreground">
+                <span className="font-medium tabular-nums text-foreground">{consistencyWarnings.length}</span>
+                {" "}cross-document {consistencyWarnings.length === 1 ? "notice" : "notices"}
+              </span>
+              <ChevronDown className="ml-auto h-3 w-3 text-muted-foreground/40 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="border-t border-border/20 px-3 py-2 space-y-1">
+              {consistencyWarnings.map((w, i) => (
+                <div key={`${w.type}-${i}`} className="flex items-start gap-2">
+                  {w.severity === "major" ? (
+                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />
+                  ) : (
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/30" />
+                  )}
+                  <span className="text-xs text-muted-foreground">{w.message}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+        );
+      })()}
 
       {/* ── Active Section Panel ── */}
       <AnimatePresence mode="wait">
@@ -1864,12 +1833,19 @@ export function ChecklistEngine({
             {(() => {
               const toggles = categoryConditionals.get(activeCategory) || [];
               const catItems = grouped.get(activeCategory) || [];
-              // Items that are required (not conditional)
-              const requiredItems = catItems.filter((i) => !i.conditionalKey && i.required);
-              // Items with no conditionalKey that are not required (shouldn't exist much, but handle)
-              const unconditionalOptional = catItems.filter((i) => !i.conditionalKey && !i.required);
-              // Conditional keys that have toggles
-              const conditionalKeys = new Set(toggles.map((t) => t.key));
+              // Items that are required or have an inline toggle (not gated by a conditional)
+              const requiredItems = catItems.filter((i) => !i.conditionalKey && (i.required || i.togglesConditional));
+              // Items with no conditionalKey that are not required and no inline toggle
+              const unconditionalOptional = catItems.filter((i) => !i.conditionalKey && !i.required && !i.togglesConditional);
+              // Items gated by inline toggles (rendered below their parent)
+              const inlineGatedItems = new Map<string, ChecklistItem[]>();
+              for (const ci of catItems) {
+                if (ci.conditionalKey && inlineToggleKeys.has(ci.conditionalKey)) {
+                  const arr = inlineGatedItems.get(ci.conditionalKey) || [];
+                  arr.push(ci);
+                  inlineGatedItems.set(ci.conditionalKey, arr);
+                }
+              }
 
               let lastSectionHeader: string | null = null;
 
@@ -1881,6 +1857,8 @@ export function ChecklistEngine({
                       ? item.sectionHeader
                       : null;
                     if (item.sectionHeader) lastSectionHeader = item.sectionHeader;
+                    const inlineToggleKey = item.togglesConditional;
+                    const isWaived = item.optionalWhen && conditionals[item.optionalWhen];
                     return (
                       <div key={item.id}>
                         {header && (
@@ -1890,7 +1868,41 @@ export function ChecklistEngine({
                             </span>
                           </div>
                         )}
-                        {renderUploadSlot(item)}
+                        {/* Render upload slot (dimmed if waived) */}
+                        <div className={isWaived ? "opacity-50" : ""}>
+                          {renderUploadSlot(item)}
+                        </div>
+                        {/* Inline toggle for items with togglesConditional */}
+                        {inlineToggleKey && (
+                          <div className="mt-1.5 ml-1">
+                            <button
+                              type="button"
+                              onClick={() => onConditionalToggle(inlineToggleKey)}
+                              className="flex items-center gap-2 group"
+                            >
+                              <div className={cn(
+                                "h-4 w-7 rounded-full transition-colors duration-200 flex items-center px-0.5",
+                                conditionals[inlineToggleKey] ? "bg-primary" : "bg-muted-foreground/20"
+                              )}>
+                                <div className={cn(
+                                  "h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200",
+                                  conditionals[inlineToggleKey] && "translate-x-3"
+                                )} />
+                              </div>
+                              <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                                {item.conditionalLabel}
+                              </span>
+                            </button>
+                          </div>
+                        )}
+                        {/* Render gated items below when toggle is active */}
+                        {inlineToggleKey && conditionals[inlineToggleKey] && (
+                          <div className="mt-2 ml-3 space-y-2 border-l-2 border-primary/20 pl-3">
+                            {(inlineGatedItems.get(inlineToggleKey) || []).map((gi) => (
+                              <div key={gi.id}>{renderUploadSlot(gi)}</div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1950,4 +1962,4 @@ export function ChecklistEngine({
     )}
     </>
   );
-}
+});

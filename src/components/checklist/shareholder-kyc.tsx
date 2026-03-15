@@ -179,7 +179,6 @@ export function ShareholderKYCSection({
           const pctNum = parseFloat(sh.percentage);
           const isBelow25 = !isNaN(pctNum) && pctNum < 25;
 
-          // AI data for this shareholder
           const expiryFlag = kycExpiryFlags?.get(sh.id);
           const passportMeta = aiMetadata?.get(`passport::${sh.id}`);
           const eidMeta = aiMetadata?.get(`eid::${sh.id}`);
@@ -368,7 +367,6 @@ export function ShareholderKYCSection({
               {/* AI Intelligence row — expiry dates + confidence */}
               {(expiryFlag || passportMeta || eidMeta) && (
                 <div className="mt-2 ml-11 flex flex-wrap gap-1.5">
-                  {/* Passport expiry badge */}
                   {expiryFlag?.passportExpired && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400">
                       <Calendar className="h-2.5 w-2.5" />
@@ -381,7 +379,6 @@ export function ShareholderKYCSection({
                       Passport valid until {expiryFlag.passportExpiryDate}
                     </span>
                   )}
-                  {/* EID expiry badge */}
                   {expiryFlag?.eidExpired && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400">
                       <Calendar className="h-2.5 w-2.5" />
@@ -394,7 +391,6 @@ export function ShareholderKYCSection({
                       EID valid until {expiryFlag.eidExpiryDate}
                     </span>
                   )}
-                  {/* Passport AI confidence */}
                   {passportMeta && (
                     <span className={cn(
                       "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
@@ -408,7 +404,6 @@ export function ShareholderKYCSection({
                       Passport {passportMeta.confidence}%
                     </span>
                   )}
-                  {/* EID AI confidence */}
                   {eidMeta && (
                     <span className={cn(
                       "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
@@ -422,7 +417,6 @@ export function ShareholderKYCSection({
                       EID {eidMeta.confidence}%
                     </span>
                   )}
-                  {/* AI warnings for passport/EID */}
                   {passportMeta?.warnings && passportMeta.warnings.length > 0 && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
                       <AlertTriangle className="h-2.5 w-2.5" />

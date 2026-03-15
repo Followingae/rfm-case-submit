@@ -7,75 +7,71 @@ export interface ChecklistTemplate {
   required: boolean;
   conditionalKey?: string;
   conditionalLabel?: string;
+  /** Renders a toggle ON this item's row that controls the given conditional key */
+  togglesConditional?: string;
+  /** Makes this item optional (not required) when the given conditional is active */
+  optionalWhen?: string;
   multiFile?: boolean;
   notes?: string[];
   sectionHeader?: string;
 }
 
 // ═══════════════════════════════════════════
-// LOW RISK DOCUMENTS
+// LOW RISK DOCUMENTS (POS — base for most case types)
 // ═══════════════════════════════════════════
 
 const LOW_RISK: ChecklistTemplate[] = [
   // --- Forms ---
-  { id: "ack-form", label: "MAF – Merchant Acknowledgement Form", category: "Forms", required: true },
   {
     id: "mdf",
-    label: "MDF – Merchant Details Form",
+    label: "MDF",
     category: "Forms",
     required: true,
     multiFile: true,
     notes: [
-      "Ensure all pages are checked and all sections are properly filled in",
-      "Upload MDF main form + sign & stamp page separately if needed",
+      "Ensure all pages checked, all sections filled",
+      "Upload main form + stamp pages separately if needed",
     ],
   },
   {
-    id: "signed-svr",
-    label: "Signed SVR (Site Visit Report)",
+    id: "ack-form",
+    label: "MAF",
     category: "Forms",
     required: true,
   },
-
   {
-    id: "mts",
-    label: "MTS – Monthly Terminal Statement",
+    id: "signed-svr",
+    label: "SVR",
     category: "Forms",
-    required: false,
-    conditionalKey: "hasMts",
-    conditionalLabel: "Merchant has an existing terminal statement",
-    notes: ["Internal processing document — include if available"],
+    required: true,
   },
 
   // --- Legal ---
   {
     id: "trade-license",
-    label: "Trade License / Kiosk Permit / Lease Agreement / Warehouse Permit",
+    label: "Trade License",
     category: "Legal",
     required: true,
     notes: [
-      "Ensure all pages of the Trade License are included",
-      "Check expiry date — expired TL is a major discrepancy",
+      "Includes Kiosk Permit / Lease / Warehouse Permit",
+      "Check expiry — expired TL needs deferral",
     ],
   },
   {
     id: "trademark-cert",
-    label: "Trademark Certificate",
+    label: "Trademark Cert",
     category: "Legal",
     required: false,
     conditionalKey: "signboardDifferent",
-    conditionalLabel: "Signboard name is different from the Trade License",
-    notes: ["If trademark cert not available, need deferral approval"],
+    conditionalLabel: "Signboard name differs from Trade License",
+    notes: ["If not available, deferral approval needed"],
   },
   {
     id: "main-moa",
-    label: "Main MOA (authorized signatory should be mentioned)",
+    label: "MOA",
     category: "Legal",
     required: true,
-    notes: [
-      "Authorized signatory should be mentioned",
-      "Always check if Main MOA is attached — missing MOA is a major discrepancy",
-    ],
+    notes: ["Authorized signatory must be mentioned"],
   },
   {
     id: "amended-moa",
@@ -87,47 +83,65 @@ const LOW_RISK: ChecklistTemplate[] = [
   },
   {
     id: "poa",
-    label: "POA – Power of Attorney",
+    label: "Power of Attorney",
     category: "Legal",
     required: false,
     conditionalKey: "poaSigning",
-    conditionalLabel: "Someone else signs the MDF on behalf of the authorized signatory",
+    conditionalLabel: "Someone else signs MDF on behalf of authorized signatory",
   },
-
-  // Freezone section
   {
-    id: "freezone-docs",
-    label: "Articles of Association, Share Certificate, Certificate of Incumbency, BOR",
+    id: "freezone-aoa",
+    label: "Articles of Association",
     category: "Legal",
     required: false,
     sectionHeader: "For Freezone Companies",
     conditionalKey: "isFreezone",
     conditionalLabel: "This is a Freezone company",
-    multiFile: true,
   },
-
+  {
+    id: "freezone-share-cert",
+    label: "Share Certificate",
+    category: "Legal",
+    required: false,
+    conditionalKey: "isFreezone",
+  },
+  {
+    id: "freezone-incumbency",
+    label: "Certificate of Incumbency",
+    category: "Legal",
+    required: false,
+    conditionalKey: "isFreezone",
+  },
+  {
+    id: "freezone-bor",
+    label: "Board Resolution",
+    category: "Legal",
+    required: false,
+    conditionalKey: "isFreezone",
+  },
   {
     id: "vat-cert",
     label: "VAT Certificate",
     category: "Legal",
     required: true,
+    togglesConditional: "noVat",
+    conditionalLabel: "Merchant doesn't have VAT",
+    optionalWhen: "noVat",
   },
   {
     id: "vat-declaration",
-    label: "VAT Declaration Email",
+    label: "VAT Declaration",
     category: "Legal",
-    required: false,
+    required: true,
     conditionalKey: "noVat",
-    conditionalLabel: "Merchant doesn't have VAT",
-    notes: ["Missing VAT email / VAT cert is a common discrepancy"],
   },
   {
     id: "org-structure",
-    label: "Organizational Structure",
+    label: "Org Chart",
     category: "Legal",
     required: false,
     conditionalKey: "ownerIsCompany",
-    conditionalLabel: "Owner is a company",
+    conditionalLabel: "One of the owners is a company",
   },
   {
     id: "letter-of-intent",
@@ -135,69 +149,63 @@ const LOW_RISK: ChecklistTemplate[] = [
     category: "Legal",
     required: false,
     conditionalKey: "activityNotInTL",
-    conditionalLabel: "Activity is not mentioned in the Trade License",
+    conditionalLabel: "Activity not mentioned in TL or is General Trading",
   },
 
-  // --- KYC ---
-  // Passport & EID moved to ShareholderKYC section (auto-populated from MDF)
-
-  // --- Bank ---
-  {
-    id: "bank-statement",
-    label: "Latest 1 Month Bank Statement",
-    category: "Bank",
-    required: true,
-    notes: [
-      "Bank account name mismatch is a common discrepancy",
-      "Ensure scanned docs are clear and legible",
-      "For Mr. Iqbal — Rate Approval Purpose",
-    ],
-  },
+  // --- Banking ---
   {
     id: "iban-proof",
-    label: "IBAN Proof (Cheque Copy or Welcome Letter)",
-    category: "Bank",
+    label: "IBAN Proof",
+    category: "Banking",
     required: true,
+    notes: ["Cheque copy or welcome letter"],
+  },
+  {
+    id: "bank-statement",
+    label: "Bank Statement",
+    category: "Banking",
+    required: false,
+    conditionalKey: "fromOtherAcquirer",
+    conditionalLabel: "Merchant uses POS from another acquirer",
+    notes: ["Latest 1 month statement"],
   },
   {
     id: "payment-proof",
     label: "Payment Proof",
-    category: "Bank",
-    required: true,
-    notes: ["Proof of payment / deposit for terminal setup"],
+    category: "Banking",
+    required: false,
+    conditionalKey: "hasCheque",
+    conditionalLabel: "Payment is by cheque",
+    notes: ["No PDC, spelling & figures correct"],
+  },
+  {
+    id: "personal-bank",
+    label: "Personal Bank Acct",
+    category: "Banking",
+    required: false,
+    conditionalKey: "personalAccount",
+    conditionalLabel: "Owner is 100% or monthly spend below 30K",
   },
 
-  // --- Shop ---
+  // --- Premises ---
   {
     id: "shop-photos",
-    label: "Shop Photos (Inside and Outside — signboard should be visible)",
-    category: "Shop",
+    label: "Shop Photos",
+    category: "Premises",
     required: true,
     multiFile: true,
-  },
-  {
-    id: "colored-photos",
-    label: "Colored Photos (For Mr. Iqbal — Rate Approval Purpose)",
-    category: "Shop",
-    required: true,
-    multiFile: true,
+    notes: ["Inside and outside — signboard must be visible"],
   },
   {
     id: "tenancy-ejari",
-    label: "Shop Tenancy Contract or Ejari",
-    category: "Shop",
-    required: false,
-    conditionalKey: "addressNotInTL",
-    conditionalLabel: "Address not mentioned in TL — tenancy is required",
-    notes: [
-      "For Mr. Iqbal — Rate Approval Purpose",
-      "If address not mentioned in TL then Tenancy is required",
-    ],
+    label: "Tenancy / Ejari",
+    category: "Premises",
+    required: true,
   },
 ];
 
 // ═══════════════════════════════════════════
-// HIGH RISK DOCUMENTS
+// HIGH RISK — ADDITIONAL DOCUMENTS (on top of Low Risk)
 // ═══════════════════════════════════════════
 
 const HIGH_RISK_ADDITIONAL: ChecklistTemplate[] = [
@@ -208,8 +216,29 @@ const HIGH_RISK_ADDITIONAL: ChecklistTemplate[] = [
     required: false,
     sectionHeader: "High Risk — Additional Documents",
     conditionalKey: "pepRequired",
-    conditionalLabel: "Merchant is from Royal Family, Politics, Government Establishment, or Working in Government",
-    notes: ["Depends with Compliance Team if they need additional documents, only then we will provide"],
+    conditionalLabel: "Royal Family / Politics / Government",
+  },
+  {
+    id: "supplier-invoice",
+    label: "Supplier Invoice",
+    category: "Legal",
+    required: true,
+  },
+  {
+    id: "aml-policy",
+    label: "AML Policy",
+    category: "Legal",
+    required: false,
+    conditionalKey: "isJewelleryRealEstate",
+    conditionalLabel: "Business is Jewellery or Real Estate",
+  },
+  {
+    id: "goaml-screenshot",
+    label: "GoAML Screenshot",
+    category: "Legal",
+    required: false,
+    conditionalKey: "isJewelleryRealEstate",
+    conditionalLabel: "Business is Jewellery or Real Estate",
   },
 ];
 
@@ -220,49 +249,108 @@ const HIGH_RISK_ADDITIONAL: ChecklistTemplate[] = [
 const ADDITIONAL_MID: ChecklistTemplate[] = [
   {
     id: "mdf",
-    label: "MDF – Merchant Details Form",
+    label: "MDF",
+    category: "Forms",
+    required: true,
+    multiFile: true,
+    togglesConditional: "useBranchForm",
+    conditionalLabel: "Use Branch Form instead",
+    optionalWhen: "useBranchForm",
+  },
+  {
+    id: "branch-form",
+    label: "Branch Form",
+    category: "Forms",
+    required: true,
+    conditionalKey: "useBranchForm",
+  },
+  {
+    id: "justification-letter",
+    label: "Justification Letter",
+    category: "Forms",
+    required: true,
+    notes: ["Explain why additional MID is needed"],
+  },
+  {
+    id: "trade-license",
+    label: "Trade License",
+    category: "Legal",
+    required: true,
+  },
+  {
+    id: "shop-photos",
+    label: "Shop Photos",
+    category: "Premises",
+    required: true,
+    multiFile: true,
+  },
+  {
+    id: "trademark-cert",
+    label: "Trademark Cert",
+    category: "Legal",
+    required: false,
+    conditionalKey: "signboardDifferent",
+    conditionalLabel: "Signboard name differs from Trade License",
+  },
+];
+
+// ═══════════════════════════════════════════
+// NEW LOCATION (Existing Merchant)
+// ═══════════════════════════════════════════
+
+const NEW_LOCATION: ChecklistTemplate[] = [
+  {
+    id: "branch-form",
+    label: "Branch Form",
     category: "Forms",
     required: true,
   },
   {
     id: "trade-license",
-    label: "Trade License / Kiosk Permit / Lease Agreement / Warehouse Permit",
+    label: "Trade License",
     category: "Legal",
     required: true,
   },
   {
-    id: "justification-letter",
-    label: "Justification Letter (Why additional MID is required)",
+    id: "shop-photos",
+    label: "Shop Photos",
+    category: "Premises",
+    required: true,
+    multiFile: true,
+  },
+  {
+    id: "trademark-cert",
+    label: "Trademark Cert",
+    category: "Legal",
+    required: false,
+    conditionalKey: "signboardDifferent",
+    conditionalLabel: "Signboard name differs from Trade License",
+  },
+  {
+    id: "signed-svr",
+    label: "SVR",
     category: "Forms",
     required: true,
-    notes: ["Sample attached — explain why additional MID is needed"],
   },
   {
-    id: "iban-proof",
-    label: "IBAN Proof",
-    category: "Bank",
-    required: true,
-  },
-  {
-    id: "ubo-confirmation",
-    label: "Confirmation Letter for NO UBO Changes",
-    category: "Legal",
+    id: "tenancy-ejari",
+    label: "Tenancy / Ejari",
+    category: "Premises",
     required: true,
   },
 ];
 
 // ═══════════════════════════════════════════
-// ECOMMERCE / E-INVOICE / PAYMENT LINK / GATEWAY
+// E-INVOICE ADDITIONAL DOCUMENTS
 // ═══════════════════════════════════════════
 
-const ECOMMERCE: ChecklistTemplate[] = [
-  // E-Invoice / Payment Link section
+const EINVOICE_ADDITIONAL: ChecklistTemplate[] = [
   {
     id: "aml-questionnaire",
     label: "AML Questionnaire",
     category: "Forms",
     required: true,
-    sectionHeader: "E-Invoice / Payment Link Documents",
+    sectionHeader: "E-Invoice Documents",
     notes: ["To be filled & signed by MSO"],
   },
   {
@@ -270,7 +358,7 @@ const ECOMMERCE: ChecklistTemplate[] = [
     label: "Addendum",
     category: "Forms",
     required: true,
-    notes: ["Need merchant sign & stamp"],
+    notes: ["Needs merchant sign & stamp"],
   },
   {
     id: "branch-form",
@@ -283,18 +371,26 @@ const ECOMMERCE: ChecklistTemplate[] = [
     label: "Merchant Risk Assessment",
     category: "Forms",
     required: true,
-    notes: ["Already filled"],
+    notes: ["Pre-filled form"],
   },
+];
 
-  // Payment Gateway section
+// ═══════════════════════════════════════════
+// PAYMENT GATEWAY ADDITIONAL DOCUMENTS
+// ═══════════════════════════════════════════
+
+const PG_ADDITIONAL: ChecklistTemplate[] = [
   {
     id: "pg-questionnaire",
-    label: "Questionnaire (Payment Gateway)",
+    label: "PG Questionnaire",
     category: "Forms",
     required: true,
     sectionHeader: "Payment Gateway Documents",
   },
 ];
+
+// IDs to remove from LOW_RISK for ecommerce case types (no physical premises)
+const ECOM_REMOVE_IDS = new Set(["shop-photos", "tenancy-ejari", "signed-svr"]);
 
 // ═══════════════════════════════════════════
 // Exports
@@ -304,14 +400,39 @@ export function getChecklistForCase(caseType: CaseType): ChecklistTemplate[] {
   switch (caseType) {
     case "low-risk":
       return [...LOW_RISK];
-    case "high-risk":
-      return [...LOW_RISK, ...HIGH_RISK_ADDITIONAL];
+
+    case "high-risk": {
+      // Start with low risk, then make bank-statement required (remove conditional)
+      const base = LOW_RISK.map((item) => {
+        if (item.id === "bank-statement") {
+          return {
+            ...item,
+            required: true,
+            conditionalKey: undefined,
+            conditionalLabel: undefined,
+          };
+        }
+        return { ...item };
+      });
+      return [...base, ...HIGH_RISK_ADDITIONAL];
+    }
+
     case "additional-mid":
       return [...ADDITIONAL_MID];
-    case "additional-branch":
-      return [...LOW_RISK];
-    case "ecom":
-      return [...LOW_RISK, ...ECOMMERCE];
+
+    case "new-location":
+      return [...NEW_LOCATION];
+
+    case "einvoice": {
+      const base = LOW_RISK.filter((item) => !ECOM_REMOVE_IDS.has(item.id));
+      return [...base, ...EINVOICE_ADDITIONAL];
+    }
+
+    case "payment-gateway": {
+      const base = LOW_RISK.filter((item) => !ECOM_REMOVE_IDS.has(item.id));
+      return [...base, ...PG_ADDITIONAL];
+    }
+
     default:
       return [...LOW_RISK];
   }
@@ -320,37 +441,42 @@ export function getChecklistForCase(caseType: CaseType): ChecklistTemplate[] {
 export const CATEGORIES_ORDER = [
   "Forms",
   "Legal",
-  "Bank",
-  "Shop",
+  "KYC",
+  "Banking",
+  "Premises",
 ];
 
 export const DOCUMENT_TYPE_MAP: Record<string, string> = {
-  "ack-form": "MAF",
   "mdf": "MDF",
-  "mts": "MTS",
+  "ack-form": "MAF",
   "signed-svr": "SVR",
   "trade-license": "TradeLicense",
   "trademark-cert": "TrademarkCert",
   "main-moa": "MOA_Main",
   "amended-moa": "MOA_Amended",
   "poa": "POA",
-  "freezone-docs": "FreezoneDocs",
+  "freezone-aoa": "Freezone_ArticlesOfAssociation",
+  "freezone-share-cert": "Freezone_ShareCertificate",
+  "freezone-incumbency": "Freezone_CertificateOfIncumbency",
+  "freezone-bor": "Freezone_BoardResolution",
   "vat-cert": "VAT_Certificate",
   "vat-declaration": "VAT_Declaration",
   "org-structure": "OrgStructure",
   "letter-of-intent": "LetterOfIntent",
-  "bank-statement": "BankStatement_1M",
   "iban-proof": "IBAN_Proof",
+  "bank-statement": "BankStatement_1M",
   "payment-proof": "PaymentProof",
+  "personal-bank": "PersonalBankAccount",
   "shop-photos": "ShopPhoto",
-  "colored-photos": "ColoredPhoto",
   "tenancy-ejari": "Tenancy",
   "pep-form": "PEP_Form",
+  "supplier-invoice": "SupplierInvoice",
+  "aml-policy": "AML_Policy",
+  "goaml-screenshot": "GoAML_Screenshot",
   "justification-letter": "JustificationLetter",
-  "ubo-confirmation": "UBO_Confirmation",
+  "branch-form": "BranchForm",
   "aml-questionnaire": "AML_Questionnaire",
   "addendum": "Addendum",
-  "branch-form": "BranchForm",
   "merchant-risk-assessment": "MerchantRiskAssessment",
   "pg-questionnaire": "PG_Questionnaire",
 };
@@ -359,8 +485,8 @@ export const FOLDER_MAP: Record<string, string> = {
   "Forms": "07_Forms",
   "Legal": "06_LegalDocuments",
   "KYC": "03_KYC",
-  "Bank": "04_BankDocuments",
-  "Shop": "05_ShopDocuments",
+  "Banking": "04_BankDocuments",
+  "Premises": "05_ShopDocuments",
 };
 
 // ─────────────────────────────────────────
@@ -398,4 +524,5 @@ export const IMPORTANT_REMINDERS = [
   "Review MDF (Merchant Details Form) thoroughly — ensure all pages are checked, all sections filled, nothing skipped",
   "Check KYC expirations — always review each KYC document for expiration and ensure all are up-to-date",
   "Review shareholder information in Trade License — verify each shareholder is listed and corresponding KYC is attached",
+  "Original stamp & true copy stamp must be visible in all documents",
 ];

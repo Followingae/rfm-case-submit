@@ -31,6 +31,10 @@ export function validateCase(
 
   // --- Required document checks ---
   const requiredItems = checklist.filter((item) => {
+    // If item has optionalWhen and that conditional is active, it's not required
+    if (item.optionalWhen && conditionals[item.optionalWhen]) {
+      return false;
+    }
     if (!item.required) {
       if (item.conditionalKey && conditionals[item.conditionalKey]) {
         return true;
@@ -87,9 +91,9 @@ export function validateCase(
   if (shareholders) {
     if (shareholders.length === 0) {
       warnings.push({
-        type: "major",
+        type: "minor",
         message:
-          "No shareholders added — Passport & Emirates ID (EID) required for ALL partners with % in Trade License",
+          "No shareholders added yet — add shareholders in the KYC tab to upload Passport & Emirates ID",
       });
     } else {
       shareholders.forEach((sh, idx) => {

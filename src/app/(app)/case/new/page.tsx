@@ -42,6 +42,15 @@ import {
   saveBankStatementData,
   saveVATCertData,
   saveMOAData,
+  saveAIMetadata,
+  saveReadinessScore,
+  saveTenancyData,
+  saveIBANProofData,
+  saveSupplierInvoiceData,
+  savePEPData,
+  saveSubmissionDetails,
+  saveCaseExceptions,
+  logCaseAudit,
 } from "@/lib/storage";
 import {
   validateMDFFields,
@@ -62,21 +71,54 @@ import {
   moaToExtractedFields,
   passportToExtractedFields,
   eidToExtractedFields,
+  genericToExtractedFields,
   type LabeledField,
 } from "@/lib/field-adapter";
 import type { ParsedTradeLicense, ParsedMDF } from "@/lib/ocr-engine";
 import { detectMDFMergePlan, type MergePlan } from "@/lib/pdf-merger";
 import { validateDocCompleteness, type DocCompletenessResult } from "@/lib/doc-completeness";
 import { autofillSubmissionFromMDF } from "@/lib/submission-autofill";
-import { aiExtractDocument, aiVerifyMdf } from "@/lib/ai-extract";
+import { aiExtractDocument, aiExtractMdf, parseMdfSections } from "@/lib/ai-extract";
 import type { AIExtractionMeta } from "@/lib/ai-types";
 import { getTemplateById } from "@/lib/template-registry";
 import { assessScanQuality } from "@/lib/scan-quality";
 import type { ScanQualityResult } from "@/lib/types";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
+import { useAuth } from "@/components/auth/auth-provider";
+
+// ── Cross-shareholder name fuzzy matching ──
+
+function nameMatchScore(extractedName: string, shareholderName: string): number {
+  const extractedWords = extractedName.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+  const shareholderWords = shareholderName.toLowerCase().split(/\s+/).filter(w => w.length > 1);
+  let matches = 0;
+  for (const ew of extractedWords) {
+    for (const sw of shareholderWords) {
+      if (ew === sw || sw.includes(ew) || ew.includes(sw)) {
+        matches++;
+        break;
+      }
+    }
+  }
+  return extractedWords.length > 0 ? matches / extractedWords.length : 0;
+}
 
 export default function NewCasePage() {
+  return (
+    <Suspense fallback={<div className="flex h-full items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" /></div>}>
+      <NewCasePageInner />
+    </Suspense>
+  );
+}
+
+function NewCasePageInner() {
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
   const [step, setStep] = useState(0);
-  const caseIdRef = useRef(uuid());
+  // Support re-submission: if caseId is in URL, use that instead of generating new
+  const existingCaseId = searchParams.get("caseId");
+  const caseIdRef = useRef(existingCaseId || uuid());
 
   const [merchantInfo, setMerchantInfo] = useState<MerchantInfo>({
     legalName: "",
@@ -87,6 +129,8 @@ export default function NewCasePage() {
 
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [conditionals, setConditionals] = useState<Record<string, boolean>>({});
+  const conditionalsRef = useRef(conditionals);
+  conditionalsRef.current = conditionals;
   const [shareholders, setShareholders] = useState<ShareholderKYC[]>([]);
   const fileStoreRef = useRef<Map<string, File[]>>(new Map());
 
@@ -95,6 +139,8 @@ export default function NewCasePage() {
 
   // Validation state
   const [mdfValidation, setMdfValidation] = useState<MDFValidationResult | null>(null);
+  const mdfValidationRef = useRef(mdfValidation);
+  mdfValidationRef.current = mdfValidation;
   const [docTypeWarnings, setDocTypeWarnings] = useState<Map<string, DocTypeDetectionResult>>(new Map());
   const [duplicateWarnings, setDuplicateWarnings] = useState<EnhancedDuplicateWarning[]>([]);
 
@@ -118,12 +164,31 @@ export default function NewCasePage() {
 
   // AI extraction metadata tracking
   const [aiMetadata, setAiMetadata] = useState<Map<string, AIExtractionMeta>>(new Map());
+  const aiMetadataRef = useRef(aiMetadata);
+  aiMetadataRef.current = aiMetadata;
 
   // Scan quality results for uploaded images
   const [scanQuality, setScanQuality] = useState<Map<string, ScanQualityResult>>(new Map());
 
   // Track which submission fields were auto-populated by AI
   const [autofilledFields, setAutofilledFields] = useState<Set<string>>(new Set());
+
+  // Extraction queue — prevents concurrent Gemini calls that cause 429s
+  const extractionQueueRef = useRef<Array<() => Promise<void>>>([]);
+  const extractionRunningRef = useRef(false);
+  const processExtractionQueue = useCallback(async () => {
+    if (extractionRunningRef.current) return;
+    extractionRunningRef.current = true;
+    while (extractionQueueRef.current.length > 0) {
+      const task = extractionQueueRef.current.shift()!;
+      await task();
+      // Small delay between extractions to avoid rate limits
+      if (extractionQueueRef.current.length > 0) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    extractionRunningRef.current = false;
+  }, []);
 
   // Submission email table
   const [submissionDetails, setSubmissionDetails] = useState<SubmissionDetails>({
@@ -174,15 +239,38 @@ export default function NewCasePage() {
 
   const storeAiMeta = useCallback((slotId: string, meta: AIExtractionMeta) => {
     setAiMetadata(prev => { const m = new Map(prev); m.set(slotId, meta); return m; });
+    // Persist AI metadata to database
+    saveAIMetadata(caseIdRef.current, slotId, meta as unknown as Record<string, unknown>);
   }, []);
 
   // AI-powered wrong-doc-in-slot detection — uses the detectedDocType from primary extraction (no extra API call)
   const checkSlotDocType = useCallback((slotId: string, meta: AIExtractionMeta) => {
     const detected = meta.detectedDocType?.toLowerCase().trim();
-    if (!detected || detected === "unknown") return;
 
     const expectedTypes = SLOT_TO_DOCTYPE[slotId] || [];
     if (expectedTypes.length === 0) return; // no mapping for this slot
+
+    // Flag unknown/unrecognized documents instead of silently skipping
+    if (!detected || detected === "unknown" || detected === "other") {
+      const expectedLabel = checklist.find(i => i.id === slotId)?.label || slotId;
+      setUploadValidations(prev => {
+        const next = new Map(prev);
+        next.set(slotId, {
+          status: "unknown",
+          confidence: meta.confidence,
+          detectedDocType: detected || null,
+          detectedLabel: null,
+          expectedDocType: expectedTypes[0] || slotId,
+          expectedLabel,
+          suggestedSlotId: null,
+          suggestedSlotLabel: null,
+          message: "This document couldn't be identified. Please double-check it's the correct file.",
+          referenceUsed: false,
+        });
+        return next;
+      });
+      return;
+    }
 
     const isMatch = expectedTypes.includes(detected);
 
@@ -329,6 +417,8 @@ export default function NewCasePage() {
           required: t.required,
           conditionalKey: t.conditionalKey,
           conditionalLabel: t.conditionalLabel,
+          togglesConditional: t.togglesConditional,
+          optionalWhen: t.optionalWhen,
           multiFile: t.multiFile,
           notes: t.notes,
           sectionHeader: t.sectionHeader,
@@ -379,23 +469,25 @@ export default function NewCasePage() {
   // Recompute readiness whenever relevant state changes
   const recomputeReadiness = useCallback(() => {
     setChecklist((currentChecklist) => {
+      // Use refs for values that may have been updated in the same render cycle
       const result = computeReadiness(
         currentChecklist,
-        conditionals,
+        conditionalsRef.current,
         shareholders,
-        mdfValidation,
+        mdfValidationRef.current,
         tradeLicenseData,
         docTypeWarnings,
         exceptions,
         uploadValidations,
         kycExpiryFlags,
         docCompleteness,
-        aiMetadata,
+        aiMetadataRef.current,
       );
       setReadiness(result);
+      saveReadinessScore(caseIdRef.current, result.score, result.tier);
       return currentChecklist;
     });
-  }, [conditionals, shareholders, mdfValidation, tradeLicenseData, docTypeWarnings, exceptions, uploadValidations, kycExpiryFlags, docCompleteness, aiMetadata]);
+  }, [shareholders, tradeLicenseData, docTypeWarnings, exceptions, uploadValidations, kycExpiryFlags, docCompleteness]);
 
   // Run consistency checks
   const runConsistencyChecks = useCallback(() => {
@@ -411,10 +503,21 @@ export default function NewCasePage() {
     setConsistencyWarnings(warnings);
   }, [tradeLicenseData, merchantInfo, shareholders, bankStatementData, vatCertData, moaData]);
 
+  // Debounced combined recompute — prevents redundant recalculations during rapid uploads
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedRecompute = useCallback(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      recomputeReadiness();
+      runConsistencyChecks();
+    }, 300);
+  }, [recomputeReadiness, runConsistencyChecks]);
+
   const handleNextToDocuments = useCallback(async () => {
-    await createCase(caseIdRef.current, merchantInfo);
+    await createCase(caseIdRef.current, merchantInfo, user?.id);
+    await logCaseAudit(caseIdRef.current, "case_created", { caseType: merchantInfo.caseType, legalName: merchantInfo.legalName });
     setStep(1);
-  }, [merchantInfo]);
+  }, [merchantInfo, user?.id]);
 
   const handleItemUpdate = useCallback(
     (itemId: string, newFiles: UploadedFile[]) => {
@@ -473,11 +576,27 @@ export default function NewCasePage() {
 
   const handleRawFilesAdded = useCallback(
     async (itemId: string, rawFiles: File[]) => {
+      // Deduplicate: skip files already in this slot (same name + size)
+      const existingForDedup = fileStoreRef.current.get(itemId) || [];
+      const newFiles = rawFiles.filter(f => !existingForDedup.some(e => e.name === f.name && e.size === f.size));
+      if (newFiles.length === 0) return;
+
+      // Auto-toggle "noVat" when files are added to the VAT Declaration slot
+      if (itemId === "vat-declaration") {
+        setConditionals((prev) => {
+          if (prev.noVat) return prev;
+          const next = { ...prev, noVat: true };
+          updateCaseConditionals(caseIdRef.current, next);
+          return next;
+        });
+        recomputeReadiness();
+      }
+
       const existing = fileStoreRef.current.get(itemId) || [];
-      fileStoreRef.current.set(itemId, [...existing, ...rawFiles]);
+      fileStoreRef.current.set(itemId, [...existing, ...newFiles]);
 
       const caseId = caseIdRef.current;
-      for (const file of rawFiles) {
+      for (const file of newFiles) {
         const abortKey = `${itemId}::${file.name}`;
         const controller = new AbortController();
         abortControllersRef.current.set(abortKey, controller);
@@ -513,12 +632,32 @@ export default function NewCasePage() {
             // Phase 2: AI Analysis
             setSlotProgress(itemId, { phase: "scanning", message: "Scanning document..." });
 
-            // ── MDF ──
+            // ── MDF ── (single combined call: extraction + section verification)
             if (itemId === "mdf") {
-              // AI extraction
               setSlotProgress(itemId, { phase: "analyzing", message: "Analyzing..." });
-              const aiResult = await aiExtractDocument(file, "mdf", signal);
+              const allMdfFiles = fileStoreRef.current.get("mdf") || [file];
+              const aiResult = await aiExtractMdf(allMdfFiles, signal);
               if (signal.aborted) return;
+
+              // Parse section verification from the combined result
+              if (aiResult) {
+                const sectionResult = parseMdfSections(aiResult.data);
+                if (sectionResult) {
+                  const mdfTemplate = getTemplateById("mdf-v1") ?? null;
+                  setTemplateWarnings(prev => {
+                    const next = new Map(prev);
+                    next.set("mdf", {
+                      matched: mdfTemplate,
+                      confidence: aiResult.meta.confidence,
+                      matchedSections: sectionResult.matchedSections,
+                      missingSections: sectionResult.missingSections,
+                      isComplete: sectionResult.isComplete,
+                      reason: sectionResult.reason,
+                    });
+                    return next;
+                  });
+                }
+              }
 
               let parsed: ParsedMDF | null = null;
               let confidence = 0;
@@ -539,6 +678,7 @@ export default function NewCasePage() {
                   productMOTO: d.productMOTO === true,
                   hasOtherAcquirer: d.hasOtherAcquirer === true,
                   // String fields
+                  tradeLicenseNumber: (d.tradeLicenseNumber as string) || undefined,
                   merchantLegalName: (d.merchantLegalName as string) || undefined,
                   dba: (d.dba as string) || undefined,
                   emirate: (d.emirate as string) || undefined,
@@ -579,9 +719,23 @@ export default function NewCasePage() {
                   exactBusinessNature: (d.exactBusinessNature as string) || undefined,
                   otherAcquirerNames: (d.otherAcquirerNames as string) || undefined,
                   otherAcquirerYears: (d.otherAcquirerYears as string) || undefined,
-                  reasonForMagnati: (d.reasonForMagnati as string) || undefined,
+                  reasonForMagnati: (d.reasonForSwitching as string) || (d.reasonForMagnati as string) || undefined,
                 };
                 confidence = aiResult.meta.confidence;
+
+                // Populate enterprise intelligence fields on meta (no extra AI calls)
+                const sanctionsArr = parsed.sanctionsExposure || [];
+                const activeSanctions = sanctionsArr.filter((s: { hasBusiness?: boolean }) => s.hasBusiness);
+                if (activeSanctions.length > 0) {
+                  aiResult.meta.sanctionsFlags = activeSanctions.map((s: { country?: string; percentage?: string; goods?: string }) => ({
+                    country: s.country || "Unknown",
+                    percentage: s.percentage || undefined,
+                    goods: s.goods || undefined,
+                  }));
+                }
+                if (parsed.iban) aiResult.meta.iban = parsed.iban;
+                if (parsed.tradeLicenseNumber) aiResult.meta.tradeLicenseNumber = parsed.tradeLicenseNumber;
+
                 storeAiMeta("mdf", aiResult.meta);
                 checkSlotDocType("mdf", aiResult.meta);
               } else {
@@ -654,28 +808,9 @@ export default function NewCasePage() {
                   });
                 }
 
-                runConsistencyChecks();
-                recomputeReadiness();
+                debouncedRecompute();
               }
 
-              // ── MDF Gold Standard Verification (parallel, non-blocking) ──
-              setSlotProgress(itemId, { phase: "analyzing", message: "Verifying MDF completeness..." });
-              const verifyResult = await aiVerifyMdf(file, signal);
-              if (verifyResult && !signal.aborted) {
-                const mdfTemplate = getTemplateById("mdf-v1") ?? null;
-                setTemplateWarnings(prev => {
-                  const next = new Map(prev);
-                  next.set("mdf", {
-                    matched: mdfTemplate,
-                    confidence: verifyResult.confidence,
-                    matchedSections: verifyResult.matchedSections,
-                    missingSections: verifyResult.missingSections,
-                    isComplete: verifyResult.isComplete,
-                    reason: verifyResult.reason,
-                  });
-                  return next;
-                });
-              }
             }
 
             // ── Trade License ──
@@ -702,6 +837,8 @@ export default function NewCasePage() {
                   licenseType: (d.licenseType as string) || undefined,
                 };
                 const confidence = aiResult.meta.confidence;
+                // Enrich meta with expiry date for readiness checks (no extra AI call)
+                if (parsed.expiryDate) aiResult.meta.documentExpiryDate = parsed.expiryDate;
                 storeAiMeta("trade-license", aiResult.meta);
                 checkSlotDocType("trade-license", aiResult.meta);
 
@@ -724,8 +861,7 @@ export default function NewCasePage() {
                   });
                 }
 
-                runConsistencyChecks();
-                recomputeReadiness();
+                debouncedRecompute();
               } else {
                 toast.error("Extraction failed for Trade License", { description: "Please check your internet connection and try again." });
               }
@@ -756,6 +892,9 @@ export default function NewCasePage() {
                   swiftCode: (d.swiftCode as string) || undefined,
                 };
                 const confidence = aiResult.meta.confidence;
+                // Enrich meta with period end date for staleness checks (no extra AI call)
+                if (parsed.periodEndDate) aiResult.meta.documentExpiryDate = parsed.periodEndDate;
+                if (parsed.iban) aiResult.meta.iban = parsed.iban;
                 storeAiMeta("bank-statement", aiResult.meta);
                 checkSlotDocType("bank-statement", aiResult.meta);
 
@@ -779,8 +918,7 @@ export default function NewCasePage() {
                   });
                 }
 
-                runConsistencyChecks();
-                recomputeReadiness();
+                debouncedRecompute();
               } else {
                 toast.error("Extraction failed for Bank Statement", { description: "Please check your internet connection and try again." });
               }
@@ -828,8 +966,7 @@ export default function NewCasePage() {
                   });
                 }
 
-                runConsistencyChecks();
-                recomputeReadiness();
+                debouncedRecompute();
               } else {
                 toast.error("Extraction failed for VAT Certificate", { description: "Please check your internet connection and try again." });
               }
@@ -897,7 +1034,7 @@ export default function NewCasePage() {
                   });
                 }
 
-                runConsistencyChecks();
+                debouncedRecompute();
               } else {
                 toast.error("Extraction failed for MOA", { description: "Please check your internet connection and try again." });
               }
@@ -911,11 +1048,33 @@ export default function NewCasePage() {
 
               if (aiResult) {
                 const confidence = aiResult.meta?.confidence ?? 0;
+
+                // Populate PEP enterprise intelligence on meta (no extra AI call)
+                const pepIndividuals = aiResult.data?.pepIndividuals as Array<{ name?: string; position?: string; country?: string; relationship?: string; currentlyActive?: boolean }> | undefined;
+                if (pepIndividuals && pepIndividuals.length > 0) {
+                  aiResult.meta.pepDetails = pepIndividuals.map(p => ({
+                    name: p.name || "Unknown",
+                    position: p.position || "Unknown",
+                    country: p.country || "Unknown",
+                    relationship: p.relationship || "Unknown",
+                    currentlyActive: p.currentlyActive,
+                  }));
+                }
+
                 storeAiMeta(itemId, aiResult.meta);
                 checkSlotDocType(itemId, aiResult.meta);
 
-                // Surface PEP status in toast
+                // Persist PEP data to dedicated table
                 const isPEP = aiResult.data?.isPEP;
+                await savePEPData(
+                  caseId,
+                  isPEP === true,
+                  pepIndividuals || [],
+                  isPEP === true ? "high" : "low",
+                  confidence
+                );
+
+                // Surface PEP status in toast
                 if (isPEP === true) {
                   toast.warning("PEP declared", {
                     description: "This merchant has declared politically exposed persons. Enhanced due diligence required.",
@@ -925,6 +1084,7 @@ export default function NewCasePage() {
                     description: `No PEP declared. Confidence: ${confidence}%`,
                   });
                 }
+                debouncedRecompute();
               } else {
                 // PEP extraction failed — still run doc-detect for type verification
                 setSlotProgress(itemId, { phase: "analyzing", message: "Verifying document..." });
@@ -936,6 +1096,62 @@ export default function NewCasePage() {
               }
             }
 
+            // ── Tenancy / Ejari: extract expiry + details ──
+            else if (itemId === "tenancy-ejari") {
+              setSlotProgress(itemId, { phase: "analyzing", message: "Extracting tenancy details..." });
+              const aiResult = await aiExtractDocument(file, "tenancy", signal);
+              if (signal.aborted) return;
+              if (aiResult) {
+                storeAiMeta(itemId, aiResult.meta);
+                checkSlotDocType(itemId, aiResult.meta);
+                const d = aiResult.data || {};
+                if (d.expiryDate) aiResult.meta.documentExpiryDate = d.expiryDate as string;
+                storeAiMeta(itemId, aiResult.meta);
+                await saveTenancyData(caseId, d, aiResult.meta.confidence);
+                const fields = genericToExtractedFields(d as Record<string, unknown>, aiResult.meta.confidence);
+                if (fields.length > 0) {
+                  setExtractedFields(prev => { const m = new Map(prev); m.set(itemId, fields); return m; });
+                }
+                debouncedRecompute();
+              }
+            }
+
+            // ── IBAN Proof: extract IBAN + cross-validate ──
+            else if (itemId === "iban-proof") {
+              setSlotProgress(itemId, { phase: "analyzing", message: "Extracting IBAN details..." });
+              const aiResult = await aiExtractDocument(file, "iban-proof", signal);
+              if (signal.aborted) return;
+              if (aiResult) {
+                const d = aiResult.data || {};
+                if (d.iban) aiResult.meta.iban = d.iban as string;
+                storeAiMeta(itemId, aiResult.meta);
+                checkSlotDocType(itemId, aiResult.meta);
+                await saveIBANProofData(caseId, d, aiResult.meta.confidence);
+                const fields = genericToExtractedFields(d as Record<string, unknown>, aiResult.meta.confidence);
+                if (fields.length > 0) {
+                  setExtractedFields(prev => { const m = new Map(prev); m.set(itemId, fields); return m; });
+                }
+                debouncedRecompute();
+              }
+            }
+
+            // ── Supplier Invoice: extract details ──
+            else if (itemId === "supplier-invoice") {
+              setSlotProgress(itemId, { phase: "analyzing", message: "Extracting invoice details..." });
+              const aiResult = await aiExtractDocument(file, "supplier-invoice", signal);
+              if (signal.aborted) return;
+              if (aiResult) {
+                storeAiMeta(itemId, aiResult.meta);
+                checkSlotDocType(itemId, aiResult.meta);
+                await saveSupplierInvoiceData(caseId, aiResult.data || {}, aiResult.meta.confidence);
+                const fields = genericToExtractedFields((aiResult.data || {}) as Record<string, unknown>, aiResult.meta.confidence);
+                if (fields.length > 0) {
+                  setExtractedFields(prev => { const m = new Map(prev); m.set(itemId, fields); return m; });
+                }
+                debouncedRecompute();
+              }
+            }
+
             // ── Other files: AI doc-detect for type verification ──
             else {
               setSlotProgress(itemId, { phase: "analyzing", message: "Verifying document..." });
@@ -943,6 +1159,7 @@ export default function NewCasePage() {
               if (aiResult && !signal.aborted) {
                 storeAiMeta(itemId, aiResult.meta);
                 checkSlotDocType(itemId, aiResult.meta);
+                debouncedRecompute();
               }
             }
           } catch {
@@ -959,15 +1176,15 @@ export default function NewCasePage() {
         }
       }
 
-      // Run duplicate check after adding files
+      // Run duplicate check after adding files (debounced readiness/consistency)
       setTimeout(() => {
         runDuplicateCheck();
-        recomputeReadiness();
+        debouncedRecompute();
         // Trigger MDF merge detection if MDF slot changed
         if (itemId === "mdf") runMdfMergeDetection();
       }, 100);
     },
-    [runDuplicateCheck, runConsistencyChecks, recomputeReadiness, mergeParsedMDF, runMdfMergeDetection, setSlotProgress, storeAiMeta, checkSlotDocType, runScanQualityCheck]
+    [runDuplicateCheck, runConsistencyChecks, recomputeReadiness, debouncedRecompute, mergeParsedMDF, runMdfMergeDetection, setSlotProgress, storeAiMeta, checkSlotDocType, runScanQualityCheck]
   );
 
   const handleShareholderRawFiles = useCallback(
@@ -978,8 +1195,24 @@ export default function NewCasePage() {
       const caseId = caseIdRef.current;
       const parts = key.split("::");
       const shareholderId = parts[1];
-      const docTypeRaw = parts[2];
+      const docTypeRaw = parts[2]; // "passportFiles" or "eidFiles"
       const docType = docTypeRaw === "passportFiles" ? "passport" : "eid";
+
+      // Update shareholder React state so readiness engine sees the files
+      setShareholders((prev) =>
+        prev.map((sh) => {
+          if (sh.id !== shareholderId) return sh;
+          const newFiles = rawFiles.map((f) => ({
+            id: `${Date.now()}-${f.name}`,
+            name: f.name,
+            size: f.size,
+            type: f.type,
+          }));
+          return docTypeRaw === "passportFiles"
+            ? { ...sh, passportFiles: [...sh.passportFiles, ...newFiles] }
+            : { ...sh, eidFiles: [...sh.eidFiles, ...newFiles] };
+        })
+      );
 
       rawFiles.forEach(async (file) => {
         const path = await uploadFile(caseId, `kyc/${shareholderId}`, file);
@@ -1022,6 +1255,9 @@ export default function NewCasePage() {
                   mrzValid: d.mrzValid === true,
                 };
                 const confidence = aiResult.meta.confidence;
+                // Enrich meta with MRZ + expiry for enterprise intelligence (no extra AI call)
+                if (parsed.mrzValid !== undefined) aiResult.meta.mrzValid = parsed.mrzValid;
+                if (parsed.expiryDate) aiResult.meta.documentExpiryDate = parsed.expiryDate;
                 storeAiMeta(`passport::${shareholderId}`, aiResult.meta);
 
                 await savePassportData(caseId, shareholderId, parsed, confidence);
@@ -1058,7 +1294,47 @@ export default function NewCasePage() {
                   });
                 }
 
+                // Smart shareholder matching: auto-assign to correct shareholder + auto-populate others
+                const extractedFullName = `${parsed.surname || ""} ${parsed.givenNames || ""}`.trim();
+                if (extractedFullName) {
+                  const assignedSh = shareholders.find(s => s.id === shareholderId);
+                  const assignedScore = assignedSh ? nameMatchScore(extractedFullName, assignedSh.name) : 0;
+
+                  // If wrong shareholder, auto-move (not just suggest)
+                  if (assignedScore < 0.3) {
+                    let betterMatch: { id: string; name: string; score: number } | null = null;
+                    for (const sh of shareholders) {
+                      if (sh.id === shareholderId) continue;
+                      const score = nameMatchScore(extractedFullName, sh.name);
+                      if (score > 0.4 && (!betterMatch || score > betterMatch.score)) {
+                        betterMatch = { id: sh.id, name: sh.name, score };
+                      }
+                    }
+                    if (betterMatch) {
+                      // Auto-copy to the correct shareholder (keep in both — don't remove from original)
+                      const toKey = `kyc::${betterMatch.id}::passportFiles`;
+                      const alreadyThere = (fileStoreRef.current.get(toKey) || []).some(f => f.name === file.name && f.size === file.size);
+                      if (!alreadyThere) {
+                        handleShareholderRawFiles(toKey, [file]);
+                        toast.success(`Passport auto-assigned to ${betterMatch.name}`, {
+                          description: `AI matched "${extractedFullName}" to this shareholder`,
+                        });
+                      }
+                    }
+                  }
+                }
+
                 recomputeReadiness();
+
+                // Auto-populate: also add this file to EID slot for same shareholder if empty
+                const eidKey = `kyc::${shareholderId}::eidFiles`;
+                const existingEid = fileStoreRef.current.get(eidKey) || [];
+                const eidAlreadyHasFile = existingEid.some(f => f.name === file.name && f.size === file.size);
+                const shEidEmpty = shareholders.find(s => s.id === shareholderId)?.eidFiles.length === 0;
+                if (shEidEmpty && !eidAlreadyHasFile) {
+                  handleShareholderRawFiles(eidKey, [file]);
+                  toast.info(`Also added to Emirates ID for this shareholder`, { description: "Same document may contain both" });
+                }
               } else {
                 toast.error("Extraction failed for Passport", { description: "Please check your internet connection and try again." });
               }
@@ -1081,6 +1357,8 @@ export default function NewCasePage() {
                   isExpired: d.isExpired === true,
                 };
                 const confidence = aiResult.meta.confidence;
+                // Enrich meta with expiry for enterprise intelligence (no extra AI call)
+                if (parsed.expiryDate) aiResult.meta.documentExpiryDate = parsed.expiryDate;
                 storeAiMeta(`eid::${shareholderId}`, aiResult.meta);
 
                 await saveEIDData(caseId, shareholderId, parsed, confidence);
@@ -1117,7 +1395,46 @@ export default function NewCasePage() {
                   });
                 }
 
+                // Smart shareholder matching for EID: auto-assign to correct shareholder
+                const eidExtractedName = (parsed.name || "").trim();
+                if (eidExtractedName) {
+                  const assignedSh = shareholders.find(s => s.id === shareholderId);
+                  const assignedScore = assignedSh ? nameMatchScore(eidExtractedName, assignedSh.name) : 0;
+
+                  if (assignedScore < 0.3) {
+                    let betterMatch: { id: string; name: string; score: number } | null = null;
+                    for (const sh of shareholders) {
+                      if (sh.id === shareholderId) continue;
+                      const score = nameMatchScore(eidExtractedName, sh.name);
+                      if (score > 0.4 && (!betterMatch || score > betterMatch.score)) {
+                        betterMatch = { id: sh.id, name: sh.name, score };
+                      }
+                    }
+                    if (betterMatch) {
+                      // Auto-copy to the correct shareholder
+                      const toKey = `kyc::${betterMatch.id}::eidFiles`;
+                      const alreadyThere = (fileStoreRef.current.get(toKey) || []).some(f => f.name === file.name && f.size === file.size);
+                      if (!alreadyThere) {
+                        handleShareholderRawFiles(toKey, [file]);
+                        toast.success(`Emirates ID auto-assigned to ${betterMatch.name}`, {
+                          description: `AI matched "${eidExtractedName}" to this shareholder`,
+                        });
+                      }
+                    }
+                  }
+                }
+
                 recomputeReadiness();
+
+                // Auto-populate: also add this file to Passport slot for same shareholder if empty
+                const ppKey = `kyc::${shareholderId}::passportFiles`;
+                const existingPp = fileStoreRef.current.get(ppKey) || [];
+                const ppAlreadyHasFile = existingPp.some(f => f.name === file.name && f.size === file.size);
+                const shPpEmpty = shareholders.find(s => s.id === shareholderId)?.passportFiles.length === 0;
+                if (shPpEmpty && !ppAlreadyHasFile) {
+                  handleShareholderRawFiles(ppKey, [file]);
+                  toast.info(`Also added to Passport for this shareholder`, { description: "Same document may contain both" });
+                }
               } else {
                 toast.error("Extraction failed for Emirates ID", { description: "Please check your internet connection and try again." });
               }
@@ -1130,10 +1447,10 @@ export default function NewCasePage() {
 
       setTimeout(() => {
         runDuplicateCheck();
-        recomputeReadiness();
+        debouncedRecompute();
       }, 100);
     },
-    [runDuplicateCheck, recomputeReadiness, storeAiMeta]
+    [runDuplicateCheck, debouncedRecompute, storeAiMeta, shareholders]
   );
 
   const handleShareholdersUpdate = useCallback(
@@ -1184,6 +1501,13 @@ export default function NewCasePage() {
         return next;
       });
 
+      // Clear stale AI metadata when all files are removed from a slot
+      const remainingSlotFiles = fileStoreRef.current.get(itemId) || [];
+      if (remainingSlotFiles.length === 0) {
+        setAiMetadata(prev => { const m = new Map(prev); m.delete(itemId); return m; });
+        setDocCompleteness(prev => { const m = new Map(prev); m.delete(itemId); return m; });
+      }
+
       if (itemId === "mdf") {
         const remaining = fileStoreRef.current.get("mdf") || [];
         if (remaining.length === 0) {
@@ -1196,8 +1520,36 @@ export default function NewCasePage() {
           });
           setMdfMergePlan(null);
         } else {
-          // Re-detect merge plan with remaining files
+          // Re-extract + re-verify remaining MDF files with single combined call
           runMdfMergeDetection();
+          aiExtractMdf(remaining).then(aiResult => {
+            if (aiResult) {
+              const sectionResult = parseMdfSections(aiResult.data);
+              if (sectionResult) {
+                const mdfTemplate = getTemplateById("mdf-v1") ?? null;
+                setTemplateWarnings(prev => {
+                  const next = new Map(prev);
+                  next.set("mdf", {
+                    matched: mdfTemplate,
+                    confidence: aiResult.meta.confidence,
+                    matchedSections: sectionResult.matchedSections,
+                    missingSections: sectionResult.missingSections,
+                    isComplete: sectionResult.isComplete,
+                    reason: sectionResult.reason,
+                  });
+                  return next;
+                });
+              }
+              // Update signature/stamp from re-extraction
+              setAiMetadata(prev => {
+                const existing = prev.get("mdf");
+                if (!existing) return prev;
+                const m = new Map(prev);
+                m.set("mdf", { ...existing, hasSignature: aiResult.meta.hasSignature, hasStamp: aiResult.meta.hasStamp });
+                return m;
+              });
+            }
+          });
         }
       }
 
@@ -1215,11 +1567,10 @@ export default function NewCasePage() {
 
       setTimeout(() => {
         runDuplicateCheck();
-        recomputeReadiness();
-        runConsistencyChecks();
+        debouncedRecompute();
       }, 100);
     },
-    [checklist, runDuplicateCheck, recomputeReadiness, runConsistencyChecks, runMdfMergeDetection]
+    [checklist, runDuplicateCheck, debouncedRecompute, runMdfMergeDetection]
   );
 
   const handleMoveFile = useCallback(
@@ -1257,9 +1608,20 @@ export default function NewCasePage() {
       handleItemUpdate(toSlotId, uploadedFiles);
       handleRawFilesAdded(toSlotId, rawFiles);
 
+      // Auto-toggle "noVat" when a file is moved to the VAT Declaration slot
+      if (toSlotId === "vat-declaration") {
+        setConditionals((prev) => {
+          if (prev.noVat) return prev;
+          const next = { ...prev, noVat: true };
+          updateCaseConditionals(caseIdRef.current, next);
+          return next;
+        });
+        recomputeReadiness();
+      }
+
       toast.success(`File moved to ${checklist.find((i) => i.id === toSlotId)?.label || toSlotId}`);
     },
-    [checklist, handleItemUpdate, handleRawFilesAdded]
+    [checklist, handleItemUpdate, handleRawFilesAdded, recomputeReadiness]
   );
 
   const handleConditionalToggle = useCallback((key: string) => {
@@ -1273,18 +1635,41 @@ export default function NewCasePage() {
 
   const handleMultiSlotFulfill = useCallback(
     (results: Array<{ slotId: string; files: File[] }>) => {
+      // Queue all slot assignments — process sequentially to avoid 429 rate limits
       for (const { slotId, files } of results) {
-        const uploadedFiles: UploadedFile[] = files.map((f) => ({
+        const existingInSlot = fileStoreRef.current.get(slotId) || [];
+        const dedupedFiles = files.filter(f => !existingInSlot.some(e => e.name === f.name && e.size === f.size));
+        if (dedupedFiles.length === 0) continue;
+
+        const uploadedFiles: UploadedFile[] = dedupedFiles.map((f) => ({
           id: uuid(),
           name: f.name,
           size: f.size,
           type: f.type,
         }));
         handleItemUpdate(slotId, uploadedFiles);
-        handleRawFilesAdded(slotId, files);
+
+        // Set progress immediately so the slot shows "processing" not "complete"
+        setSlotProgress(slotId, { phase: "uploading", message: "Queued..." });
+
+        // Auto-toggle "noVat" when a VAT Declaration is assigned
+        if (slotId === "vat-declaration") {
+          setConditionals((prev) => {
+            if (prev.noVat) return prev;
+            const next = { ...prev, noVat: true };
+            updateCaseConditionals(caseIdRef.current, next);
+            return next;
+          });
+          recomputeReadiness();
+        }
+
+        // Queue the extraction (runs one at a time with 500ms gaps)
+        extractionQueueRef.current.push(() => handleRawFilesAdded(slotId, dedupedFiles));
       }
+      // Start processing the queue
+      processExtractionQueue();
     },
-    [handleItemUpdate, handleRawFilesAdded]
+    [handleItemUpdate, handleRawFilesAdded, recomputeReadiness, processExtractionQueue]
   );
 
   const handleFieldConfirm = useCallback((docKey: string, fieldIndex: number, value: string) => {
@@ -1314,11 +1699,18 @@ export default function NewCasePage() {
   }, [recomputeReadiness]);
 
   const handleNextToReview = useCallback(async () => {
-    await updateCaseStatus(caseIdRef.current, "complete");
+    const caseId = caseIdRef.current;
+    await updateCaseStatus(caseId, "complete");
+    // Persist submission details to DB
+    if (submissionDetails) {
+      await saveSubmissionDetails(caseId, submissionDetails as unknown as Record<string, unknown>);
+    }
+    // Persist case exceptions to DB (sync from any in-memory state)
+    await logCaseAudit(caseId, "moved_to_review", { readinessScore: readiness?.score });
     // Final readiness computation
     recomputeReadiness();
     setStep(2);
-  }, [recomputeReadiness]);
+  }, [recomputeReadiness, submissionDetails, readiness]);
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col overflow-hidden md:h-dvh">

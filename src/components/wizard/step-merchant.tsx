@@ -6,7 +6,8 @@ import {
   ShieldAlert,
   Globe,
   FilePlus2,
-  GitBranch,
+  MapPin,
+  CreditCard,
   ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,24 +32,17 @@ const caseTypes: {
 }[] = [
   {
     value: "low-risk",
-    label: "Low Risk",
+    label: "Low Risk (POS)",
     description: "Standard onboarding",
     icon: ShieldCheck,
     color: "var(--case-low-risk)",
   },
   {
     value: "high-risk",
-    label: "High Risk",
+    label: "High Risk (POS)",
     description: "Enhanced due diligence",
     icon: ShieldAlert,
     color: "var(--case-high-risk)",
-  },
-  {
-    value: "ecom",
-    label: "E-Commerce",
-    description: "Online / payment link",
-    icon: Globe,
-    color: "var(--case-ecom)",
   },
   {
     value: "additional-mid",
@@ -58,11 +52,25 @@ const caseTypes: {
     color: "var(--case-add-mid)",
   },
   {
-    value: "additional-branch",
-    label: "Additional Branch",
+    value: "new-location",
+    label: "New Location",
     description: "New branch for existing merchant",
-    icon: GitBranch,
-    color: "var(--case-add-branch)",
+    icon: MapPin,
+    color: "var(--case-new-location)",
+  },
+  {
+    value: "einvoice",
+    label: "E-Invoice",
+    description: "E-Invoice / payment link",
+    icon: Globe,
+    color: "var(--case-einvoice)",
+  },
+  {
+    value: "payment-gateway",
+    label: "Payment Gateway",
+    description: "Payment gateway integration",
+    icon: CreditCard,
+    color: "var(--case-payment-gateway)",
   },
 ];
 
@@ -76,7 +84,7 @@ export function StepMerchant({
   const canProceed =
     merchantInfo.legalName.trim() !== "" &&
     merchantInfo.caseType !== undefined &&
-    (merchantInfo.caseType !== "additional-branch" || merchantInfo.existingMid.trim() !== "");
+    (merchantInfo.caseType !== "new-location" || merchantInfo.existingMid.trim() !== "");
 
   const handleNext = () => {
     if (!canProceed) {
@@ -207,8 +215,8 @@ export function StepMerchant({
                 </div>
               </div>
 
-              {/* Conditional: Additional Branch existing MID */}
-              {merchantInfo.caseType === "additional-branch" && (
+              {/* Conditional: New Location existing MID */}
+              {merchantInfo.caseType === "new-location" && (
                 <>
                   <div className="border-t border-border/30" />
                   <div className="space-y-1.5">

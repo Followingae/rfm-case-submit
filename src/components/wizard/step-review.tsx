@@ -54,6 +54,7 @@ import { OCRFieldsSheet } from "@/components/fields/ocr-fields-sheet";
 import type { LabeledField } from "@/lib/field-adapter";
 import { useRouter } from "next/navigation";
 import { LAYOUT } from "@/lib/layout";
+import { useAuth } from "@/components/auth/auth-provider";
 
 interface StepReviewProps {
   merchantInfo: MerchantInfo;
@@ -101,8 +102,12 @@ export function StepReview({
   onPrev,
 }: StepReviewProps) {
   const router = useRouter();
+  const { user, hasRole } = useAuth();
+  const isSalesOnly = user?.role === "sales";
   const [isExporting, setIsExporting] = useState(false);
   const [exported, setExported] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [exceptionModalItem, setExceptionModalItem] = useState<ReadinessItem | null>(null);
   const [activeFieldSheet, setActiveFieldSheet] = useState<string | null>(null);
   const [copiedHtml, setCopiedHtml] = useState(false);
@@ -134,7 +139,11 @@ export function StepReview({
 
   const uploadedItems = items.filter((i) => i.status === "uploaded");
   const requiredItems = items.filter(
-    (i) => i.required || (i.conditionalKey && conditionals[i.conditionalKey!])
+    (i) => {
+      // If item has optionalWhen and that conditional is active, it's not required
+      if (i.optionalWhen && conditionals[i.optionalWhen]) return false;
+      return i.required || (i.conditionalKey && conditionals[i.conditionalKey!]);
+    }
   );
   const missingRequired = requiredItems.filter((i) => i.status === "missing");
 
@@ -152,6 +161,27 @@ export function StepReview({
       toast.error("Export failed. Please try again.");
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleSubmitToProcessing = async () => {
+    setIsSubmitting(true);
+    try {
+      // First mark as complete, then submit
+      await updateCaseStatus(caseId, "complete");
+      const res = await fetch(`/api/cases/${caseId}/submit`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || "Failed to submit");
+        return;
+      }
+      setSubmitted(true);
+      toast.success("Case submitted to Processing team");
+    } catch (err) {
+      console.error("Submit failed:", err);
+      toast.error("Submission failed. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -176,7 +206,33 @@ export function StepReview({
     router.push("/");
   };
 
-  // Post-export success
+  // Post-submission success (Sales)
+  if (submitted) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center px-8 text-center">
+        <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-full bg-violet-500/10">
+          <Send className="h-8 w-8 text-violet-500" />
+        </div>
+        <h2 className="mb-2 text-xl font-semibold">Case Submitted</h2>
+        <p className="mb-1 text-sm text-muted-foreground">
+          {merchantInfo.legalName || "Merchant"} has been submitted to the Processing team
+        </p>
+        <p className="mb-10 font-mono text-xs text-muted-foreground/60">{caseId}</p>
+        <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+          <Button variant="outline" size="lg" onClick={() => router.push(`/cases/${caseId}`)} className="h-12 gap-2.5 rounded-xl px-6 text-[15px] font-semibold">
+            <FileText className="h-4.5 w-4.5" />
+            View Case
+          </Button>
+          <Button size="lg" onClick={handleNewCase} className="h-12 gap-2.5 rounded-xl px-6 text-[15px] font-semibold shadow-md shadow-primary/15">
+            <FilePlus2 className="h-4.5 w-4.5" />
+            Start New Case
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Post-export success (Processing / SuperAdmin)
   if (exported) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-8 text-center">
@@ -202,7 +258,25 @@ export function StepReview({
     );
   }
 
-  const issueItems = readiness?.items.filter((i) => i.status !== "pass") ?? [];
+  const issueItems = useMemo(() => {
+    if (!readiness) return [];
+    return readiness.items.filter((i) => {
+      if (i.status === "pass") return false;
+
+      // Filter out stale shareholder KYC warnings where docs are actually present
+      const kycMatch = i.itemId.match(/^kyc::(.+)::(passport|eid)$/);
+      if (kycMatch) {
+        const [, shId, docType] = kycMatch;
+        const sh = shareholders.find((s) => s.id === shId);
+        if (sh) {
+          if (docType === "passport" && sh.passportFiles.length > 0) return false;
+          if (docType === "eid" && sh.eidFiles.length > 0) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [readiness, shareholders]);
 
   return (
     <div className="flex h-full flex-col">
@@ -604,7 +678,7 @@ export function StepReview({
             </Button>
 
             <div className="flex items-center gap-3">
-              {tier === "amber" && (
+              {tier === "amber" && !isSalesOnly && (
                 <Button
                   variant="outline"
                   size="lg"
@@ -618,50 +692,90 @@ export function StepReview({
                 </Button>
               )}
 
-              <Button
-                size="lg"
-                onClick={
-                  tier === "red"
-                    ? onPrev
-                    : handleExport
-                }
-                disabled={tier !== "red" && (isExporting || renameMappings.length === 0)}
-                className={cn(
-                  "h-12 gap-2.5 rounded-xl px-8 text-[15px] font-semibold transition-all duration-200",
-                  tier === "green"
-                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 hover:shadow-lg hover:shadow-emerald-600/30"
-                    : tier === "amber"
-                    ? "bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-600/20"
-                    : ""
-                )}
-              >
-                {isExporting ? (
-                  <>
-                    <Loader2 className="h-4.5 w-4.5 animate-spin" />
-                    Generating ZIP...
-                  </>
-                ) : tier === "red" ? (
-                  <>
-                    <AlertTriangle className="h-4.5 w-4.5" />
-                    Resolve Issues
-                  </>
-                ) : tier === "amber" ? (
-                  <>
-                    <Download className="h-4.5 w-4.5" />
-                    Export with Exceptions ({exceptions.length})
-                  </>
-                ) : (
-                  <>
-                    <Download className="h-4.5 w-4.5" />
-                    Export Case Package
-                  </>
-                )}
-              </Button>
+              {/* Primary action: Sales submits to processing, others export */}
+              {isSalesOnly ? (
+                <Button
+                  size="lg"
+                  onClick={
+                    tier === "red"
+                      ? onPrev
+                      : handleSubmitToProcessing
+                  }
+                  disabled={tier !== "red" && isSubmitting}
+                  className={cn(
+                    "h-12 gap-2.5 rounded-xl px-8 text-[15px] font-semibold transition-all duration-200",
+                    tier === "green"
+                      ? "bg-violet-600 hover:bg-violet-700 text-white shadow-md shadow-violet-600/20 hover:shadow-lg hover:shadow-violet-600/30"
+                      : tier === "amber"
+                      ? "bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-600/20"
+                      : ""
+                  )}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : tier === "red" ? (
+                    <>
+                      <AlertTriangle className="h-4.5 w-4.5" />
+                      Resolve Issues
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4.5 w-4.5" />
+                      Submit to Processing
+                    </>
+                  )}
+                </Button>
+              ) : (
+                <Button
+                  size="lg"
+                  onClick={
+                    tier === "red"
+                      ? onPrev
+                      : handleExport
+                  }
+                  disabled={tier !== "red" && (isExporting || renameMappings.length === 0)}
+                  className={cn(
+                    "h-12 gap-2.5 rounded-xl px-8 text-[15px] font-semibold transition-all duration-200",
+                    tier === "green"
+                      ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/20 hover:shadow-lg hover:shadow-emerald-600/30"
+                      : tier === "amber"
+                      ? "bg-amber-600 hover:bg-amber-700 text-white shadow-md shadow-amber-600/20"
+                      : ""
+                  )}
+                >
+                  {isExporting ? (
+                    <>
+                      <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                      Generating ZIP...
+                    </>
+                  ) : tier === "red" ? (
+                    <>
+                      <AlertTriangle className="h-4.5 w-4.5" />
+                      Resolve Issues
+                    </>
+                  ) : tier === "amber" ? (
+                    <>
+                      <Download className="h-4.5 w-4.5" />
+                      Export with Exceptions ({exceptions.length})
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-4.5 w-4.5" />
+                      Export Case Package
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </div>
           {tier !== "red" && (
             <p className="mt-2 text-right text-xs text-muted-foreground">
-              {renameMappings.length} files will be packaged into a ZIP archive
+              {isSalesOnly
+                ? `${renameMappings.length} files will be submitted for processing`
+                : `${renameMappings.length} files will be packaged into a ZIP archive`}
             </p>
           )}
         </div>
@@ -766,9 +880,12 @@ function SubmissionEmailSection({
 
   return (
     <div className="rounded-xl border border-border/50 bg-card">
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
-        className="flex w-full items-center gap-2.5 px-6 py-4"
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onToggle(); }}
+        className="flex w-full cursor-pointer items-center gap-2.5 px-6 py-4"
       >
         <Mail className="h-4 w-4 text-primary" />
         <span className="flex-1 text-left text-sm font-medium">Submission Email</span>
@@ -793,7 +910,7 @@ function SubmissionEmailSection({
           </Button>
         </div>
         {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-      </button>
+      </div>
 
       {expanded && (
         <div className="border-t border-border/30 px-6 py-5">

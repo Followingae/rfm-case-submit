@@ -60,9 +60,18 @@ export function buildSubmissionTableTxt(merchant: MerchantInfo, d: SubmissionDet
 
 function sanitizeName(name: string): string {
   return name
-    .replace(/[^a-zA-Z0-9\s]/g, "")
-    .replace(/\s+/g, "_")
+    .replace(/[<>:"/\\|?*]/g, "") // Remove only filesystem-illegal chars
+    .replace(/\s+/g, " ")
     .trim();
+}
+
+/** For folder/file names: keep readable but filesystem-safe */
+function sanitizeForFS(name: string): string {
+  return name
+    .replace(/[<>:"/\\|?*]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    || "Untitled";
 }
 
 function getFileExtension(fileName: string): string {
@@ -72,10 +81,10 @@ function getFileExtension(fileName: string): string {
 
 function getDateStamp(): string {
   const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const y = now.getFullYear();
+  return `${d}-${m}-${y}`; // DD-MM-YYYY (UAE format)
 }
 
 export interface RenameMapping {
@@ -85,13 +94,49 @@ export interface RenameMapping {
   file: File;
 }
 
+/** Human-readable document names for exported files */
+const DOC_LABELS: Record<string, string> = {
+  "mdf": "Merchant Details Form",
+  "ack-form": "Merchant Acknowledgement Form",
+  "signed-svr": "Site Visit Report",
+  "trade-license": "Trade License",
+  "trademark-cert": "Trademark Certificate",
+  "main-moa": "Memorandum of Association",
+  "amended-moa": "Amended MOA",
+  "poa": "Power of Attorney",
+  "freezone-aoa": "Articles of Association",
+  "freezone-share-cert": "Share Certificate",
+  "freezone-incumbency": "Certificate of Incumbency",
+  "freezone-bor": "Board Resolution",
+  "vat-cert": "VAT Certificate",
+  "vat-declaration": "VAT Declaration",
+  "org-structure": "Organisational Structure",
+  "letter-of-intent": "Letter of Intent",
+  "iban-proof": "IBAN Proof",
+  "bank-statement": "Bank Statement",
+  "payment-proof": "Payment Proof",
+  "personal-bank": "Personal Bank Account",
+  "shop-photos": "Shop Photo",
+  "tenancy-ejari": "Tenancy Contract",
+  "pep-form": "PEP Declaration",
+  "supplier-invoice": "Supplier Invoice",
+  "aml-policy": "AML Policy",
+  "goaml-screenshot": "GoAML Screenshot",
+  "justification-letter": "Justification Letter",
+  "branch-form": "Branch Form",
+  "aml-questionnaire": "AML Questionnaire",
+  "addendum": "Addendum",
+  "merchant-risk-assessment": "Merchant Risk Assessment",
+  "pg-questionnaire": "Payment Gateway Questionnaire",
+};
+
 export function generateRenameMappings(
   merchantInfo: MerchantInfo,
   checklist: ChecklistItem[],
   fileMap: Map<string, File[]>,
   shareholders?: ShareholderKYC[]
 ): RenameMapping[] {
-  const merchantName = sanitizeName(merchantInfo.legalName || merchantInfo.dba || "Merchant");
+  const merchantName = sanitizeForFS(merchantInfo.legalName || merchantInfo.dba || "Merchant");
   const dateStamp = getDateStamp();
   const mappings: RenameMapping[] = [];
 
@@ -100,13 +145,13 @@ export function generateRenameMappings(
     const files = fileMap.get(item.id);
     if (!files || files.length === 0) continue;
 
-    const docType = DOCUMENT_TYPE_MAP[item.id] || sanitizeName(item.label);
+    const docLabel = DOC_LABELS[item.id] || item.label;
     const folder = FOLDER_MAP[item.category] || "08_Other";
 
     files.forEach((file, index) => {
       const ext = getFileExtension(file.name);
-      const suffix = files.length > 1 ? `_${index + 1}` : "";
-      const newName = `${merchantName}_${docType}${suffix}_${dateStamp}${ext}`;
+      const suffix = files.length > 1 ? ` (${index + 1})` : "";
+      const newName = `${merchantName} - ${docLabel}${suffix} [${dateStamp}]${ext}`;
 
       mappings.push({
         originalName: file.name,
@@ -120,36 +165,24 @@ export function generateRenameMappings(
   // Shareholder KYC files
   if (shareholders) {
     shareholders.forEach((sh, shIndex) => {
-      const shName = sanitizeName(sh.name || `Shareholder${shIndex + 1}`);
+      const shName = sanitizeForFS(sh.name || `Shareholder ${shIndex + 1}`);
 
-      // Passport files
       const passportKey = `kyc::${sh.id}::passportFiles`;
       const passportRaw = fileMap.get(passportKey) || [];
       passportRaw.forEach((file, fi) => {
         const ext = getFileExtension(file.name);
-        const suffix = passportRaw.length > 1 ? `_${fi + 1}` : "";
-        const newName = `${merchantName}_Passport_${shName}${suffix}_${dateStamp}${ext}`;
-        mappings.push({
-          originalName: file.name,
-          newName,
-          folder: "03_KYC",
-          file,
-        });
+        const suffix = passportRaw.length > 1 ? ` (${fi + 1})` : "";
+        const newName = `${merchantName} - Passport - ${shName}${suffix} [${dateStamp}]${ext}`;
+        mappings.push({ originalName: file.name, newName, folder: "03_KYC", file });
       });
 
-      // EID files
       const eidKey = `kyc::${sh.id}::eidFiles`;
       const eidRaw = fileMap.get(eidKey) || [];
       eidRaw.forEach((file, fi) => {
         const ext = getFileExtension(file.name);
-        const suffix = eidRaw.length > 1 ? `_${fi + 1}` : "";
-        const newName = `${merchantName}_EmiratesID_${shName}${suffix}_${dateStamp}${ext}`;
-        mappings.push({
-          originalName: file.name,
-          newName,
-          folder: "03_KYC",
-          file,
-        });
+        const suffix = eidRaw.length > 1 ? ` (${fi + 1})` : "";
+        const newName = `${merchantName} - Emirates ID - ${shName}${suffix} [${dateStamp}]${ext}`;
+        mappings.push({ originalName: file.name, newName, folder: "03_KYC", file });
       });
     });
   }
@@ -171,9 +204,10 @@ export async function createCaseZip(
   skipMdfMerge?: boolean,
 ): Promise<void> {
   const zip = new JSZip();
-  const merchantName = sanitizeName(merchantInfo.legalName || merchantInfo.dba || "Merchant");
+  const merchantName = sanitizeForFS(merchantInfo.legalName || merchantInfo.dba || "Merchant");
   const dateStamp = getDateStamp();
-  const rootFolderName = `${merchantName}_CasePackage_${dateStamp}`;
+  const caseLabel = merchantInfo.caseType.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const rootFolderName = `${merchantName} - ${caseLabel} Case [${dateStamp}]`;
 
   const root = zip.folder(rootFolderName)!;
 
@@ -219,9 +253,9 @@ export async function createCaseZip(
   for (const mapping of mappings) {
     let targetFolder = mapping.folder;
 
-    if (mapping.newName.includes("_MDF_")) {
+    if (mapping.newName.includes("Merchant Details Form")) {
       targetFolder = "01_MDF";
-    } else if (mapping.newName.includes("_TradeLicense_")) {
+    } else if (mapping.newName.includes("Trade License")) {
       targetFolder = "02_TradeLicense";
     }
 
@@ -397,10 +431,10 @@ export async function createCaseZip(
 
   // Generate submission table if details provided
   if (submissionDetails) {
-    root.file("SubmissionTable.txt", buildSubmissionTableTxt(merchantInfo, submissionDetails));
+    root.file("Submission Details.txt", buildSubmissionTableTxt(merchantInfo, submissionDetails));
   }
 
-  root.file("CaseSummary.txt", summaryLines.join("\n"));
+  root.file("Case Summary.txt", summaryLines.join("\n"));
 
   const content = await zip.generateAsync({
     type: "blob",

@@ -12,25 +12,38 @@ Additionally, for EVERY document, include these metadata fields at the top level
 - "_hasStamp": boolean, whether you can see an official rubber stamp or seal on the document
 - "_pageCount": number, how many page images you received
 - "_warnings": string array of any concerns (e.g., "Document appears expired", "Page 3 is illegible", "Signature missing on Schedule 01")
-- "_detectedDocType": string, what type of document you believe this is (e.g., "trade-license", "bank-statement", "passport", "emirates-id", "mdf", "moa", "vat-certificate", "unknown")
+- "_detectedDocType": string, what type of document you believe this is — one of: "mdf", "trade-license", "bank-statement", "vat-certificate", "moa", "passport", "emirates-id", "ack-form", "svr", "poa", "tenancy", "shop-photo", "cheque", "payment-proof", "vat-declaration", "pep-form", "aml-questionnaire", "iban-letter", "addendum", "supplier-invoice", "branch-form", "other", "unknown". Use "iban-letter" for IBAN confirmation letters, bank account confirmation letters, cheque copies showing IBAN, or bank welcome letters. Use "cheque" for standalone cheque copies. Use "payment-proof" for payment receipts/transfer confirmations. Use "vat-declaration" for VAT exemption declarations. Use "other" if the document does not match any listed type. Use "unknown" only if the image is illegible or blank.
+- "_detectedDescription": string, a brief human-readable description of what this document appears to be (e.g., "Merchant Details Form with 4 schedules", "UAE trade license issued by DED", "Personal job offer letter — not a merchant document", "Company logo graphic — not a document")
+Be SPECIFIC in your description. Instead of "a form", say "Network International Merchant Details Form with 4 schedules and fee table". Instead of "a letter", say "Personal job offer letter from XYZ Company — not a merchant onboarding document".
 
 IMPORTANT:
 - Return valid JSON only, no markdown fences, no explanation text.
 - Use null for any field you cannot read or find in the document.
-- Dates should be in DD/MM/YYYY format when possible.
+- DATES IN UAE USE DD/MM/YYYY FORMAT. When you see "04/02/2026" it means 4 February 2026, NOT April 2, 2026. Always interpret dates as DD/MM/YYYY. Output dates in DD/MM/YYYY format.
 - Currency amounts should include the currency code if visible (e.g., "AED 50,000").
 - For boolean fields, use true/false.
 - For arrays, return an empty array [] if none found.
+- CONFIDENCE RULE: For well-known document types (trade-license, vat-certificate, iban-letter, passport, emirates-id, bank-statement, moa), if the document heading or title clearly indicates the type, return HIGH confidence (90+) even if the rest of the content is unclear, in Arabic, or partially visible. The heading alone is sufficient for document type identification.
 `.trim();
 
 // ── MDF (Merchant Details Form) ──────────────────────────────────────
 
 export const MDF_PROMPT = `
-You are analyzing a Magnati Merchant Details Form (MDF). This is a UAE payment service provider agreement form, typically 15-24 pages with 4 schedules.
+You are analyzing a Network International Merchant Details Form (MDF). This is a UAE payment service provider agreement form used by Network International (NI), typically 8-10 pages with multiple schedules including fee tables, KYC sections, and a Direct Debit Mandate.
+
+IMPORTANT CONTEXT:
+- The user may upload MULTIPLE files for the MDF slot (e.g., digitally signed MDF as one PDF and scanned sign/stamp pages as another). Analyze ALL pages provided. Do NOT warn about missing pages if you are only seeing a partial file.
+- This is a Network International form. Do NOT flag it as wrong if it says "Network International".
+- ALL dates in the UAE use DD/MM/YYYY format. "04/02/2026" means 4 February 2026, NOT April 2, 2026.
+
+You have TWO tasks: (A) extract field data, and (B) verify section completeness. Return a SINGLE JSON object containing all results.
+
+═══ FIELD EXTRACTION ═══
 
 Extract ALL of the following fields. Return a JSON object with these exact keys:
 
 SECTION 1 — Merchant Information:
+- "tradeLicenseNumber": string (Trade License Number as written on the MDF form)
 - "merchantLegalName": string
 - "dba": string (DBA / trading name)
 - "emirate": string
@@ -117,7 +130,52 @@ KYC — Other Acquirer:
 - "hasOtherAcquirer": boolean
 - "otherAcquirerNames": string
 - "otherAcquirerYears": string
-- "reasonForMagnati": string
+- "reasonForSwitching": string
+
+═══ SECTION VERIFICATION ═══
+
+Additionally, verify each required section below for completeness. Include a "sections" array in the JSON response.
+
+REQUIRED SECTIONS (count toward completion):
+
+1. MERCHANT DETAILS (Section A)
+   Required: Trade License Number, Legal Entity Name, Trade Name (DBA), Legal Type, Emirate, Business Address
+
+2. CONTACT PERSON
+   Required: Contact Person Name, Phone or Mobile Number, Email Address
+
+3. BANK ACCOUNT / SETTLEMENT
+   Required: Account Holder Name, Bank Name, IBAN Number, SWIFT Code
+
+4. AUTHORIZED SIGNATORY & BENEFICIAL OWNER
+   Required: At least one signatory with Passport Number and Emirates ID, At least one shareholder/UBO with Name and Shareholding Percentage
+
+5. FEE SCHEDULE
+   Required: At least some card type rates filled (POS and/or ECOM columns)
+
+6. SIGNATURES & STAMPS
+   Required: Authorized Signatory signature, Company stamp/seal
+
+OPTIONAL SECTIONS (do NOT count toward completion):
+7. BUSINESS DETAILS — optional, only present in some MDF versions
+8. DECLARATION & SANCTIONS — optional, may be separate form
+9. DIRECT DEBIT MANDATE — optional, may be separate form
+
+For each section return an object with:
+- "name": string (section name as listed above, e.g., "Merchant Details")
+- "status": "complete" | "partial" | "missing"
+- "sectionRequired": boolean (true for 1-6, false for 7-9)
+- "filledFields": string[] (required fields that have values)
+- "missingFields": string[] (required fields that are blank/missing — do NOT include optional fields here)
+
+Include in the JSON:
+- "sections": the array of section objects above
+
+CRITICAL RULES:
+- "_isComplete" should be true ONLY if ALL 6 required sections are "complete" AND a signature is present
+- Do NOT warn about "only X pages provided" — the user may have split the MDF across multiple files
+- Do NOT warn about Network International branding — that is correct
+- This document could be digitally filled OR a scanned handwritten/stamped copy. Both are valid.
 
 ${META_INSTRUCTIONS}
 `.trim();
@@ -287,91 +345,250 @@ Extract ALL of the following fields:
 ${META_INSTRUCTIONS}
 `.trim();
 
+// ── Document Type Labels ────────────────────────────────────────────
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  "mdf": "Merchant Details Form (MDF)",
+  "ack-form": "Merchant Acknowledgment Form (MAF)",
+  "signed-svr": "Site Visit Report (SVR)",
+  "trade-license": "Trade License",
+  "main-moa": "Memorandum of Association (MOA)",
+  "amended-moa": "Amended MOA",
+  "bank-statement": "Bank Statement (1 month)",
+  "vat-cert": "VAT Certificate",
+  "iban-proof": "IBAN Proof / Bank Letter",
+  "passport": "Passport",
+  "eid": "Emirates ID",
+  "pep-form": "PEP Declaration Form",
+  "aml-questionnaire": "AML Questionnaire",
+  "addendum": "Addendum",
+  "branch-form": "Branch Form",
+  "pg-questionnaire": "Payment Gateway Questionnaire",
+  "payment-proof": "Payment Proof / Cheque",
+  "tenancy-ejari": "Tenancy Contract / Ejari",
+  "shop-photos": "Shop Photos",
+  "supplier-invoice": "Supplier Invoice",
+};
+
+// ── Verification Prompt (2-pass system) ─────────────────────────────
+
+export const VERIFY_PROMPT = `
+You are a UAE banking compliance officer reviewing a document uploaded to a merchant onboarding portal.
+
+TASK: Verify this document before extraction.
+
+The user expects this to be: {EXPECTED_DOC_TYPE}
+
+CRITICAL: ALL dates in the UAE use DD/MM/YYYY format. "04/02/2026" means 4 February 2026, NOT April 2, 2026. Do NOT flag UAE-format dates as "in the future" by misreading month/day.
+
+This is a Network International (NI) merchant onboarding portal. Documents branded "Network International" are CORRECT — do NOT flag them as wrong or unexpected.
+
+CHECK THESE IN ORDER:
+1. IDENTITY: Is this actually the expected document type? If not, what is it really?
+   - Look for document headers, logos, form numbers, and structural patterns
+   - A job offer letter is NOT an acknowledgment form
+   - A company logo is NOT a document
+   - An invoice is NOT a bank statement
+
+2. COMPLETENESS: Are the essential sections present and filled in?
+   - Distinguish between a filled form and a blank/template form
+   - A form with only headers but no data is NOT complete
+
+3. AUTHENTICITY SIGNALS:
+   - Signature present? (required for: MDF, Acknowledgment, SVR, PEP Form, Addendum)
+   - Company stamp/seal? (required for: MDF)
+   - Official letterhead? (expected for: Bank Letter, Trade License)
+
+4. LEGIBILITY: Can the document be read?
+   - Blurry/cut-off sections should be flagged
+   - Partially visible pages should be noted
+
+5. VALIDITY:
+   - Any expired dates? (Trade License, Emirates ID, Passport)
+   - Inconsistent information between fields?
+
+6. UAE-SPECIFIC:
+   - Trade License: Check if active, verify emirate and authority
+   - Emirates ID: Format 784-XXXX-XXXXXXX-X
+   - IBAN: Must start with AE, 23 characters total
+   - VAT: TRN should be 15 digits
+
+Return JSON:
+{
+  "_verificationPassed": boolean,
+  "_confidence": number (0-100),
+  "_detectedDocType": string (one of the standard types),
+  "_detectedDescription": string,
+  "_issues": string[] (any problems found),
+  "_hasSignature": boolean,
+  "_hasStamp": boolean,
+  "_isComplete": boolean,
+  "_blankSections": string[],
+  "_warnings": string[]
+}
+`.trim();
+
+export function buildVerifyPrompt(expectedDocType: string): string {
+  const label = DOC_TYPE_LABELS[expectedDocType] || expectedDocType;
+  return VERIFY_PROMPT.replace("{EXPECTED_DOC_TYPE}", label);
+}
+
 // ── Document Type Detection ──────────────────────────────────────────
 
 export const DOC_TYPE_DETECT_PROMPT = `
 You are analyzing a document uploaded to a UAE merchant onboarding portal. Identify what type of document this is.
 
+CRITICAL RULES:
+- A personal letter, CV, job offer, or any non-business document should get _confidence below 20
+- A document from a completely different company/context should get _confidence below 30
+- If you cannot identify the document type with reasonable certainty, use "other"
+- Do NOT force-match. It is better to say "unknown" than to guess wrong.
+- BUT: For well-known document types (trade-license, vat-certificate, iban-letter, passport, emirates-id, bank-statement, moa), if the HEADING or TITLE clearly says what it is, return HIGH confidence (90+). The heading is sufficient — you do not need to verify every field. A document titled "Trade License" IS a trade license. A document from "Federal Tax Authority" with TRN IS a VAT certificate. A document showing IBAN details IS an IBAN letter.
+
+IMPORTANT: If the document does NOT match any of the types below (e.g., it is a personal letter, CV, offer letter, invoice, or any unrelated document), you MUST set _detectedDocType to "other" and _confidence to a LOW value (10-30). Do NOT force-match unrelated documents.
+
 Return a JSON object with:
-- "detectedType": string — one of: "mdf", "trade-license", "bank-statement", "vat-certificate", "moa", "passport", "emirates-id", "acknowledgement-form", "site-visit-report", "power-of-attorney", "tenancy-contract", "shop-photo", "cheque-copy", "other"
-- "confidence": number 0-100
+- "detectedType": string — one of: "mdf", "trade-license", "bank-statement", "vat-certificate", "moa", "passport", "emirates-id", "ack-form", "svr", "poa", "tenancy", "shop-photo", "cheque", "payment-proof", "vat-declaration", "pep-form", "aml-questionnaire", "iban-letter", "addendum", "supplier-invoice", "branch-form", "other"
 - "reason": string (brief explanation of why you classified it this way)
 - "suggestedSlot": string (which upload slot this document best fits, using the same IDs as detectedType)
+- "keyText": string — the exact heading, title, or key phrase on the document that most strongly identifies its type (e.g., "TRADE LICENSE", "Federal Tax Authority", "Site Visit Report"). Keep it short — just the identifying words.
+- "keyPosition": string — WHERE on the first page the keyText is located. Use exactly one of these 9 positions:
+  "top-left", "top-center", "top-right",
+  "middle-left", "middle-center", "middle-right",
+  "bottom-left", "bottom-center", "bottom-right"
+  Think of the page divided into a 3x3 grid. Most document titles are at "top-center" or "top-left". A bank IBAN number might be at "middle-left". A footer stamp might be at "bottom-center". Pick the cell where the keyText is.
+
+${META_INSTRUCTIONS}
 `.trim();
 
 // ── MDF Gold Standard Verification ───────────────────────────────────
 
 export const MDF_VERIFY_PROMPT = `
-You are verifying a Network International Merchant Details Form (MDF/MAF) for completeness against the gold-standard template. This is a multi-page (typically 8-10 pages) merchant onboarding agreement form.
+You are verifying a Network International Merchant Details Form (MDF) for completeness against the gold-standard template. This is a multi-page (typically 8-10 pages) merchant onboarding agreement form.
+
+IMPORTANT CONTEXT:
+- The user may upload MULTIPLE files for the MDF slot (e.g., the digitally signed MDF as one PDF and scanned sign/stamp pages as another). Analyze what you receive — do NOT warn about missing pages if you are only seeing a partial file. Focus on what IS present.
+- This is a Network International form. Do NOT flag it as wrong if the form says "Network International" — that is correct.
+- ALL dates in the UAE use DD/MM/YYYY format. "04/02/2026" means 4 February 2026, NOT April 2, 2026.
 
 Your job: check each section below and determine whether it is PRESENT in the uploaded document and whether the required fields are FILLED IN with actual values (not blank). A field is "filled" only if it contains a real written/typed value — the label alone does not count.
 
 This document could be digitally filled OR a scanned handwritten/stamped copy. Both are valid.
 
-SECTIONS TO VERIFY:
+REQUIRED SECTIONS (count toward completion):
 
-1. MERCHANT DETAILS (Section A, typically page 2)
+1. MERCHANT DETAILS (Section A)
    Required: Trade License Number, Legal Entity Name, Trade Name (DBA), Legal Type, Emirate, Business Address
-   Optional: PO Box, TIN, Sole Proprietor details
 
-2. BUSINESS DETAILS (typically page 3)
-   Required: Products/Services offered, Projected annual sales or existing annual sales
-   Optional: Number of years in business, Number of employees, Number of branches
-
-3. CONTACT PERSON (typically page 3)
+2. CONTACT PERSON
    Required: Contact Person Name, Phone or Mobile Number, Email Address
-   Optional: Designation, Website, Social Media, Chargeback email
 
-4. BANK ACCOUNT / SETTLEMENT (typically page 4)
+3. BANK ACCOUNT / SETTLEMENT
    Required: Account Holder Name, Bank Name, IBAN Number, SWIFT Code
-   Optional: Branch Name, Payout Services details
 
-5. AUTHORIZED SIGNATORY & BENEFICIAL OWNER (typically page 5)
+4. AUTHORIZED SIGNATORY & BENEFICIAL OWNER
    Required: At least one signatory with Passport Number and Emirates ID, At least one shareholder/UBO with Name and Shareholding Percentage
-   Optional: Residential address, Place of birth, Nationality
 
-6. FEE SCHEDULE (typically pages 6-7)
-   Required: At least some card type rates filled (POS and/or ECOM columns), Setup/rental/transaction fees
-   Optional: DCC rates, BNPL fees, Additional service fees
+5. FEE SCHEDULE
+   Required: At least some card type rates filled (POS and/or ECOM columns)
 
-7. DECLARATION & SANCTIONS (typically page 8)
-   Required: Sanctions questions answered (Yes/No responses visible for questions A-E), PEP declaration answered
-   Optional: Sanctioned country details (only required if any answer is Yes)
+6. SIGNATURES & STAMPS
+   Required: Authorized Signatory signature, Company stamp/seal
 
-8. SIGNATURES & STAMPS
-   Required: Authorized Signatory signature on Declaration page, Company stamp/seal on Declaration page
-   Required: Direct Debit Mandate signature (typically page 9)
-   Optional: Additional signatory signatures
+OPTIONAL SECTIONS (do NOT count toward completion score):
 
-9. DIRECT DEBIT MANDATE (typically page 9)
-   Required: Account details (Account Name, IBAN, Bank Name), Merchant Number or Category Code
-   Optional: Number of POS terminals, E-commerce type
+7. BUSINESS DETAILS
+   Optional — only present in some MDF versions
+
+8. DECLARATION & SANCTIONS
+   Optional — may be on a separate form
+
+9. DIRECT DEBIT MANDATE
+   Optional — may be on a separate form
 
 For each section, determine status:
-- "complete": all required fields are filled
-- "partial": some required fields filled, some missing
-- "missing": section not found or all required fields blank
+- "complete": all REQUIRED fields are filled (optional fields may be empty — that's fine)
+- "partial": section is present but some REQUIRED fields are missing or blank
+- "missing": section not found in the document at all
+
+CRITICAL RULES:
+- Only list REQUIRED fields in "missingFields". Do NOT flag optional fields as missing.
+- The "overallScore" and "isComplete" should ONLY consider the 6 REQUIRED sections, NOT the optional ones.
+- Mark each section with "sectionRequired": true/false so the UI can distinguish them.
+- Do NOT warn about "only X pages provided" — the user may have split the MDF across multiple files.
 
 Return a JSON object with exactly these keys:
 - "sections": array of objects, each with:
   - "name": string (section name exactly as listed above, e.g. "Merchant Details")
   - "status": "complete" | "partial" | "missing"
+  - "sectionRequired": boolean (true for sections 1-6, false for 7-9)
   - "filledFields": string[] (names of required fields that have values)
   - "missingFields": string[] (names of required fields that are blank/missing)
-- "overallScore": number 0-100 (percentage of total required fields that are filled)
-- "isComplete": boolean (true ONLY if ALL sections are complete AND all signatures present)
+- "overallScore": number 0-100 (percentage of REQUIRED section fields that are filled — ignore optional sections)
+- "isComplete": boolean (true ONLY if ALL 6 required sections are complete AND signatures present)
 - "hasSignature": boolean (at least one authorized signature found)
 - "hasStamp": boolean (company stamp or seal found)
-- "warnings": string[] (any concerns, e.g. "Fee schedule appears mostly blank", "Signature is illegible")
+- "warnings": string[] (any concerns — but NOT page count warnings or Network International branding warnings)
 
 Return valid JSON only, no markdown fences, no explanation text.
+`.trim();
+
+// ── Tenancy Contract / Ejari ─────────────────────────────────────────
+
+export const TENANCY_PROMPT = `
+You are extracting data from a UAE Tenancy Contract or Ejari registration document.
+
+Extract the following fields:
+- "ejariNumber": string — the Ejari registration number if visible
+- "expiryDate": string — contract expiry/end date (DD/MM/YYYY)
+- "startDate": string — contract start date (DD/MM/YYYY)
+- "landlordName": string — name of the landlord/property owner
+- "tenantName": string — name of the tenant
+- "propertyAddress": string — full property address
+- "annualRent": string — annual rental amount with currency (e.g., "AED 120,000")
+- "propertyType": string — type of property (shop, office, warehouse, etc.)
+
+${META_INSTRUCTIONS}
+`.trim();
+
+// ── IBAN Proof / Bank Letter ─────────────────────────────────────────
+
+export const IBAN_PROOF_PROMPT = `
+You are extracting IBAN and bank account details from a document. This could be a bank confirmation letter, welcome letter, cheque copy showing IBAN, or account confirmation.
+
+Extract the following fields:
+- "iban": string — the full IBAN number (e.g., "AE070331234567890123456")
+- "accountHolder": string — name of the account holder
+- "bankName": string — name of the bank
+- "swiftCode": string — SWIFT/BIC code if visible
+- "accountNumber": string — account number if visible (may differ from IBAN)
+- "accountCurrency": string — currency of the account (e.g., "AED", "USD")
+
+${META_INSTRUCTIONS}
+`.trim();
+
+// ── Supplier Invoice ─────────────────────────────────────────────────
+
+export const SUPPLIER_INVOICE_PROMPT = `
+You are extracting data from a supplier invoice uploaded for a UAE merchant onboarding case (high-risk due diligence).
+
+Extract the following fields:
+- "supplierName": string — name of the supplier/vendor
+- "invoiceNumber": string — invoice reference number
+- "invoiceDate": string — invoice date (DD/MM/YYYY)
+- "amount": string — total invoice amount with currency (e.g., "AED 45,000")
+- "currency": string — currency code (e.g., "AED", "USD")
+- "goodsDescription": string — description of goods or services
+- "buyerName": string — name of the buyer (should match the merchant)
+
+${META_INSTRUCTIONS}
 `.trim();
 
 // ── Prompt Lookup ────────────────────────────────────────────────────
 
 const PROMPT_MAP: Record<string, string> = {
   mdf: MDF_PROMPT,
-  "mdf-verify": MDF_VERIFY_PROMPT,
+  "mdf-verify": MDF_VERIFY_PROMPT, // kept for backward compatibility
   "trade-license": TRADE_LICENSE_PROMPT,
   "bank-statement": BANK_STATEMENT_PROMPT,
   "vat-cert": VAT_CERT_PROMPT,
@@ -380,7 +597,11 @@ const PROMPT_MAP: Record<string, string> = {
   passport: PASSPORT_PROMPT,
   eid: EID_PROMPT,
   "pep-form": PEP_PROMPT,
+  "tenancy": TENANCY_PROMPT,
+  "iban-proof": IBAN_PROOF_PROMPT,
+  "supplier-invoice": SUPPLIER_INVOICE_PROMPT,
   "doc-detect": DOC_TYPE_DETECT_PROMPT,
+  "doc-verify": VERIFY_PROMPT,
 };
 
 export function getPromptForDocType(docType: string): string {

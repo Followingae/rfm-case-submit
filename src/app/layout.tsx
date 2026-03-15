@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/layout/theme-provider";
-import { Sidebar } from "@/components/layout/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -32,14 +30,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider>
-          <TooltipProvider delayDuration={0}>
-            <div className="flex h-dvh overflow-hidden bg-background">
-              <Sidebar />
-              <main className="flex-1 overflow-hidden pt-14 md:pt-0 md:pl-[var(--sidebar-width)]">
-                {children}
-              </main>
-            </div>
-          </TooltipProvider>
+          {children}
           <Toaster position="bottom-right" richColors closeButton />
         </ThemeProvider>
       </body>

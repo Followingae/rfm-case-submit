@@ -261,3 +261,26 @@ export function eidToExtractedFields(
 
   return fields;
 }
+
+/** Generic adapter for new document types extracted as key-value pairs */
+export function genericToExtractedFields(
+  data: Record<string, unknown>,
+  confidence: number,
+): LabeledField[] {
+  const fields: LabeledField[] = [];
+  const add = (label: string, value: string | undefined | null) => {
+    const f = makeField(value, confidence, "ai");
+    if (f) fields.push({ label, field: f });
+  };
+
+  for (const [key, val] of Object.entries(data)) {
+    if (key.startsWith("_") || val == null || val === "") continue;
+    const label = key
+      .replace(/([A-Z])/g, " $1")
+      .replace(/^./, (c) => c.toUpperCase())
+      .trim();
+    add(label, String(val));
+  }
+
+  return fields;
+}

@@ -36,19 +36,60 @@ export function levenshtein(a: string, b: string): number {
 // Normalise both strings then compare via Levenshtein ratio.
 // Returns true when (distance / maxLen) < threshold.
 
+// Common UAE company suffixes to strip before comparison
+const COMPANY_SUFFIXES = /\b(l\.?l\.?c\.?|llc|ltd|limited|inc|corp|fze|fzc|fz-llc|fzco|pjsc|jsc|sole\s*proprietor(ship)?|co\.?)\b/gi;
+
 function normalise(s: string): string {
-  return s.toLowerCase().trim().replace(/\s+/g, " ");
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(COMPANY_SUFFIXES, "")
+    .replace(/[.\-,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Word-overlap matching — checks if the core words of both names overlap significantly */
+function wordOverlapMatch(a: string, b: string): boolean {
+  const wordsA = normalise(a).split(/\s+/).filter(w => w.length >= 3);
+  const wordsB = normalise(b).split(/\s+/).filter(w => w.length >= 3);
+  if (wordsA.length === 0 || wordsB.length === 0) return false;
+
+  const shorter = wordsA.length <= wordsB.length ? wordsA : wordsB;
+  const longerSet = new Set(wordsA.length <= wordsB.length ? wordsB : wordsA);
+
+  let matches = 0;
+  for (const w of shorter) {
+    if (longerSet.has(w)) matches++;
+    else {
+      // Partial word match (e.g., "velocity" matches "velocity")
+      for (const lw of longerSet) {
+        if (lw.includes(w) || w.includes(lw)) { matches++; break; }
+      }
+    }
+  }
+
+  // If at least half the shorter name's words are found in the longer, it's a match
+  return matches >= Math.max(1, shorter.length * 0.4);
 }
 
 export function fuzzyMatch(
   a: string,
   b: string,
-  threshold: number = 0.25
+  threshold: number = 0.40
 ): boolean {
   const na = normalise(a);
   const nb = normalise(b);
 
   if (na === nb) return true;
+
+  // Check if one fully contains the other
+  if (na.length >= 3 && nb.length >= 3) {
+    if (na.includes(nb) || nb.includes(na)) return true;
+  }
+
+  // Word-overlap match (handles "Velocity Trading" vs "VELOCITY READYMADE GARMENTS TRADING")
+  if (wordOverlapMatch(a, b)) return true;
 
   const maxLen = Math.max(na.length, nb.length);
   if (maxLen === 0) return true;
@@ -112,11 +153,13 @@ export function checkConsistency(
   const mdfName = mdfData?.merchantLegalName?.trim() || "";
   const tlName = tradeLicenseData?.businessName?.trim() || "";
 
+  // Form→MDF and Form→TL are "minor" (sales often types an abbreviation)
+  // MDF→TL is "major" (these are official docs and should match)
   if (formName && mdfName && !fuzzyMatch(formName, mdfName)) {
     warnings.push({
       type: "name-mismatch",
-      severity: "major",
-      message: `Merchant name mismatch between Form Input ("${formName}") and MDF ("${mdfName}")`,
+      severity: "minor",
+      message: `Name differs between form ("${formName}") and MDF ("${mdfName}") — will use MDF name`,
       docs: ["Form Input", "MDF"],
     });
   }
@@ -124,8 +167,8 @@ export function checkConsistency(
   if (formName && tlName && !fuzzyMatch(formName, tlName)) {
     warnings.push({
       type: "name-mismatch",
-      severity: "major",
-      message: `Merchant name mismatch between Form Input ("${formName}") and Trade License ("${tlName}")`,
+      severity: "minor",
+      message: `Name differs between form ("${formName}") and Trade License ("${tlName}")`,
       docs: ["Form Input", "Trade License"],
     });
   }
@@ -137,6 +180,22 @@ export function checkConsistency(
       message: `Merchant name mismatch between MDF ("${mdfName}") and Trade License ("${tlName}")`,
       docs: ["MDF", "Trade License"],
     });
+  }
+
+  // ── (a2) Trade License number cross-check ───────────────────────────
+  const mdfTLNumber = (mdfData as unknown as Record<string, unknown>)?.tradeLicenseNumber as string | undefined;
+  const tlNumber = tradeLicenseData?.licenseNumber?.trim() || "";
+  if (mdfTLNumber?.trim() && tlNumber) {
+    const mdfNum = mdfTLNumber.trim().replace(/[\s\-]/g, "");
+    const tlNum = tlNumber.replace(/[\s\-]/g, "");
+    if (mdfNum !== tlNum) {
+      warnings.push({
+        type: "tl-number-mismatch",
+        severity: "major",
+        message: `Trade License number mismatch: MDF has "${mdfTLNumber.trim()}" but Trade License shows "${tlNumber}"`,
+        docs: ["MDF", "Trade License"],
+      });
+    }
   }
 
   // ── (b) Trade License expiry ───────────────────────────────────────
@@ -289,21 +348,32 @@ export function checkConsistency(
   }
 
   // ── (j) Activity matching: MDF business type vs Trade License activities ──
+  // MDF typically has a summary ("CLOTHING STORE") while TL has a detailed list of activities.
+  // Only warn if there's ZERO keyword overlap — any shared word means they're related.
   if (mdfData?.businessType && tradeLicenseData?.activities) {
     const mdfBiz = normalise(mdfData.exactBusinessNature || mdfData.businessType || "");
     const tlAct = normalise(tradeLicenseData.activities || "");
     if (mdfBiz && tlAct) {
-      // Extract meaningful keywords (3+ chars) from each
-      const mdfWords = new Set(mdfBiz.split(/\s+/).filter(w => w.length >= 3));
-      const tlWords = new Set(tlAct.split(/\s+/).filter(w => w.length >= 3));
-      const stopWords = new Set(["the", "and", "for", "with", "from", "other", "general"]);
-      const mdfFiltered = [...mdfWords].filter(w => !stopWords.has(w));
-      const overlap = mdfFiltered.filter(w => tlWords.has(w));
-      if (mdfFiltered.length >= 2 && overlap.length === 0) {
+      const stopWords = new Set(["the", "and", "for", "with", "from", "other", "general", "sale", "retail", "trading", "store", "shop", "spare", "parts", "non"]);
+      const mdfWords = mdfBiz.split(/\s+/).filter(w => w.length >= 3 && !stopWords.has(w));
+      const tlWords = tlAct.split(/[\s,;]+/).filter(w => w.length >= 3 && !stopWords.has(w));
+      // Check keyword overlap: exact substring OR stem match (first 4 chars)
+      const anyMatch = mdfWords.some(mw =>
+        tlAct.includes(mw) ||
+        tlWords.some(tw => {
+          const stem = Math.min(mw.length, tw.length, 5);
+          return stem >= 4 && mw.slice(0, stem) === tw.slice(0, stem);
+        })
+      );
+      if (mdfWords.length >= 1 && !anyMatch) {
+        // Truncate the TL activities for the warning message
+        const tlShort = tradeLicenseData.activities.length > 80
+          ? tradeLicenseData.activities.slice(0, 80) + "..."
+          : tradeLicenseData.activities;
         warnings.push({
           type: "activity-mismatch",
           severity: "minor",
-          message: `Business activity may not match: MDF says "${mdfData.businessType}" but Trade License lists "${tradeLicenseData.activities}"`,
+          message: `Business activity may not match: MDF says "${mdfData.businessType}" but Trade License lists "${tlShort}"`,
           docs: ["MDF", "Trade License"],
         });
       }
@@ -364,12 +434,12 @@ export function checkConsistency(
         }
       }
     }
-    // Only warn when we could parse at least some percentages and the sum is off
-    if (allParseable && sum > 0 && (sum < 98 || sum > 102)) {
+    // Only warn when the sum is significantly off — minor shareholders under 25% may not be listed
+    if (allParseable && sum > 0 && (sum < 50 || sum > 102)) {
       warnings.push({
         type: "shareholder-percentage-mismatch",
-        severity: "major",
-        message: `MDF shareholder ownership sums to ${sum.toFixed(1)}% (expected ~100%)`,
+        severity: sum < 75 ? "major" : "minor",
+        message: `MDF shareholder ownership sums to ${sum.toFixed(1)}% (expected ~100% — remaining may be unlisted minority shareholders)`,
         docs: ["MDF"],
       });
     }

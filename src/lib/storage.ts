@@ -4,9 +4,6 @@ import {
   ShareholderKYC,
   ParsedPassport,
   ParsedEID,
-  ParsedMOA,
-  ParsedBankStatement,
-  ParsedVATCert,
 } from "./types";
 import type {
   ParsedMDF,
@@ -22,14 +19,16 @@ function logError(operation: string, error: unknown) {
 
 // ── Cases ──────────────────────────────────────
 
-export async function createCase(caseId: string, merchantInfo: MerchantInfo): Promise<void> {
-  const { error } = await supabase.from("cases").upsert({
+export async function createCase(caseId: string, merchantInfo: MerchantInfo, createdBy?: string): Promise<void> {
+  const row: Record<string, unknown> = {
     id: caseId,
     legal_name: merchantInfo.legalName,
     dba: merchantInfo.dba,
     case_type: merchantInfo.caseType,
     status: "incomplete",
-  });
+  };
+  if (createdBy) row.created_by = createdBy;
+  const { error } = await supabase.from("cases").upsert(row);
   if (error) logError("createCase", error);
 }
 
@@ -344,49 +343,282 @@ export async function saveEIDData(
 }
 
 // ── OCR: Save Bank Statement Data ────────────
-// Supabase table not yet created — persist to localStorage for Phase 1
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function saveBankStatementData(
   caseId: string,
-  parsed: ParsedBankStatement,
-  confidence: number
-): Promise<void> {
+  data: any,
+  confidence: number,
+) {
   try {
-    const key = `case::${caseId}::bankStatement`;
-    localStorage.setItem(key, JSON.stringify({ parsed, confidence }));
-  } catch {
-    console.warn("[localStorage] saveBankStatementData: failed to persist");
+    await supabase.from("ocr_bank_statement").upsert(
+      {
+        case_id: caseId,
+        bank_name: data.bankName || null,
+        account_holder: data.accountHolder || null,
+        account_number: data.accountNumber || null,
+        iban: data.iban || null,
+        currency: data.currency || null,
+        period: data.period || null,
+        period_end_date: data.periodEndDate || null,
+        opening_balance: data.openingBalance || null,
+        closing_balance: data.closingBalance || null,
+        total_credits: data.totalCredits || null,
+        total_debits: data.totalDebits || null,
+        swift_code: data.swiftCode || null,
+        confidence,
+      },
+      { onConflict: "case_id" }
+    );
+  } catch (err) {
+    console.error("[Storage] Failed to save bank statement:", err);
   }
 }
 
 // ── OCR: Save VAT Certificate Data ───────────
-// Supabase table not yet created — persist to localStorage for Phase 1
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function saveVATCertData(
   caseId: string,
-  parsed: ParsedVATCert,
-  confidence: number
-): Promise<void> {
+  data: any,
+  confidence: number,
+) {
   try {
-    const key = `case::${caseId}::vatCert`;
-    localStorage.setItem(key, JSON.stringify({ parsed, confidence }));
-  } catch {
-    console.warn("[localStorage] saveVATCertData: failed to persist");
+    await supabase.from("ocr_vat_cert").upsert(
+      {
+        case_id: caseId,
+        trn_number: data.trnNumber || null,
+        business_name: data.businessName || null,
+        registration_date: data.registrationDate || null,
+        effective_date: data.effectiveDate || null,
+        expiry_date: data.expiryDate || null,
+        business_address: data.businessAddress || null,
+        confidence,
+      },
+      { onConflict: "case_id" }
+    );
+  } catch (err) {
+    console.error("[Storage] Failed to save VAT cert:", err);
   }
 }
 
 // ── OCR: Save MOA Data ───────────────────────
-// Supabase table not yet created — persist to localStorage for Phase 1
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function saveMOAData(
   caseId: string,
-  parsed: ParsedMOA,
-  confidence: number
-): Promise<void> {
+  data: any,
+  confidence: number,
+) {
   try {
-    const key = `case::${caseId}::moa`;
-    localStorage.setItem(key, JSON.stringify({ parsed, confidence }));
-  } catch {
-    console.warn("[localStorage] saveMOAData: failed to persist");
+    await supabase.from("ocr_moa").upsert(
+      {
+        case_id: caseId,
+        company_name: data.companyName || null,
+        shareholders: Array.isArray(data.shareholders) ? data.shareholders : null,
+        share_percentages: Array.isArray(data.sharePercentages) ? data.sharePercentages : null,
+        signatories: Array.isArray(data.signatories) ? data.signatories : null,
+        registration_number: data.registrationNumber || null,
+        registration_date: data.registrationDate || null,
+        authorized_capital: data.authorizedCapital || null,
+        legal_form: data.legalForm || null,
+        paid_up_capital: data.paidUpCapital || null,
+        company_objectives: data.companyObjectives || null,
+        registered_address: data.registeredAddress || null,
+        notarization_date: data.notarizationDate || null,
+        confidence,
+      },
+      { onConflict: "case_id" }
+    );
+  } catch (err) {
+    console.error("[Storage] Failed to save MOA data:", err);
   }
+}
+
+// ── AI Metadata & Readiness ─────────────────
+
+export async function saveAIMetadata(
+  caseId: string,
+  itemId: string,
+  aiMetadata: Record<string, unknown>,
+  validationResult?: Record<string, unknown>,
+  mdfVerification?: Record<string, unknown>,
+) {
+  try {
+    const updates: Record<string, unknown> = { ai_metadata: aiMetadata };
+    if (validationResult) updates.validation_result = validationResult;
+    if (mdfVerification) updates.mdf_verification = mdfVerification;
+
+    await supabase
+      .from("case_documents")
+      .update(updates)
+      .eq("case_id", caseId)
+      .eq("item_id", itemId);
+  } catch (err) {
+    console.warn("[Storage] Failed to save AI metadata:", err);
+  }
+}
+
+export async function saveReadinessScore(
+  caseId: string,
+  score: number,
+  tier: string,
+  consistencyResults?: Record<string, unknown>[],
+) {
+  try {
+    const updates: Record<string, unknown> = {
+      readiness_score: score,
+      readiness_tier: tier,
+    };
+    if (consistencyResults) updates.consistency_results = consistencyResults;
+
+    await supabase
+      .from("cases")
+      .update(updates)
+      .eq("id", caseId);
+  } catch (err) {
+    console.warn("[Storage] Failed to save readiness score:", err);
+  }
+}
+
+// ── Submission Details ──────────────────────────
+
+export async function saveSubmissionDetails(caseId: string, data: Record<string, unknown>): Promise<void> {
+  const { error } = await supabase
+    .from("submission_details")
+    .upsert({ case_id: caseId, data, updated_at: new Date().toISOString() }, { onConflict: "case_id" });
+  if (error) console.error("[Storage] Failed to save submission details:", error);
+}
+
+// ── Case Exceptions ─────────────────────────────
+
+export async function saveCaseException(caseId: string, exception: { itemId: string; reason: string; reasonCategory?: string; notes?: string }): Promise<void> {
+  const { error } = await supabase
+    .from("case_exceptions")
+    .insert({ case_id: caseId, item_id: exception.itemId, reason: exception.reason, reason_category: exception.reasonCategory || null, notes: exception.notes || null });
+  if (error) console.error("[Storage] Failed to save case exception:", error);
+}
+
+export async function saveCaseExceptions(caseId: string, exceptions: Array<{ itemId: string; reason: string; reasonCategory?: string; notes?: string }>): Promise<void> {
+  if (exceptions.length === 0) return;
+  const rows = exceptions.map(e => ({ case_id: caseId, item_id: e.itemId, reason: e.reason, reason_category: e.reasonCategory || null, notes: e.notes || null }));
+  const { error } = await supabase.from("case_exceptions").insert(rows);
+  if (error) console.error("[Storage] Failed to save case exceptions:", error);
+}
+
+// ── OCR: Save Tenancy/Ejari Data ────────────────
+
+export async function saveTenancyData(caseId: string, data: Record<string, unknown>, confidence: number): Promise<void> {
+  const { error } = await supabase
+    .from("ocr_tenancy")
+    .upsert({
+      case_id: caseId,
+      ejari_number: (data.ejariNumber as string) || null,
+      expiry_date: (data.expiryDate as string) || null,
+      start_date: (data.startDate as string) || null,
+      landlord_name: (data.landlordName as string) || null,
+      tenant_name: (data.tenantName as string) || null,
+      property_address: (data.propertyAddress as string) || null,
+      annual_rent: (data.annualRent as string) || null,
+      property_type: (data.propertyType as string) || null,
+      confidence,
+    }, { onConflict: "case_id" });
+  if (error) console.error("[Storage] Failed to save tenancy data:", error);
+}
+
+// ── OCR: Save PEP Data ─────────────────────────
+
+export async function savePEPData(caseId: string, isPep: boolean, individuals: unknown[], riskLevel: string | null, confidence: number): Promise<void> {
+  const { error } = await supabase
+    .from("ocr_pep_data")
+    .upsert({
+      case_id: caseId,
+      is_pep: isPep,
+      pep_individuals: individuals,
+      risk_level: riskLevel,
+      confidence,
+    }, { onConflict: "case_id" });
+  if (error) console.error("[Storage] Failed to save PEP data:", error);
+}
+
+// ── OCR: Save Supplier Invoice Data ─────────────
+
+export async function saveSupplierInvoiceData(caseId: string, data: Record<string, unknown>, confidence: number): Promise<void> {
+  const { error } = await supabase
+    .from("ocr_supplier_invoice")
+    .upsert({
+      case_id: caseId,
+      supplier_name: (data.supplierName as string) || null,
+      invoice_number: (data.invoiceNumber as string) || null,
+      invoice_date: (data.invoiceDate as string) || null,
+      amount: (data.amount as string) || null,
+      currency: (data.currency as string) || null,
+      goods_description: (data.goodsDescription as string) || null,
+      buyer_name: (data.buyerName as string) || null,
+      confidence,
+    }, { onConflict: "case_id" });
+  if (error) console.error("[Storage] Failed to save supplier invoice data:", error);
+}
+
+// ── OCR: Save IBAN Proof Data ───────────────────
+
+export async function saveIBANProofData(caseId: string, data: Record<string, unknown>, confidence: number): Promise<void> {
+  const { error } = await supabase
+    .from("ocr_iban_proof")
+    .upsert({
+      case_id: caseId,
+      iban: (data.iban as string) || null,
+      account_holder: (data.accountHolder as string) || null,
+      bank_name: (data.bankName as string) || null,
+      swift_code: (data.swiftCode as string) || null,
+      account_number: (data.accountNumber as string) || null,
+      account_currency: (data.accountCurrency as string) || null,
+      confidence,
+    }, { onConflict: "case_id" });
+  if (error) console.error("[Storage] Failed to save IBAN proof data:", error);
+}
+
+// ── Case Audit Log ──────────────────────────────
+
+export async function logCaseAudit(caseId: string, action: string, details?: Record<string, unknown>): Promise<void> {
+  const { error } = await supabase
+    .from("case_audit_log")
+    .insert({ case_id: caseId, action, details: details || null });
+  if (error) console.error("[Storage] Failed to log audit:", error);
+}
+
+// ── Status History ──────────────────────────────
+
+export async function recordStatusChange(
+  caseId: string,
+  fromStatus: string | null,
+  toStatus: string,
+  changedBy: string,
+  note?: string
+): Promise<void> {
+  const { error } = await supabase.from("case_status_history").insert({
+    case_id: caseId,
+    from_status: fromStatus,
+    to_status: toStatus,
+    changed_by: changedBy,
+    note: note || null,
+  });
+  if (error) logError("recordStatusChange", error);
+}
+
+// ── Case Notes ──────────────────────────────────
+
+export async function addCaseNote(
+  caseId: string,
+  authorId: string,
+  noteType: string,
+  content: string
+): Promise<void> {
+  const { error } = await supabase.from("case_notes").insert({
+    case_id: caseId,
+    author_id: authorId,
+    note_type: noteType,
+    content,
+  });
+  if (error) logError("addCaseNote", error);
 }

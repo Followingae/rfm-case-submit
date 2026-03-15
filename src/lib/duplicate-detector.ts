@@ -20,39 +20,32 @@ async function hashFile(file: File): Promise<string> {
   }
 }
 
-// ── Layer A: Exact hash-based duplicates ──
+// ── Layer A: Exact hash-based duplicates (within the SAME slot only) ──
+// Cross-slot duplicates are intentional (same file can legitimately go to multiple slots)
 
 async function detectExactDuplicates(
   fileStore: Map<string, File[]>
 ): Promise<EnhancedDuplicateWarning[]> {
-  const hashMap = new Map<string, { fileName: string; fileSize: number; slots: string[] }>();
   const warnings: EnhancedDuplicateWarning[] = [];
 
   for (const [slotId, files] of fileStore) {
+    if (files.length < 2) continue;
+    const seen = new Map<string, string>(); // hash → fileName
     for (const file of files) {
       const hash = await hashFile(file);
       if (!hash) continue;
-
-      const existing = hashMap.get(hash);
+      const existing = seen.get(hash);
       if (existing) {
-        if (!existing.slots.includes(slotId)) {
-          existing.slots.push(slotId);
-        }
+        warnings.push({
+          type: "exact",
+          fileName: file.name,
+          fileSize: file.size,
+          slots: [slotId],
+          detail: `Duplicate of "${existing}" in the same slot`,
+        });
       } else {
-        hashMap.set(hash, { fileName: file.name, fileSize: file.size, slots: [slotId] });
+        seen.set(hash, file.name);
       }
-    }
-  }
-
-  for (const entry of hashMap.values()) {
-    if (entry.slots.length > 1) {
-      warnings.push({
-        type: "exact",
-        fileName: entry.fileName,
-        fileSize: entry.fileSize,
-        slots: entry.slots,
-        detail: `Identical file content (SHA-256 match)`,
-      });
     }
   }
 
@@ -94,28 +87,27 @@ export function detectIdentityDuplicates(
   return warnings;
 }
 
-// ── Layer C: Name + size duplicates (legacy) ──
+// ── Layer C: Name + size duplicates within same slot ──
 
 export function detectDuplicates(
   fileStore: Map<string, File[]>
 ): DuplicateWarning[] {
-  const seen = new Map<string, { fileName: string; fileSize: number; slots: string[] }>();
+  const warnings: DuplicateWarning[] = [];
 
   for (const [slotId, files] of fileStore) {
+    if (files.length < 2) continue;
+    const seen = new Map<string, boolean>();
     for (const file of files) {
       const key = `${file.name}::${file.size}`;
-      const existing = seen.get(key);
-      if (existing) {
-        if (!existing.slots.includes(slotId)) {
-          existing.slots.push(slotId);
-        }
+      if (seen.has(key)) {
+        warnings.push({ fileName: file.name, fileSize: file.size, slots: [slotId] });
       } else {
-        seen.set(key, { fileName: file.name, fileSize: file.size, slots: [slotId] });
+        seen.set(key, true);
       }
     }
   }
 
-  return Array.from(seen.values()).filter((entry) => entry.slots.length > 1);
+  return warnings;
 }
 
 // ── Combined enhanced detection ──
@@ -136,11 +128,11 @@ export async function detectEnhancedDuplicates(
     warnings.push(...idDupes);
   }
 
-  // Layer C: Name+size (only add if not already caught by hash)
+  // Layer C: Name+size within same slot (only add if not already caught by hash)
   const nameDupes = detectDuplicates(fileStore);
   for (const nd of nameDupes) {
     const alreadyCaught = warnings.some(
-      (w) => w.fileName === nd.fileName && w.type === "exact"
+      (w) => w.fileName === nd.fileName && w.type === "exact" && w.slots[0] === nd.slots[0]
     );
     if (!alreadyCaught) {
       warnings.push({
@@ -148,7 +140,7 @@ export async function detectEnhancedDuplicates(
         fileName: nd.fileName,
         fileSize: nd.fileSize,
         slots: nd.slots,
-        detail: `Same filename and size in multiple slots`,
+        detail: `Duplicate file in the same slot`,
       });
     }
   }

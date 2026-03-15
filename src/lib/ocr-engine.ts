@@ -2,6 +2,7 @@
 
 export interface ParsedMDF {
   // Section 1: Merchant Information
+  tradeLicenseNumber?: string;
   merchantLegalName?: string;
   dba?: string;
   emirate?: string;

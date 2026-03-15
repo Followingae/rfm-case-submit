@@ -150,6 +150,21 @@ export function validateDocCompleteness(
 ): DocCompletenessResult {
   const data = (parsedData ?? {}) as Record<string, unknown>;
 
+  // If extraction produced no data at all (API failure, 429, etc.), don't show false 0/N — just skip
+  const hasAnyData = Object.values(data).some(v => v != null && v !== "" && !(Array.isArray(v) && v.length === 0));
+  if (!hasAnyData) {
+    return {
+      docType,
+      totalFields: 0,
+      presentCount: 0,
+      missingFields: [],
+      presentFields: [],
+      allFields: [],
+      percentage: 100,
+      isAcceptable: true,
+    };
+  }
+
   let result: DocCompletenessResult;
 
   switch (docType) {

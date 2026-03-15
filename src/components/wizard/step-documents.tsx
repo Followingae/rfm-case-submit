@@ -1,18 +1,18 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import { motion } from "framer-motion";
 import {
   ArrowLeft,
   ArrowRight,
-  Info,
   X,
-  AlertTriangle,
   Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChecklistEngine } from "@/components/checklist/checklist-engine";
+import type { ChecklistEngineHandle } from "@/components/checklist/checklist-engine";
+import { BulkUploadHero } from "@/components/checklist/bulk-drop-zone";
 import { ShareholderKYCSection } from "@/components/checklist/shareholder-kyc";
 import { DocProgressSidebar } from "@/components/checklist/doc-progress-sidebar";
 import {
@@ -98,6 +98,12 @@ export function StepDocuments({
   onPrev,
   onNext,
 }: StepDocumentsProps) {
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const checklistRef = useRef<ChecklistEngineHandle>(null);
+  const [navState, setNavState] = useState({ hasNext: true, allComplete: false });
+  // Show the full-page bulk upload hero if no documents have been uploaded yet
+  const [heroDismissed, setHeroDismissed] = useState(false);
+
   const uploadedCount = items.filter((i) => i.status === "uploaded").length;
   const hasAnyUpload = uploadedCount > 0 || shareholders.some(
     (s) => s.passportFiles.length > 0 || s.eidFiles.length > 0
@@ -106,14 +112,76 @@ export function StepDocuments({
   const missingRequired = items.filter(
     (i) =>
       (i.required || (i.conditionalKey && conditionals[i.conditionalKey!])) &&
+      // Also skip items waived by optionalWhen
+      !(i.optionalWhen && conditionals[i.optionalWhen]) &&
       i.status === "missing"
   );
+
+  // Count shareholders missing KYC docs
+  const missingKyc = shareholders.reduce((count, sh) => {
+    if (sh.passportFiles.length === 0) count++;
+    if (sh.eidFiles.length === 0) count++;
+    return count;
+  }, 0);
+  const totalMissing = missingRequired.length + missingKyc;
+
+  const handleNavStateChange = useCallback((hasNext: boolean, allComplete: boolean) => {
+    setNavState({ hasNext, allComplete });
+  }, []);
+
+  const handleNextOrAdvance = useCallback(() => {
+    const handle = checklistRef.current;
+    if (!handle) { onNext(); return; }
+    if (handle.allCategoriesComplete) {
+      onNext(); // Go to Review & Export
+    } else {
+      handle.advanceToNextCategory();
+    }
+  }, [onNext]);
 
   const duplicateFileNames = useMemo(() => {
     const set = new Set<string>();
     duplicateWarnings.forEach((d) => set.add(d.fileName));
     return set;
   }, [duplicateWarnings]);
+
+  const showBulkHero = !heroDismissed && uploadedCount === 0 && onMultiSlotFulfill;
+
+  // ── Full-page bulk upload hero ──
+  if (showBulkHero) {
+    return (
+      <div className="flex h-full flex-col">
+        <BulkUploadHero
+          items={items}
+          merchantName={merchantInfo.legalName || ""}
+          shareholders={shareholders.map(s => ({ id: s.id, name: s.name, percentage: s.percentage }))}
+          onMultiSlotFulfill={onMultiSlotFulfill}
+          onShareholderKycAssign={(assignments) => {
+            for (const a of assignments) {
+              const key = `kyc::${a.shareholderId}::${a.docType === "passport" ? "passportFiles" : "eidFiles"}`;
+              onShareholderRawFiles(key, [a.file]);
+            }
+          }}
+          onDone={() => setHeroDismissed(true)}
+        />
+
+        {/* Minimal bottom bar with just Back */}
+        <div className="shrink-0 border-t border-border/30 bg-background/80 backdrop-blur-sm">
+          <div className={cn(LAYOUT.bottomBarWide, "flex items-center")}>
+            <Button
+              variant="ghost"
+              size="lg"
+              onClick={onPrev}
+              className="h-10 gap-2 rounded-lg px-5 text-sm"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -133,16 +201,12 @@ export function StepDocuments({
             <DuplicateWarningBanner warnings={duplicateWarnings} items={items} />
           )}
 
-          {/* Consistency warnings banner */}
-          {consistencyWarnings && consistencyWarnings.length > 0 && (
-            <ConsistencyBanner warnings={consistencyWarnings} />
-          )}
-
           {/* Two-column layout: main content + sticky sidebar */}
           <div className="flex gap-8 items-start">
             {/* Main content */}
             <div className="min-w-0 flex-1 space-y-5">
               <ChecklistEngine
+                ref={checklistRef}
                 items={items}
                 onItemUpdate={onItemUpdate}
                 onFileRemove={onFileRemove}
@@ -165,15 +229,27 @@ export function StepDocuments({
                 aiMetadata={aiMetadata}
                 docCompleteness={docCompleteness}
                 scanQuality={scanQuality}
+                consistencyWarnings={consistencyWarnings}
+                onActiveCategoryChange={setActiveCategory}
+                onNavStateChange={handleNavStateChange}
+                kycStats={(() => {
+                  if (shareholders.length === 0) return { total: 0, uploaded: 0, complete: false };
+                  const total = shareholders.length * 2; // passport + EID per shareholder
+                  const uploaded = shareholders.reduce((n, s) =>
+                    n + (s.passportFiles.length > 0 ? 1 : 0) + (s.eidFiles.length > 0 ? 1 : 0), 0);
+                  return { total, uploaded, complete: uploaded >= total };
+                })()}
               />
 
-              <ShareholderKYCSection
-                shareholders={shareholders}
-                onUpdate={onShareholdersUpdate}
-                onRawFilesAdded={onShareholderRawFiles}
-                kycExpiryFlags={kycExpiryFlags}
-                aiMetadata={aiMetadata}
-              />
+              {activeCategory === "KYC" && (
+                <ShareholderKYCSection
+                  shareholders={shareholders}
+                  onUpdate={onShareholdersUpdate}
+                  onRawFilesAdded={onShareholderRawFiles}
+                  kycExpiryFlags={kycExpiryFlags}
+                  aiMetadata={aiMetadata}
+                />
+              )}
             </div>
 
             {/* Sticky progress sidebar — hidden on small screens */}
@@ -202,20 +278,31 @@ export function StepDocuments({
           </Button>
 
           <div className="flex items-center gap-3">
-            {missingRequired.length > 0 && hasAnyUpload && (
+            {totalMissing > 0 && hasAnyUpload && (
               <span className="inline-flex items-center rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-                {missingRequired.length} required missing
+                {totalMissing} required missing
               </span>
             )}
-            <Button
-              size="lg"
-              disabled={!hasAnyUpload}
-              onClick={onNext}
-              className="group h-12 gap-2.5 rounded-xl px-8 text-[15px] font-semibold shadow-md shadow-primary/15 hover:shadow-lg hover:shadow-primary/25 transition-all duration-200"
-            >
-              Review & Export
-              <ArrowRight className="h-4.5 w-4.5 transition-transform group-hover:translate-x-0.5" />
-            </Button>
+            {navState.allComplete ? (
+              <Button
+                size="lg"
+                disabled={!hasAnyUpload}
+                onClick={onNext}
+                className="group h-12 gap-2.5 rounded-xl px-8 text-[15px] font-semibold shadow-md shadow-primary/15 hover:shadow-lg hover:shadow-primary/25 transition-all duration-200"
+              >
+                Review & Export
+                <ArrowRight className="h-4.5 w-4.5 transition-transform group-hover:translate-x-0.5" />
+              </Button>
+            ) : (
+              <Button
+                size="lg"
+                onClick={handleNextOrAdvance}
+                className="group h-12 gap-2.5 rounded-xl px-8 text-[15px] font-semibold shadow-md shadow-primary/15 hover:shadow-lg hover:shadow-primary/25 transition-all duration-200"
+              >
+                Next
+                <ArrowRight className="h-4.5 w-4.5 transition-transform group-hover:translate-x-0.5" />
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -223,91 +310,6 @@ export function StepDocuments({
   );
 }
 
-/* ───────────────────── Consistency Banner ────────────────── */
-
-function ConsistencyBanner({ warnings }: { warnings: ConsistencyWarning[] }) {
-  const [dismissed, setDismissed] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const prevCountRef = useRef(warnings.length);
-
-  // Reset dismissal when new warnings arrive
-  useEffect(() => {
-    if (warnings.length !== prevCountRef.current) {
-      setDismissed(false);
-      prevCountRef.current = warnings.length;
-    }
-  }, [warnings.length]);
-
-  if (dismissed || warnings.length === 0) return null;
-
-  const hasMajor = warnings.some((w) => w.severity === "major");
-
-  return (
-    <div
-      className={cn(
-        "mb-4 rounded-lg border bg-muted/30 transition-colors",
-        hasMajor ? "border-l-2 border-l-amber-500 border-border/40" : "border-border/40"
-      )}
-    >
-      {/* Collapsed row */}
-      <div className="flex items-center gap-2.5 px-3 py-2">
-        <Info className={cn(
-          "h-4 w-4 shrink-0",
-          hasMajor ? "text-amber-500" : "text-muted-foreground"
-        )} />
-        <span className="flex-1 text-sm text-muted-foreground">
-          <span className="font-medium tabular-nums text-foreground">{warnings.length}</span>
-          {" "}cross-document notice{warnings.length !== 1 ? "s" : ""}
-        </span>
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="rounded-md px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
-        >
-          {expanded ? "Hide" : "View"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setDismissed(true)}
-          className="rounded-md p-1 text-muted-foreground/40 hover:bg-muted hover:text-muted-foreground transition-colors"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {/* Expanded warning list */}
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
-            <div className="border-t border-border/20 px-3 py-2.5 space-y-1.5">
-              {warnings.map((w, i) => (
-                <div key={`${w.type}-${i}`} className="flex items-start gap-2 text-sm">
-                  {w.severity === "major" ? (
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  ) : (
-                    <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-                  )}
-                  <span className={cn(
-                    "text-foreground/80",
-                    w.severity === "major" && "text-foreground"
-                  )}>
-                    {w.message}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
 
 /* ───────────────────── Duplicate Warning Banner ─────────── */
 

@@ -1,6 +1,66 @@
-export type CaseType = "low-risk" | "high-risk" | "additional-mid" | "additional-branch" | "ecom";
+export type CaseType = "low-risk" | "high-risk" | "additional-mid" | "new-location" | "einvoice" | "payment-gateway";
 export type DocumentStatus = "missing" | "uploaded";
-export type CaseStatus = "draft" | "submitted" | "in_review" | "approved" | "returned" | "escalated";
+export type CaseStatus = "incomplete" | "complete" | "submitted" | "in_review" | "approved" | "returned" | "escalated" | "exported";
+export type UserRole = "superadmin" | "sales" | "processing" | "management";
+
+// ── User / Auth ──
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  isActive: boolean;
+  createdAt: string;
+}
+
+// ── Case (DB row shape) ──
+
+export interface CaseRow {
+  id: string;
+  legal_name: string;
+  dba: string;
+  case_type: CaseType;
+  status: CaseStatus;
+  created_by: string | null;
+  assigned_to: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  readiness_score: number | null;
+  readiness_tier: string | null;
+  created_at: string;
+  // joined
+  creator?: { full_name: string; email: string };
+  assignee?: { full_name: string; email: string };
+}
+
+// ── Case Notes ──
+
+export type NoteType = "processing" | "return_reason" | "escalation" | "general";
+
+export interface CaseNote {
+  id: string;
+  caseId: string;
+  authorId: string;
+  noteType: NoteType;
+  content: string;
+  createdAt: string;
+  author?: { full_name: string; email: string };
+}
+
+// ── Case Status History ──
+
+export interface CaseStatusChange {
+  id: string;
+  caseId: string;
+  fromStatus: string | null;
+  toStatus: string;
+  changedBy: string | null;
+  note: string | null;
+  createdAt: string;
+  changer?: { full_name: string };
+}
 
 export interface UploadedFile {
   id: string;
@@ -19,6 +79,10 @@ export interface ChecklistItem {
   required: boolean;
   conditionalKey?: string;
   conditionalLabel?: string;
+  /** Renders a toggle ON this item's row that controls the given conditional key */
+  togglesConditional?: string;
+  /** Makes this item optional (not required) when the given conditional is active */
+  optionalWhen?: string;
   notes?: string[];
   sectionHeader?: string;
   files: UploadedFile[];
@@ -184,7 +248,7 @@ export interface EnhancedDuplicateWarning {
 // ── Cross-Document Consistency ──
 
 export interface ConsistencyWarning {
-  type: "name-mismatch" | "expired" | "shareholder-mismatch" | "iban-invalid" | "iban-checksum-failed" | "bank-name-missing" | "passport-shareholder-mismatch" | "shareholder-percentage-mismatch" | "trade-license-expiring-soon" | "iban-mismatch" | "account-name-mismatch" | "signatory-not-in-moa" | "activity-mismatch" | "bank-statement-stale" | "vat-name-mismatch";
+  type: "name-mismatch" | "expired" | "shareholder-mismatch" | "iban-invalid" | "iban-checksum-failed" | "bank-name-missing" | "passport-shareholder-mismatch" | "shareholder-percentage-mismatch" | "trade-license-expiring-soon" | "iban-mismatch" | "account-name-mismatch" | "signatory-not-in-moa" | "activity-mismatch" | "bank-statement-stale" | "vat-name-mismatch" | "tl-number-mismatch";
   severity: "major" | "minor";
   message: string;
   docs: string[];
@@ -198,6 +262,8 @@ export interface SectionCheck {
   label: string;
   /** Alternative phrases — if ANY appears in the text, the section is considered present */
   patterns: string[];
+  /** Whether this section is required for completion scoring (default true) */
+  required?: boolean;
 }
 
 export interface DocumentTemplate {

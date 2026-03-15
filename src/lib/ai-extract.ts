@@ -4,36 +4,85 @@ import type { AIExtractionResult, AIExtractionMeta } from "./ai-types";
 
 // ── Image Rendering ──────────────────────────────────────────────────
 
+// Image cache: avoids re-rendering the same PDF for multiple AI calls
+const imageCache = new Map<string, string[]>();
+
+async function hashFileForImageCache(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer.slice(0, 65536));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return "img:" + hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+}
+
+/**
+ * Render a single PDF page to JPEG base64. Used for parallel rendering.
+ */
+async function renderPage(
+  pdf: { getPage: (n: number) => Promise<{ getViewport: (opts: { scale: number }) => { width: number; height: number }; render: (opts: { canvas: HTMLCanvasElement; viewport: { width: number; height: number } }) => { promise: Promise<void> } }> },
+  pageNum: number,
+  scale: number,
+): Promise<string> {
+  const page = await pdf.getPage(pageNum);
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvas, viewport }).promise;
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.75);
+  canvas.width = 0;
+  canvas.height = 0;
+  return dataUrl;
+}
+
 /**
  * Render a PDF file into an array of JPEG base64 data URLs (one per page).
- * Uses pdfjs-dist to render each page onto an offscreen canvas.
+ * Pages are rendered in parallel batches for speed.
+ * Results are cached so multiple AI calls on the same file don't re-render.
  */
-async function renderPDFToImages(file: File, maxPages = 30): Promise<string[]> {
+async function renderPDFToImages(file: File, maxPages = 20): Promise<string[]> {
+  // Check image cache first
+  const imgKey = await hashFileForImageCache(file);
+  const cached = imageCache.get(imgKey);
+  if (cached) return cached;
+
   const arrayBuffer = await file.arrayBuffer();
   const pdfjsLib = await import("pdfjs-dist");
   pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const pages = Math.min(pdf.numPages, maxPages);
-  const images: string[] = [];
 
-  for (let i = 1; i <= pages; i++) {
-    const page = await pdf.getPage(i);
-    // Scale 2.0 ≈ 144 DPI on A4 — good balance of quality and size
-    const viewport = page.getViewport({ scale: 2.0 });
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext("2d")!;
-    // White background for transparent areas
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvas, viewport }).promise;
-    // JPEG at 80% quality — keeps payload manageable
-    images.push(canvas.toDataURL("image/jpeg", 0.8));
-    // Clean up
-    canvas.width = 0;
-    canvas.height = 0;
+  // Render pages in parallel (batches of 4 to avoid memory pressure)
+  // Skip corrupted/unrenderable pages gracefully
+  const BATCH = 4;
+  const images: string[] = [];
+  for (let start = 0; start < pages; start += BATCH) {
+    const end = Math.min(start + BATCH, pages);
+    const batch = Array.from({ length: end - start }, (_, i) => start + i);
+    const results = await Promise.allSettled(
+      batch.map((idx) => renderPage(pdf as never, idx + 1, 1.5))
+    );
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        images.push(result.value);
+      } else {
+        console.warn("[PDF Render] Skipping corrupted page:", result.reason);
+      }
+    }
+  }
+
+  if (images.length === 0) {
+    throw new Error("No renderable pages found in PDF");
+  }
+
+  imageCache.set(imgKey, images);
+  // Evict old entries to prevent memory bloat
+  if (imageCache.size > 10) {
+    const firstKey = imageCache.keys().next().value;
+    if (firstKey) imageCache.delete(firstKey);
   }
 
   return images;
@@ -54,7 +103,7 @@ function imageFileToBase64(file: File): Promise<string[]> {
 /**
  * Convert any supported file into base64 page images.
  */
-async function fileToImages(file: File): Promise<string[]> {
+export async function fileToImages(file: File): Promise<string[]> {
   if (file.type === "application/pdf") {
     return renderPDFToImages(file);
   }
@@ -87,6 +136,7 @@ function defaultMeta(): AIExtractionMeta {
     pageCount: 0,
     warnings: ["AI extraction was not available"],
     detectedDocType: "unknown",
+    detectedDescription: "",
   };
 }
 
@@ -114,10 +164,11 @@ export async function aiExtractDocument(
     return cached;
   }
 
-  const attempt = async (): Promise<AIExtractionResult | null> => {
-    // 1. Render file to images
-    const images = await fileToImages(file);
-    if (signal?.aborted) return null;
+  const attempt = async (): Promise<{ result: AIExtractionResult | null; status?: number }> => {
+    // 1. Render file to images (limit for doc-detect — only need first 2 pages)
+    let images = await fileToImages(file);
+    if (docType === "doc-detect") images = images.slice(0, 2);
+    if (signal?.aborted) return { result: null };
 
     // 2. Call server API route
     const response = await fetch("/api/extract", {
@@ -131,25 +182,33 @@ export async function aiExtractDocument(
     if (!response.ok) {
       const errBody = await response.json().catch(() => ({}));
       console.warn(`[AI Extract] API returned ${response.status}:`, errBody);
-      return null;
+      return { result: null, status: response.status };
     }
 
     // 4. Parse result
     const result: AIExtractionResult = await response.json();
-    return result;
+    return { result };
   };
 
   try {
-    // First attempt
-    let result = await attempt();
+    const MAX_RETRIES = 3;
+    let result: AIExtractionResult | null = null;
 
-    // Auto-retry once on failure with 2s delay
-    if (!result && !signal?.aborted) {
-      console.info("[AI Extract] Retrying", docType, "in 2s...");
-      await new Promise((r) => setTimeout(r, 2000));
-      if (!signal?.aborted) {
-        result = await attempt();
-      }
+    for (let retry = 0; retry <= MAX_RETRIES; retry++) {
+      if (signal?.aborted) break;
+
+      const { result: attemptResult, status } = await attempt();
+      result = attemptResult;
+
+      if (result || signal?.aborted) break;
+
+      // No more retries left
+      if (retry >= MAX_RETRIES) break;
+
+      // Pick backoff based on status code: 429 (rate limit) gets longer wait
+      const delay = status === 429 ? 4000 : 2000;
+      console.info(`[AI Extract] Retrying ${docType} in ${delay / 1000}s (attempt ${retry + 2}/${MAX_RETRIES + 1}, status=${status ?? "unknown"})...`);
+      await new Promise((r) => setTimeout(r, delay));
     }
 
     // Cache successful result
@@ -165,68 +224,122 @@ export async function aiExtractDocument(
   }
 }
 
-// ── MDF Gold Standard Verification ──────────────────────────────────
+// ── Combined MDF Extraction + Section Verification ──────────────────
 
-interface MdfSectionResult {
-  name: string;
-  status: "complete" | "partial" | "missing";
-  filledFields: string[];
-  missingFields: string[];
-}
+/**
+ * Extract MDF fields AND verify section completeness in a SINGLE AI call.
+ * For single file: uses cached aiExtractDocument (1 call).
+ * For multi-file: combines all pages and sends one API call.
+ * The combined MDF prompt returns both field data and a "sections" array.
+ */
+export async function aiExtractMdf(
+  files: File[],
+  signal?: AbortSignal,
+): Promise<AIExtractionResult | null> {
+  if (files.length === 0) return null;
 
-interface MdfVerifyResponse {
-  sections: MdfSectionResult[];
-  overallScore: number;
-  isComplete: boolean;
-  hasSignature: boolean;
-  hasStamp: boolean;
-  warnings: string[];
+  // Single file: use the standard cached extraction path
+  if (files.length === 1) {
+    return aiExtractDocument(files[0], "mdf", signal);
+  }
+
+  // Multi-file: render ALL files and combine into one API call
+  const allImages: string[] = [];
+  for (const f of files) {
+    if (signal?.aborted) return null;
+    const imgs = await fileToImages(f);
+    allImages.push(...imgs);
+  }
+  if (signal?.aborted) return null;
+
+  try {
+    const response = await fetch("/api/extract", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ docType: "mdf", images: allImages }),
+      signal,
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") return null;
+    console.warn("[AI Extract MDF] Multi-file extraction failed:", err);
+    return null;
+  }
 }
 
 /**
- * Verify an MDF document against the gold-standard template using AI.
- * Returns a TemplateMatchResult for the template warnings UI.
+ * Parse MDF section verification data from a combined extraction result.
+ * The combined MDF prompt returns a "sections" array alongside field data.
+ * This function normalizes section names and computes matched/missing sections.
  */
-export async function aiVerifyMdf(
-  file: File,
-  signal?: AbortSignal,
-): Promise<{
+export function parseMdfSections(data: Record<string, unknown>): {
   matchedSections: string[];
   missingSections: string[];
-  confidence: number;
   isComplete: boolean;
   reason: string;
-  warnings: string[];
-} | null> {
-  const result = await aiExtractDocument(file, "mdf-verify", signal);
-  if (!result) return null;
+} | null {
+  const sections = data.sections as Array<{
+    name: string;
+    status: string;
+    sectionRequired?: boolean;
+    filledFields?: string[];
+    missingFields?: string[];
+  }> | undefined;
 
-  const d = result.data as unknown as MdfVerifyResponse;
-  if (!d.sections || !Array.isArray(d.sections)) return null;
+  if (!sections || !Array.isArray(sections) || sections.length === 0) return null;
+
+  const REQUIRED_SECTION_PATTERNS: [string, RegExp][] = [
+    ["Merchant Details", /merchant\s*details/i],
+    ["Contact Person", /contact\s*person/i],
+    ["Bank Account / Settlement", /bank\s*account|settlement/i],
+    ["Authorized Signatory & Beneficial Owner", /authorized\s*signator|beneficial\s*owner/i],
+    ["Fee Schedule", /fee\s*schedule/i],
+    ["Signatures & Stamps", /signature|stamp/i],
+  ];
+
+  function matchRequiredSection(name: string): string | null {
+    for (const [canonical, pattern] of REQUIRED_SECTION_PATTERNS) {
+      if (pattern.test(name)) return canonical;
+    }
+    return null;
+  }
 
   const matched: string[] = [];
   const missing: string[] = [];
+  const seenRequired = new Set<string>();
 
-  for (const section of d.sections) {
+  for (const section of sections) {
+    const canonicalName = matchRequiredSection(section.name);
+    if (!canonicalName) continue;
+    if (seenRequired.has(canonicalName)) continue;
+    seenRequired.add(canonicalName);
+
     if (section.status === "complete") {
-      matched.push(section.name);
+      matched.push(canonicalName);
     } else if (section.status === "partial") {
-      const missingDetail = section.missingFields?.length
-        ? ` (missing: ${section.missingFields.join(", ")})`
-        : "";
-      missing.push(`${section.name}${missingDetail}`);
+      if (section.missingFields && section.missingFields.length > 0) {
+        missing.push(`${canonicalName} (missing: ${section.missingFields.join(", ")})`);
+      } else {
+        matched.push(canonicalName);
+      }
     } else {
-      missing.push(section.name);
+      missing.push(canonicalName);
+    }
+  }
+
+  // Any required section the AI didn't mention → missing
+  for (const [canonical] of REQUIRED_SECTION_PATTERNS) {
+    if (!seenRequired.has(canonical)) {
+      missing.push(canonical);
     }
   }
 
   return {
     matchedSections: matched,
     missingSections: missing,
-    confidence: d.overallScore ?? 0,
-    isComplete: d.isComplete ?? false,
-    reason: `${matched.length} of ${matched.length + missing.length} sections complete`,
-    warnings: d.warnings ?? [],
+    isComplete: missing.length === 0,
+    reason: `${matched.length} of ${matched.length + missing.length} sections`,
   };
 }
 
