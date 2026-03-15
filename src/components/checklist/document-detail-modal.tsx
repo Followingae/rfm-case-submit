@@ -259,13 +259,13 @@ export function DocumentDetailModal({
       results.push({ icon: "warning", text: "Missing stamp" });
     }
 
-    // Completeness
+    // Completeness — only flag if AI has meaningful blank section data
     if (aiMeta?.isComplete && hasFiles) {
       results.push({ icon: "check", text: "All required sections present" });
-    } else if (aiMeta && !aiMeta.isComplete && hasFiles) {
+    } else if (aiMeta && !aiMeta.isComplete && hasFiles && aiMeta.blankSections && aiMeta.blankSections.length > 0) {
       results.push({
         icon: "warning",
-        text: "Some sections may be incomplete",
+        text: `${aiMeta.blankSections.length} section${aiMeta.blankSections.length !== 1 ? "s" : ""} may be incomplete`,
       });
     }
 

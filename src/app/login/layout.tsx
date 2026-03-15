@@ -4,7 +4,7 @@ export default function LoginLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-background px-4">
+    <div className="h-dvh w-full overflow-hidden bg-background">
       {children}
     </div>
   );

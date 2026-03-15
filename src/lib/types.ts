@@ -1,6 +1,6 @@
 export type CaseType = "low-risk" | "high-risk" | "additional-mid" | "new-location" | "einvoice" | "payment-gateway";
 export type DocumentStatus = "missing" | "uploaded";
-export type CaseStatus = "incomplete" | "complete" | "submitted" | "in_review" | "approved" | "returned" | "escalated" | "exported";
+export type CaseStatus = "incomplete" | "complete" | "submitted" | "in_review" | "approved" | "returned" | "escalated" | "exported" | "active" | "renewal_pending" | "suspended" | "closed";
 export type UserRole = "superadmin" | "sales" | "processing" | "management";
 
 // ── User / Auth ──

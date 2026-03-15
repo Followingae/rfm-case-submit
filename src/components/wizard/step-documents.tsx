@@ -248,6 +248,7 @@ export function StepDocuments({
                   onRawFilesAdded={onShareholderRawFiles}
                   kycExpiryFlags={kycExpiryFlags}
                   aiMetadata={aiMetadata}
+                  uploadProgress={uploadProgress}
                 />
               )}
             </div>

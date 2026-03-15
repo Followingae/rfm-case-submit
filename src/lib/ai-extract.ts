@@ -165,9 +165,22 @@ export async function aiExtractDocument(
   }
 
   const attempt = async (): Promise<{ result: AIExtractionResult | null; status?: number }> => {
-    // 1. Render file to images (limit for doc-detect — only need first 2 pages)
+    // 1. Render file to images (limit pages based on doc type to reduce payload)
+    const maxPagesByType: Record<string, number> = {
+      "doc-detect": 2,
+      "trade-license": 4,
+      "bank-statement": 4,
+      "vat-cert": 2,
+      "passport": 2,
+      "eid": 2,
+      "tenancy": 3,
+      "pep-form": 3,
+      "supplier-invoice": 3,
+      "iban-letter": 2,
+    };
+    const maxPages = maxPagesByType[docType] || 10;
     let images = await fileToImages(file);
-    if (docType === "doc-detect") images = images.slice(0, 2);
+    images = images.slice(0, maxPages);
     if (signal?.aborted) return { result: null };
 
     // 2. Call server API route

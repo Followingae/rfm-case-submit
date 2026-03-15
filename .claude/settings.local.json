@@ -47,7 +47,11 @@
       "Bash(find:*)",
       "Bash(taskkill:*)",
       "Bash(wc:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "WebFetch(domain:www.svgrepo.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(yes n:*)",
+      "WebFetch(domain:business.wio.io)"
     ]
   }
 }

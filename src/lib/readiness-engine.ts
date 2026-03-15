@@ -365,6 +365,9 @@ export function computeReadiness(
 
   if (docCompleteness) {
     for (const [slotId, result] of docCompleteness) {
+      // Skip KYC document completeness — passport/EID auto-copy from shared uploads
+      // often results in low field detection; these are validated via KYC expiry checks instead
+      if (slotId.startsWith("eid::") || slotId.startsWith("passport::")) continue;
       if (!result.isAcceptable && result.totalFields > 0) {
         const label = `${slotId} completeness: ${result.percentage}%`;
         // Low completeness is a QA warning (exception), not a hard failure.
@@ -420,13 +423,33 @@ export function computeReadiness(
       // Blank sections — only flag truly critical missing MDF sections, not optional fields
       if (slotId === "mdf" && meta.blankSections.length > 0) {
         const OPTIONAL_FIELDS = new Set([
-          "swift code", "po box", "source of income", "source of capital",
-          "years in uae", "web address", "telephone", "email 2", "fax",
-          "dcc", "portal fee", "business insight fee",
+          // Settlement fields often left blank
+          "swift code", "swift code in section 5", "po box", "po box in section 1",
+          // KYC fields commonly blank
+          "projected monthly count", "projected monthly count in section",
+          "source of income", "source of capital", "years in uae",
+          "income country", "exact business nature", "activity details",
+          // Contact/comms fields
+          "web address", "telephone", "telephone no", "email 2", "fax",
+          // Fee fields
+          "dcc", "dcc rate", "portal fee", "business insight fee",
+          "msv shortfall", "chargeback fee", "refund fee",
+          // Other optional sections
+          "direct debit mandate", "declaration & sanctions",
         ]);
-        const criticalBlanks = meta.blankSections.filter(
-          (s) => !OPTIONAL_FIELDS.has(s.toLowerCase())
-        );
+        const criticalBlanks = meta.blankSections.filter((s) => {
+          const lower = s.toLowerCase().trim();
+          // Check exact match
+          if (OPTIONAL_FIELDS.has(lower)) return false;
+          // Strip "in Section X" suffix and check again
+          const stripped = lower.replace(/\s+in\s+section\s+\d+/i, "").trim();
+          if (OPTIONAL_FIELDS.has(stripped)) return false;
+          // Check if any optional field is contained in the string
+          for (const opt of OPTIONAL_FIELDS) {
+            if (lower.includes(opt) || opt.includes(stripped)) return false;
+          }
+          return true;
+        });
         if (criticalBlanks.length > 0) {
           items.push({
             itemId: `ai::${slotId}-blank`,

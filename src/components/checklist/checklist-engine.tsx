@@ -764,7 +764,7 @@ function UploadSlot({
                   if (templateMatch?.matched) {
                     const total = templateMatch.matchedSections.length + templateMatch.missingSections.length;
                     chips.push({ text: `${templateMatch.matchedSections.length}/${total} sections`, color: templateMatch.missingSections.length === 0 ? "green" : "amber" });
-                  } else if (docCompleteness) {
+                  } else if (docCompleteness && docCompleteness.totalFields > 0) {
                     chips.push({ text: `${docCompleteness.presentCount}/${docCompleteness.totalFields} fields`, color: docCompleteness.isAcceptable ? "green" : "amber" });
                   } else if (mdfValidation) {
                     chips.push({ text: `${mdfValidation.totalPresent}/${mdfValidation.totalChecked} fields`, color: mdfValidation.isAcceptable ? "green" : "amber" });
@@ -870,7 +870,7 @@ function UploadSlot({
                       else if (aiMeta && !aiMeta.hasStamp) findings.push({ icon: "warn", text: "Missing stamp" });
                     }
                     if (aiMeta?.isComplete) findings.push({ icon: "check", text: "All sections present" });
-                    else if (aiMeta && !aiMeta.isComplete) findings.push({ icon: "warn", text: "Some sections may be incomplete" });
+                    else if (aiMeta && !aiMeta.isComplete && aiMeta.blankSections && aiMeta.blankSections.length > 0) findings.push({ icon: "warn", text: `${aiMeta.blankSections.length} section${aiMeta.blankSections.length !== 1 ? "s" : ""} may be incomplete` });
                     if (isMismatch && aiMeta?.detectedDescription) findings.push({ icon: "error", text: `This appears to be: ${aiMeta.detectedDescription}` });
                     // Enterprise intelligence findings
                     if (aiMeta?.sanctionsFlags && aiMeta.sanctionsFlags.length > 0) {
@@ -949,8 +949,8 @@ function UploadSlot({
                     </div>
                   )}
 
-                  {/* Non-MDF document field completeness */}
-                  {docCompleteness && !mdfValidation && !isMismatch && (
+                  {/* Non-MDF document field completeness — only show if we have actual fields */}
+                  {docCompleteness && docCompleteness.totalFields > 0 && !mdfValidation && !isMismatch && (
                     <div className="space-y-1">
                       <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
                         Fields — {docCompleteness.presentCount}/{docCompleteness.totalFields}

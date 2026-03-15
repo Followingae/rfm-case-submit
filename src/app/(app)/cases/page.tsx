@@ -27,11 +27,16 @@ const STATUS_STYLES: Record<string, string> = {
   returned: "bg-red-500/10 text-red-600 dark:text-red-400",
   escalated: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
   exported: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  active: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  renewal_pending: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  suspended: "bg-red-500/10 text-red-600 dark:text-red-400",
+  closed: "bg-muted/50 text-muted-foreground",
 };
 
 const ALL_STATUSES: CaseStatus[] = [
   "incomplete", "complete", "submitted", "in_review",
   "approved", "returned", "escalated", "exported",
+  "active", "renewal_pending", "suspended", "closed",
 ];
 
 function StatusBadge({ status }: { status: string }) {

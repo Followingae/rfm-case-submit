@@ -20,6 +20,7 @@ import {
   ChevronDown,
   ChevronUp,
   Pencil,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LAYOUT } from "@/lib/layout";
@@ -52,6 +53,7 @@ interface CaseDetail {
   readiness_score: number | null;
   readiness_tier: string | null;
   created_at: string;
+  consistency_results?: unknown[];
   creator?: { full_name: string; email: string };
   assignee?: { full_name: string; email: string };
   reviewer?: { full_name: string; email: string };
@@ -97,10 +99,13 @@ export default function CaseDetailPage({
   const { id } = use(params);
   const router = useRouter();
   const { user, hasRole } = useAuth();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type AnyData = any;
   const [caseData, setCaseData] = useState<CaseDetail | null>(null);
   const [documents, setDocuments] = useState<CaseDoc[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [history, setHistory] = useState<StatusHistoryEntry[]>([]);
+  const [extracted, setExtracted] = useState<AnyData>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState("");
   const [returnReason, setReturnReason] = useState("");
@@ -108,18 +113,26 @@ export default function CaseDetailPage({
   const [newNote, setNewNote] = useState("");
   const [notesExpanded, setNotesExpanded] = useState(true);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [extractedExpanded, setExtractedExpanded] = useState(false);
 
   const fetchCase = useCallback(async () => {
-    const res = await fetch(`/api/cases/${id}`);
-    if (!res.ok) {
+    const [caseRes, extRes] = await Promise.all([
+      fetch(`/api/cases/${id}`),
+      fetch(`/api/cases/${id}/extracted-data`).catch(() => null),
+    ]);
+    if (!caseRes.ok) {
       toast.error("Failed to load case");
       return;
     }
-    const data = await res.json();
+    const data = await caseRes.json();
     setCaseData(data.case);
     setDocuments(data.documents || []);
     setNotes(data.notes || []);
     setHistory(data.statusHistory || []);
+    if (extRes?.ok) {
+      const extData = await extRes.json();
+      setExtracted(extData);
+    }
     setLoading(false);
   }, [id]);
 
@@ -211,6 +224,18 @@ export default function CaseDetailPage({
 
           {/* Action buttons */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Sales: Continue draft cases */}
+            {canSubmit && ["incomplete", "complete"].includes(status) && (
+              <Button
+                size="sm"
+                onClick={() => router.push(`/case/new?caseId=${id}`)}
+                className="gap-1.5"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Continue Editing
+              </Button>
+            )}
+
             {/* Sales: Edit returned cases */}
             {canSubmit && status === "returned" && (
               <Button
@@ -221,6 +246,31 @@ export default function CaseDetailPage({
               >
                 <Pencil className="h-3.5 w-3.5" />
                 Edit & Resubmit
+              </Button>
+            )}
+
+            {/* Sales: Delete draft cases */}
+            {canSubmit && ["incomplete", "complete"].includes(status) && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  if (!confirm("Are you sure you want to delete this draft case? This cannot be undone.")) return;
+                  setActionLoading("delete");
+                  const res = await fetch(`/api/cases/${id}`, { method: "DELETE" });
+                  if (res.ok) {
+                    toast.success("Case deleted");
+                    router.push("/cases");
+                  } else {
+                    toast.error("Failed to delete case");
+                  }
+                  setActionLoading("");
+                }}
+                disabled={!!actionLoading}
+                className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10"
+              >
+                {actionLoading === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+                Delete Draft
               </Button>
             )}
 
@@ -326,6 +376,102 @@ export default function CaseDetailPage({
             </div>
           </div>
         </div>
+
+        {/* Return Feedback Card */}
+        {status === "returned" && notes.some((n) => n.note_type === "return_reason") && (
+          <div className="mt-6 rounded-xl border border-red-500/20 bg-red-500/[0.04] p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <RotateCcw className="h-4 w-4 text-red-500" />
+              <p className="text-sm font-medium text-red-600 dark:text-red-400">Return Feedback from Processing</p>
+            </div>
+            {notes.filter((n) => n.note_type === "return_reason").map((n) => (
+              <div key={n.id} className="rounded-lg bg-red-500/5 px-4 py-3 mb-2 last:mb-0">
+                <p className="text-sm">{n.content}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {n.author?.full_name || "Processing"} — {new Date(n.created_at).toLocaleDateString("en-GB")}
+                </p>
+              </div>
+            ))}
+            {canSubmit && (
+              <button onClick={() => router.push(`/case/new?caseId=${id}`)}
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+                <Pencil className="h-3.5 w-3.5" /> Edit & Resubmit
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Consistency Warnings */}
+        {caseData.consistency_results && Array.isArray(caseData.consistency_results) && caseData.consistency_results.length > 0 && (
+          <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-5">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-amber-600/70 mb-3">
+              Consistency Warnings ({(caseData.consistency_results as AnyData[]).length})
+            </p>
+            <div className="space-y-2">
+              {(caseData.consistency_results as AnyData[]).map((w: AnyData, i: number) => (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                  <span className="text-muted-foreground">{w.message}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Extracted Merchant Data Preview */}
+        {extracted?.merchantDetails && (
+          <div className="mt-6 rounded-xl border border-border/50 bg-card">
+            <button onClick={() => setExtractedExpanded(!extractedExpanded)}
+              className="flex w-full items-center gap-2 px-5 py-4">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <span className="flex-1 text-left text-sm font-medium">AI-Extracted Merchant Data</span>
+              {extractedExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            </button>
+            {extractedExpanded && (
+              <div className="border-t border-border/30 px-5 py-4">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 text-sm">
+                  {[
+                    ["Legal Name", extracted.merchantDetails.merchant_legal_name],
+                    ["DBA", extracted.merchantDetails.doing_business_as],
+                    ["Emirate", extracted.merchantDetails.emirate],
+                    ["Address", extracted.merchantDetails.address],
+                    ["Contact", extracted.merchantDetails.contact_name],
+                    ["Mobile", extracted.merchantDetails.mobile_no],
+                    ["Email", extracted.merchantDetails.email_1],
+                    ["IBAN", extracted.merchantDetails.iban],
+                    ["Bank", extracted.merchantDetails.bank_name],
+                    ["Business Type", extracted.merchantDetails.business_type],
+                  ].map(([label, value]) => (
+                    <div key={label as string}>
+                      <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/60">{label}</span>
+                      <p className="mt-0.5 text-sm font-medium truncate">{(value as string) || "—"}</p>
+                    </div>
+                  ))}
+                </div>
+                {extracted.tradeLicense && (
+                  <div className="mt-4 pt-4 border-t border-border/30 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 text-sm">
+                    {[
+                      ["TL Number", extracted.tradeLicense.license_number],
+                      ["TL Expiry", extracted.tradeLicense.expiry_date],
+                      ["Authority", extracted.tradeLicense.authority],
+                      ["Activities", extracted.tradeLicense.activities],
+                    ].map(([label, value]) => (
+                      <div key={label as string}>
+                        <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/60">{label}</span>
+                        <p className="mt-0.5 text-sm font-medium truncate">{(value as string) || "—"}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {hasRole("processing") && (
+                  <Link href={`/cases/${id}/review`} className="mt-4 inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
+                    View full extracted data →
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Documents */}
         <div className="mt-6 rounded-xl border border-border/50 bg-card p-5">

@@ -5,8 +5,8 @@ import { checkRateLimit, remainingRequests } from "@/lib/rate-limiter";
 import { requireAuth } from "@/lib/auth-guard";
 import type { AIExtractionMeta } from "@/lib/ai-types";
 
-// Allow large bodies (multi-page PDF images)
-export const maxDuration = 60;
+// Allow large bodies and long AI processing time
+export const maxDuration = 120;
 
 const MODEL_NAME = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
@@ -35,12 +35,48 @@ const AI_DOCTYPE_ALIASES: Record<string, string> = {
   "bank-letter": "iban-letter",
   "account-confirmation": "iban-letter",
   "bank-confirmation": "iban-letter",
+  // Trade license variants
+  "commercial-license": "trade-license",
+  "trade license": "trade-license",
+  "commercial license": "trade-license",
+  "license": "trade-license",
+  "business-license": "trade-license",
+  "trading-license": "trade-license",
+  // MOA variants
+  "memorandum-of-association": "moa",
+  "memorandum of association": "moa",
+  "articles-of-association": "moa",
+  "articles of association": "moa",
+  "company-memorandum": "moa",
+  // Passport variants
+  "passport-page": "passport",
+  "passport page": "passport",
+  // EID variants
+  "emirates-id": "eid",
+  "emirates id": "eid",
+  "national-id": "eid",
+  "id-card": "eid",
+  // Bank statement variants
+  "bank-statement": "bank-statement",
+  "account-statement": "bank-statement",
+  "bank statement": "bank-statement",
+  // VAT variants
+  "vat-certificate": "vat-cert",
+  "vat certificate": "vat-cert",
+  "tax-registration": "vat-cert",
+  "trn-certificate": "vat-cert",
 };
 
 function normalizeDocType(raw: string | undefined | null): string {
   if (!raw) return "unknown";
   const lower = raw.toLowerCase().trim();
-  return AI_DOCTYPE_ALIASES[lower] || lower;
+  // Check exact alias match first
+  if (AI_DOCTYPE_ALIASES[lower]) return AI_DOCTYPE_ALIASES[lower];
+  // Try with spaces replaced by hyphens
+  const hyphenated = lower.replace(/\s+/g, "-");
+  if (AI_DOCTYPE_ALIASES[hyphenated]) return AI_DOCTYPE_ALIASES[hyphenated];
+  // Return hyphenated version (standardize)
+  return hyphenated;
 }
 
 function parseAIResponse(raw: string): { data: Record<string, unknown>; meta: AIExtractionMeta } {

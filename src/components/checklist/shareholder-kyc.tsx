@@ -11,6 +11,7 @@ import {
   Sparkles,
   ShieldAlert,
   Calendar,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ interface ShareholderKYCProps {
   onRawFilesAdded: (key: string, files: File[]) => void;
   kycExpiryFlags?: Map<string, KycExpiryFlag>;
   aiMetadata?: Map<string, AIExtractionMeta>;
+  uploadProgress?: Map<string, { phase: string; message: string }>;
 }
 
 export function ShareholderKYCSection({
@@ -34,6 +36,7 @@ export function ShareholderKYCSection({
   onRawFilesAdded,
   kycExpiryFlags,
   aiMetadata,
+  uploadProgress,
 }: ShareholderKYCProps) {
   const addShareholder = () => {
     onUpdate([
@@ -179,6 +182,8 @@ export function ShareholderKYCSection({
           const pctNum = parseFloat(sh.percentage);
           const isBelow25 = !isNaN(pctNum) && pctNum < 25;
 
+          const passportProgress = uploadProgress?.get(`kyc::${sh.id}::passportFiles`);
+          const eidProgress = uploadProgress?.get(`kyc::${sh.id}::eidFiles`);
           const expiryFlag = kycExpiryFlags?.get(sh.id);
           const passportMeta = aiMetadata?.get(`passport::${sh.id}`);
           const eidMeta = aiMetadata?.get(`eid::${sh.id}`);
@@ -265,7 +270,9 @@ export function ShareholderKYCSection({
                     onClick={() => document.getElementById(`passport-${sh.id}`)?.click()}
                     className={cn(
                       "flex h-7 items-center gap-1 rounded-md px-2.5 text-[11px] font-medium transition-colors",
-                      passportDone && expiryFlag?.passportExpired
+                      passportProgress
+                        ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 animate-pulse"
+                        : passportDone && expiryFlag?.passportExpired
                         ? "bg-red-500/10 text-red-600 dark:text-red-400"
                         : passportDone && passportMeta
                         ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
@@ -274,7 +281,9 @@ export function ShareholderKYCSection({
                         : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
-                    {passportDone && expiryFlag?.passportExpired ? (
+                    {passportProgress ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : passportDone && expiryFlag?.passportExpired ? (
                       <ShieldAlert className="h-3 w-3" />
                     ) : passportDone && passportMeta ? (
                       <Sparkles className="h-3 w-3" />
@@ -283,7 +292,7 @@ export function ShareholderKYCSection({
                     ) : (
                       <Upload className="h-3 w-3" />
                     )}
-                    Passport
+                    {passportProgress ? (passportProgress.phase === "uploading" ? "Uploading..." : "Analyzing...") : "Passport"}
                   </button>
 
                   <input
@@ -297,7 +306,9 @@ export function ShareholderKYCSection({
                     onClick={() => document.getElementById(`eid-${sh.id}`)?.click()}
                     className={cn(
                       "flex h-7 items-center gap-1 rounded-md px-2.5 text-[11px] font-medium transition-colors",
-                      eidDone && expiryFlag?.eidExpired
+                      eidProgress
+                        ? "bg-violet-500/10 text-violet-600 dark:text-violet-400 animate-pulse"
+                        : eidDone && expiryFlag?.eidExpired
                         ? "bg-red-500/10 text-red-600 dark:text-red-400"
                         : eidDone && eidMeta
                         ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
@@ -306,7 +317,9 @@ export function ShareholderKYCSection({
                         : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
-                    {eidDone && expiryFlag?.eidExpired ? (
+                    {eidProgress ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : eidDone && expiryFlag?.eidExpired ? (
                       <ShieldAlert className="h-3 w-3" />
                     ) : eidDone && eidMeta ? (
                       <Sparkles className="h-3 w-3" />
@@ -315,7 +328,7 @@ export function ShareholderKYCSection({
                     ) : (
                       <Upload className="h-3 w-3" />
                     )}
-                    EID
+                    {eidProgress ? (eidProgress.phase === "uploading" ? "Uploading..." : "Analyzing...") : "EID"}
                   </button>
 
                   <button

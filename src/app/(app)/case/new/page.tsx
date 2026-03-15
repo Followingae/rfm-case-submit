@@ -116,7 +116,6 @@ function NewCasePageInner() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const [step, setStep] = useState(0);
-  // Support re-submission: if caseId is in URL, use that instead of generating new
   const existingCaseId = searchParams.get("caseId");
   const caseIdRef = useRef(existingCaseId || uuid());
 
@@ -250,29 +249,14 @@ function NewCasePageInner() {
     const expectedTypes = SLOT_TO_DOCTYPE[slotId] || [];
     if (expectedTypes.length === 0) return; // no mapping for this slot
 
-    // Flag unknown/unrecognized documents instead of silently skipping
+    // If extraction couldn't identify doc type, that's OK — the document is already
+    // in the correct slot (either placed by user or by bulk classifier). Don't flag it.
     if (!detected || detected === "unknown" || detected === "other") {
-      const expectedLabel = checklist.find(i => i.id === slotId)?.label || slotId;
-      setUploadValidations(prev => {
-        const next = new Map(prev);
-        next.set(slotId, {
-          status: "unknown",
-          confidence: meta.confidence,
-          detectedDocType: detected || null,
-          detectedLabel: null,
-          expectedDocType: expectedTypes[0] || slotId,
-          expectedLabel,
-          suggestedSlotId: null,
-          suggestedSlotLabel: null,
-          message: "This document couldn't be identified. Please double-check it's the correct file.",
-          referenceUsed: false,
-        });
-        return next;
-      });
       return;
     }
 
-    const isMatch = expectedTypes.includes(detected);
+    const isMatch = expectedTypes.includes(detected) ||
+      expectedTypes.some(et => detected.includes(et) || et.includes(detected));
 
     if (isMatch) {
       // Set "pass" upload validation — shows "AI Verified" in UI
@@ -1215,6 +1199,9 @@ function NewCasePageInner() {
       );
 
       rawFiles.forEach(async (file) => {
+        // Show upload progress for KYC docs
+        setSlotProgress(key, { phase: "uploading", message: "Uploading..." });
+
         const path = await uploadFile(caseId, `kyc/${shareholderId}`, file);
         if (path) {
           const paths = uploadedPathsRef.current.get(key) || [];
@@ -1235,6 +1222,7 @@ function NewCasePageInner() {
         if (file.type.startsWith("image/") || file.type === "application/pdf") {
           try {
             if (docType === "passport") {
+              setSlotProgress(key, { phase: "analyzing", message: "Scanning passport..." });
               // AI extraction
               const aiResult = await aiExtractDocument(file, "passport");
 
@@ -1340,6 +1328,7 @@ function NewCasePageInner() {
               }
             } else {
               // EID — AI extraction
+              setSlotProgress(key, { phase: "analyzing", message: "Scanning Emirates ID..." });
               const aiResult = await aiExtractDocument(file, "eid");
 
               if (aiResult) {
@@ -1441,7 +1430,11 @@ function NewCasePageInner() {
             }
           } catch {
             // Silent fail — AI is best-effort
+          } finally {
+            setSlotProgress(key, null);
           }
+        } else {
+          setSlotProgress(key, null);
         }
       });
 
@@ -1713,7 +1706,7 @@ function NewCasePageInner() {
   }, [recomputeReadiness, submissionDetails, readiness]);
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col overflow-hidden md:h-dvh">
+    <div className="flex h-full flex-col overflow-hidden">
       <WizardShell currentStep={step}>
         {step === 0 && (
           <StepMerchant

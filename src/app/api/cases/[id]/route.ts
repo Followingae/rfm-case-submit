@@ -109,3 +109,52 @@ export async function PATCH(
 
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const user = await requireAuth(["superadmin", "sales"]);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await params;
+  const supabase = await createSupabaseServer();
+
+  // Get case and verify ownership + status
+  const { data: caseData } = await supabase
+    .from("cases")
+    .select("id, status, created_by")
+    .eq("id", id)
+    .single();
+
+  if (!caseData) {
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  }
+
+  // Sales can only delete their own drafts
+  if (user.role === "sales" && caseData.created_by !== user.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Can only delete draft cases (incomplete/complete)
+  if (!["incomplete", "complete"].includes(caseData.status)) {
+    return NextResponse.json(
+      { error: "Can only delete draft cases. Submitted cases must be handled by Processing." },
+      { status: 400 }
+    );
+  }
+
+  // Delete (CASCADE will handle child tables)
+  const { error } = await supabase
+    .from("cases")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

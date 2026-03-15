@@ -1,175 +1,450 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
-  BarChart3,
-  FolderOpen,
-  Inbox,
-  CheckCircle2,
-  AlertTriangle,
-  RotateCcw,
-  Clock,
-  FileText,
-  Loader2,
+  BarChart3, FolderOpen, CheckCircle2, AlertTriangle, Clock, Users,
+  FileText, Shield, CreditCard, Loader2, Globe, TrendingUp,
+  Sparkles, Stamp, Timer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LAYOUT } from "@/lib/layout";
 import { useAuth } from "@/components/auth/auth-provider";
-import type { CaseRow, CaseType } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type D = any;
 
 const STATUS_STYLES: Record<string, string> = {
-  incomplete: "bg-muted/50 text-muted-foreground",
-  complete: "bg-blue-500/10 text-blue-600",
-  submitted: "bg-violet-500/10 text-violet-600",
-  in_review: "bg-amber-500/10 text-amber-600",
-  approved: "bg-emerald-500/10 text-emerald-600",
-  returned: "bg-red-500/10 text-red-600",
-  escalated: "bg-orange-500/10 text-orange-600",
-  exported: "bg-emerald-500/10 text-emerald-600",
+  incomplete: "bg-muted/50 text-muted-foreground", complete: "bg-blue-500/10 text-blue-600",
+  submitted: "bg-violet-500/10 text-violet-600", in_review: "bg-amber-500/10 text-amber-600",
+  approved: "bg-emerald-500/10 text-emerald-600", returned: "bg-red-500/10 text-red-600",
+  escalated: "bg-orange-500/10 text-orange-600", exported: "bg-emerald-500/10 text-emerald-600",
+  active: "bg-emerald-500/10 text-emerald-600",
 };
 
-interface Analytics {
-  total: number;
-  byStatus: Record<string, number>;
-  byCaseType: Record<string, number>;
-  avgReadiness: number;
-  recentCount: number; // last 7 days
-}
+const PERIODS = [
+  { id: "day", label: "Today" },
+  { id: "week", label: "This Week" },
+  { id: "month", label: "This Month" },
+  { id: "quarter", label: "Quarter" },
+  { id: "year", label: "Year" },
+  { id: "all", label: "All Time" },
+];
 
 export default function AnalyticsPage() {
   const { user, hasRole } = useAuth();
-  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [tab, setTab] = useState("overview");
+  const [period, setPeriod] = useState("all");
+  const [summary, setSummary] = useState<D>(null);
+  const [team, setTeam] = useState<D>(null);
+  const [docs, setDocs] = useState<D>(null);
+  const [compliance, setCompliance] = useState<D>(null);
+  const [financial, setFinancial] = useState<D>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!user) return;
-    // Fetch all cases and compute analytics client-side
-    fetch("/api/cases?limit=1000")
-      .then((r) => r.json())
-      .then((data) => {
-        const cases: CaseRow[] = data.cases || [];
-        const byStatus: Record<string, number> = {};
-        const byCaseType: Record<string, number> = {};
-        let readinessSum = 0;
-        let readinessCount = 0;
-        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-        let recentCount = 0;
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    const results = await Promise.all([
+      fetch("/api/analytics/summary").then((r) => r.json()).catch(() => null),
+      fetch(`/api/analytics/team?period=${period}`).then((r) => r.json()).catch(() => null),
+      fetch("/api/analytics/documents").then((r) => r.json()).catch(() => null),
+      fetch("/api/analytics/compliance").then((r) => r.json()).catch(() => null),
+      fetch("/api/analytics/financial").then((r) => r.json()).catch(() => null),
+    ]);
+    setSummary(results[0]);
+    setTeam(results[1]);
+    setDocs(results[2]);
+    setCompliance(results[3]);
+    setFinancial(results[4]);
+    setLoading(false);
+  }, [period]);
 
-        for (const c of cases) {
-          byStatus[c.status] = (byStatus[c.status] || 0) + 1;
-          if (c.case_type) byCaseType[c.case_type] = (byCaseType[c.case_type] || 0) + 1;
-          if (c.readiness_score != null) {
-            readinessSum += c.readiness_score;
-            readinessCount++;
-          }
-          if (new Date(c.created_at).getTime() > sevenDaysAgo) recentCount++;
-        }
+  useEffect(() => { if (user) fetchData(); }, [user, fetchData]);
 
-        setAnalytics({
-          total: data.total || cases.length,
-          byStatus,
-          byCaseType,
-          avgReadiness: readinessCount > 0 ? Math.round(readinessSum / readinessCount) : 0,
-          recentCount,
-        });
-      })
-      .finally(() => setLoading(false));
-  }, [user]);
-
-  if (!hasRole("management", "superadmin")) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">Access denied</p>
-      </div>
-    );
+  if (!hasRole("management")) {
+    return <div className="flex h-full items-center justify-center"><p className="text-sm text-muted-foreground">Access denied</p></div>;
   }
 
-  if (loading || !analytics) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+  if (loading) {
+    return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
+
+  const tabs = [
+    { id: "overview", label: "Overview", icon: BarChart3 },
+    { id: "team", label: "Team", icon: Users },
+    { id: "documents", label: "Documents", icon: FileText },
+    { id: "compliance", label: "Compliance", icon: Shield },
+    { id: "financial", label: "Financial", icon: CreditCard },
+  ];
 
   return (
     <div className="h-full overflow-y-auto">
       <div className={LAYOUT.page}>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Analytics</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Case submission overview and KPIs</p>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <h1 className="text-xl font-semibold tracking-tight">Analytics</h1>
+          {/* Period selector */}
+          <div className="flex items-center gap-1 rounded-lg border border-border/40 p-0.5">
+            {PERIODS.map((p) => (
+              <Button key={p.id} variant={period === p.id ? "default" : "ghost"} size="sm"
+                onClick={() => setPeriod(p.id)} className="h-7 text-xs px-2.5 rounded-md">
+                {p.label}
+              </Button>
+            ))}
+          </div>
         </div>
 
-        {/* Top-level KPIs */}
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <KPICard icon={FolderOpen} label="Total Cases" value={String(analytics.total)} color="text-primary" bgColor="bg-primary/10" />
-          <KPICard icon={Clock} label="Last 7 Days" value={String(analytics.recentCount)} color="text-blue-500" bgColor="bg-blue-500/10" />
-          <KPICard icon={BarChart3} label="Avg Readiness" value={`${analytics.avgReadiness}/100`} color="text-emerald-500" bgColor="bg-emerald-500/10" />
-          <KPICard icon={AlertTriangle} label="Escalated" value={String(analytics.byStatus.escalated || 0)} color="text-orange-500" bgColor="bg-orange-500/10" />
+        {/* Tab bar */}
+        <div className="mt-4 flex gap-0 border-b border-border/30 overflow-x-auto">
+          {tabs.map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={cn("flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap",
+                tab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+              )}>
+              <t.icon className="h-3.5 w-3.5" /> {t.label}
+            </button>
+          ))}
         </div>
 
-        {/* Status Breakdown */}
-        <div className="mt-8 rounded-xl border border-border/50 bg-card p-6">
-          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-4">
-            Cases by Status
-          </p>
-          <div className="space-y-2">
-            {Object.entries(analytics.byStatus)
-              .sort(([, a], [, b]) => b - a)
-              .map(([status, count]) => {
-                const pct = analytics.total > 0 ? (count / analytics.total) * 100 : 0;
-                return (
-                  <div key={status} className="flex items-center gap-3">
-                    <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium capitalize w-24", STATUS_STYLES[status] || STATUS_STYLES.incomplete)}>
-                      {status.replace("_", " ")}
-                    </span>
-                    <div className="flex-1 h-2 rounded-full bg-muted/30 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-primary/40 transition-all"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium tabular-nums w-8 text-right">{count}</span>
+        <div className="mt-6 space-y-6">
+
+          {/* ══ OVERVIEW ══ */}
+          {tab === "overview" && summary && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <KPI icon={FolderOpen} label="Total Cases" value={summary.totalCases || 0} color="text-primary" bg="bg-primary/10" />
+                <KPI icon={TrendingUp} label="This Month" value={summary.thisMonth || 0} color="text-blue-500" bg="bg-blue-500/10" />
+                <KPI icon={BarChart3} label="Avg Readiness" value={`${summary.avgReadiness || 0}`} suffix="/100" color="text-emerald-500" bg="bg-emerald-500/10" />
+                <KPI icon={CheckCircle2} label="Approval Rate" value={`${summary.approvalRate || 0}%`} color="text-emerald-500" bg="bg-emerald-500/10" />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <KPI icon={Clock} label="Avg Processing" value={`${summary.avgProcessingTime || 0}h`} color="text-amber-500" bg="bg-amber-500/10" />
+                <KPI icon={AlertTriangle} label="Escalated" value={summary.escalatedCount || 0} color="text-orange-500" bg="bg-orange-500/10" />
+                <KPI icon={Globe} label="Active Merchants" value={summary.activeMerchants || 0} color="text-emerald-500" bg="bg-emerald-500/10" />
+                <KPI icon={Clock} label="This Week" value={summary.thisWeek || 0} color="text-blue-500" bg="bg-blue-500/10" />
+              </div>
+              {summary.byStatus && (
+                <Card title="Status Distribution">
+                  <div className="space-y-2">
+                    {Object.entries(summary.byStatus as Record<string, number>)
+                      .sort(([, a], [, b]) => (b as number) - (a as number))
+                      .map(([status, count]) => {
+                        const pct = summary.totalCases > 0 ? ((count as number) / summary.totalCases) * 100 : 0;
+                        return (
+                          <div key={status} className="flex items-center gap-3">
+                            <Badge className={cn("w-28 justify-center text-xs border-0 capitalize", STATUS_STYLES[status])}>{status.replace("_", " ")}</Badge>
+                            <div className="flex-1 h-2 rounded-full bg-muted/30 overflow-hidden">
+                              <div className="h-full rounded-full bg-primary/40" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-sm font-medium tabular-nums w-8 text-right">{count as number}</span>
+                          </div>
+                        );
+                      })}
                   </div>
-                );
-              })}
-          </div>
-        </div>
+                </Card>
+              )}
+            </>
+          )}
 
-        {/* Case Type Breakdown */}
-        <div className="mt-6 rounded-xl border border-border/50 bg-card p-6">
-          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-4">
-            Cases by Type
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {Object.entries(analytics.byCaseType)
-              .sort(([, a], [, b]) => b - a)
-              .map(([type, count]) => (
-                <div key={type} className="flex items-center justify-between rounded-lg border border-border/30 px-4 py-3">
-                  <span className="text-sm font-medium capitalize text-foreground">
-                    {type.replace("-", " ")}
-                  </span>
-                  <span className="text-lg font-bold tabular-nums text-foreground">{count}</span>
+          {/* ══ TEAM ══ */}
+          {tab === "team" && team && (
+            <>
+              {/* Team summary KPIs */}
+              {team.teamSummary && (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <KPI icon={FolderOpen} label="Total Cases" value={team.teamSummary.totalCases} color="text-primary" bg="bg-primary/10" />
+                  <KPI icon={CheckCircle2} label="Approval Rate" value={`${team.teamSummary.overallApprovalRate}%`} color="text-emerald-500" bg="bg-emerald-500/10" />
+                  <KPI icon={AlertTriangle} label="Return Rate" value={`${team.teamSummary.overallReturnRate}%`} color="text-red-500" bg="bg-red-500/10" />
+                  <KPI icon={TrendingUp} label="Total Approved" value={team.teamSummary.totalApproved} color="text-emerald-500" bg="bg-emerald-500/10" />
                 </div>
-              ))}
-          </div>
+              )}
+
+              {/* Sales Leaderboard */}
+              {team.salesPerformance?.length > 0 && (
+                <Card title="Sales Team Performance">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border/30 text-xs text-muted-foreground/70">
+                          <th className="text-left py-2 pr-4 font-medium">Name</th>
+                          <th className="text-right py-2 px-3 font-medium">Created</th>
+                          <th className="text-right py-2 px-3 font-medium">Submitted</th>
+                          <th className="text-right py-2 px-3 font-medium">Approved</th>
+                          <th className="text-right py-2 px-3 font-medium">Returned</th>
+                          <th className="text-right py-2 px-3 font-medium">Avg Readiness</th>
+                          <th className="text-right py-2 px-3 font-medium">Approval %</th>
+                          <th className="text-right py-2 px-3 font-medium">Return %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {team.salesPerformance.map((s: D) => (
+                          <tr key={s.userId} className="border-b border-border/20 last:border-0">
+                            <td className="py-2.5 pr-4 font-medium">{s.name}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums">{s.casesCreated}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums">{s.casesSubmitted}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-emerald-600">{s.casesApproved}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-red-500">{s.casesReturned}</td>
+                            <td className="py-2.5 px-3 text-right">
+                              <span className={cn("tabular-nums font-medium",
+                                s.avgReadiness >= 85 ? "text-emerald-500" : s.avgReadiness >= 50 ? "text-amber-500" : "text-red-500"
+                              )}>{s.avgReadiness}/100</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-emerald-600">{s.approvalRate}%</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-red-500">{s.returnRate}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Readiness tier breakdown per user */}
+                  <div className="mt-4 pt-4 border-t border-border/30">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60 mb-3">Readiness Distribution by Rep</p>
+                    <div className="space-y-2">
+                      {team.salesPerformance.map((s: D) => {
+                        const total = (s.readinessTiers?.green || 0) + (s.readinessTiers?.amber || 0) + (s.readinessTiers?.red || 0);
+                        if (total === 0) return null;
+                        return (
+                          <div key={s.userId} className="flex items-center gap-3">
+                            <span className="text-xs w-24 truncate text-muted-foreground">{s.name}</span>
+                            <div className="flex-1 flex h-3 rounded-full overflow-hidden bg-muted/30">
+                              {s.readinessTiers?.green > 0 && <div className="bg-emerald-500 h-full" style={{ width: `${(s.readinessTiers.green / total) * 100}%` }} />}
+                              {s.readinessTiers?.amber > 0 && <div className="bg-amber-500 h-full" style={{ width: `${(s.readinessTiers.amber / total) * 100}%` }} />}
+                              {s.readinessTiers?.red > 0 && <div className="bg-red-500 h-full" style={{ width: `${(s.readinessTiers.red / total) * 100}%` }} />}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground/50 w-6 text-right">{total}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </Card>
+              )}
+
+              {/* Processor Performance */}
+              {team.processorPerformance?.length > 0 && (
+                <Card title="Processing Team Performance">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border/30 text-xs text-muted-foreground/70">
+                          <th className="text-left py-2 pr-4 font-medium">Name</th>
+                          <th className="text-right py-2 px-3 font-medium">Reviewed</th>
+                          <th className="text-right py-2 px-3 font-medium">Active</th>
+                          <th className="text-right py-2 px-3 font-medium">Approved</th>
+                          <th className="text-right py-2 px-3 font-medium">Returned</th>
+                          <th className="text-right py-2 px-3 font-medium">Escalated</th>
+                          <th className="text-right py-2 px-3 font-medium">Avg Time</th>
+                          <th className="text-right py-2 px-3 font-medium">SLA 24h</th>
+                          <th className="text-right py-2 px-3 font-medium">SLA 48h</th>
+                          <th className="text-right py-2 px-3 font-medium">Approval %</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {team.processorPerformance.map((p: D) => (
+                          <tr key={p.userId} className="border-b border-border/20 last:border-0">
+                            <td className="py-2.5 pr-4 font-medium">{p.name}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums">{p.casesReviewed}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-amber-500">{p.currentlyReviewing}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-emerald-600">{p.casesApproved}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-red-500">{p.casesReturned}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-orange-500">{p.casesEscalated}</td>
+                            <td className="py-2.5 px-3 text-right tabular-nums">{p.avgReviewTimeHours}h</td>
+                            <td className="py-2.5 px-3 text-right">
+                              <span className={cn("tabular-nums font-medium", p.sla24hRate >= 80 ? "text-emerald-500" : p.sla24hRate >= 50 ? "text-amber-500" : "text-red-500")}>{p.sla24hRate}%</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <span className={cn("tabular-nums font-medium", p.sla48hRate >= 90 ? "text-emerald-500" : p.sla48hRate >= 70 ? "text-amber-500" : "text-red-500")}>{p.sla48hRate}%</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right tabular-nums text-emerald-600">{p.approvalRate}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
+
+          {/* ══ DOCUMENTS ══ */}
+          {tab === "documents" && docs && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <KPI icon={FileText} label="Total Documents" value={docs.totalDocuments || 0} color="text-blue-500" bg="bg-blue-500/10" />
+                <KPI icon={AlertTriangle} label="Total Exceptions" value={docs.totalExceptions || 0} color="text-amber-500" bg="bg-amber-500/10" />
+                <KPI icon={Sparkles} label="Signature Rate" value={`${docs.signatureDetectionRate || 0}%`} color="text-violet-500" bg="bg-violet-500/10" />
+                <KPI icon={Stamp} label="Stamp Rate" value={`${docs.stampDetectionRate || 0}%`} color="text-violet-500" bg="bg-violet-500/10" />
+              </div>
+
+              {docs.documentsByCategory?.length > 0 && (
+                <Card title="Documents by Category">
+                  <div className="space-y-2">
+                    {docs.documentsByCategory.map((d: D) => (
+                      <div key={d.category} className="flex items-center justify-between">
+                        <span className="text-sm">{d.category}</span>
+                        <span className="text-sm font-medium tabular-nums">{d.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {docs.avgConfidenceByType?.length > 0 && (
+                <Card title="AI Confidence by Document Type">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border/30 text-xs text-muted-foreground/70">
+                          <th className="text-left py-2 pr-4 font-medium">Document</th>
+                          <th className="text-right py-2 px-3 font-medium">Avg Confidence</th>
+                          <th className="text-right py-2 px-3 font-medium">Samples</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {docs.avgConfidenceByType.map((d: D) => (
+                          <tr key={d.documentType} className="border-b border-border/20 last:border-0">
+                            <td className="py-2 pr-4">{d.documentType}</td>
+                            <td className="py-2 px-3 text-right">
+                              <span className={cn("tabular-nums font-medium",
+                                d.avgConfidence >= 80 ? "text-emerald-500" : d.avgConfidence >= 50 ? "text-amber-500" : "text-red-500"
+                              )}>{d.avgConfidence}%</span>
+                            </td>
+                            <td className="py-2 px-3 text-right tabular-nums text-muted-foreground">{d.sampleSize}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+
+              {docs.exceptionPatterns?.length > 0 && (
+                <Card title="Exception Patterns">
+                  <div className="space-y-2">
+                    {docs.exceptionPatterns.map((e: D) => (
+                      <div key={e.category} className="flex items-center justify-between">
+                        <span className="text-sm capitalize">{e.category?.replace(/-/g, " ")}</span>
+                        <span className="text-sm font-medium tabular-nums">{e.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {docs.exceptionsByItem?.length > 0 && (
+                <Card title="Most Excepted Items">
+                  <div className="space-y-2">
+                    {docs.exceptionsByItem.map((e: D) => (
+                      <div key={e.itemId} className="flex items-center justify-between">
+                        <span className="text-sm">{e.itemId}</span>
+                        <span className="text-sm font-medium tabular-nums">{e.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
+
+          {/* ══ COMPLIANCE ══ */}
+          {tab === "compliance" && compliance && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ComplianceCard icon={FileText} label="Expired Trade Licenses" value={compliance.expiredTradeLicenses || 0}
+                severity={compliance.expiredTradeLicenses > 0 ? "red" : "green"} />
+              <ComplianceCard icon={Users} label="Expired KYC Documents" value={compliance.expiredKyc || 0}
+                severity={compliance.expiredKyc > 0 ? "red" : "green"} />
+              <ComplianceCard icon={Shield} label="PEP Flagged Merchants" value={compliance.pepFlagged || 0}
+                severity={compliance.pepFlagged > 0 ? "amber" : "green"} />
+              <ComplianceCard icon={AlertTriangle} label="Sanctions Exposure" value={compliance.sanctionsExposure || 0}
+                severity={compliance.sanctionsExposure > 0 ? "red" : "green"} />
+            </div>
+          )}
+
+          {/* ══ FINANCIAL ══ */}
+          {tab === "financial" && financial && (
+            <>
+              {financial.avgRates && (
+                <Card title="Average Rates">
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                    <div><span className="text-xs text-muted-foreground/60">Avg POS Rate</span><p className="mt-0.5 text-lg font-semibold tabular-nums">{financial.avgRates.avgPosRate || "—"}</p></div>
+                    <div><span className="text-xs text-muted-foreground/60">Avg ECOM Rate</span><p className="mt-0.5 text-lg font-semibold tabular-nums">{financial.avgRates.avgEcomRate || "—"}</p></div>
+                  </div>
+                </Card>
+              )}
+              {financial.bankDistribution?.length > 0 && (
+                <Card title="Bank Distribution">
+                  <div className="space-y-2">
+                    {financial.bankDistribution.map((b: D) => (
+                      <div key={b.bank} className="flex items-center justify-between">
+                        <span className="text-sm">{b.bank || "Unknown"}</span>
+                        <span className="text-sm font-medium tabular-nums">{b.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+              {financial.emirateDistribution?.length > 0 && (
+                <Card title="Emirate Distribution">
+                  <div className="space-y-2">
+                    {financial.emirateDistribution.map((e: D) => (
+                      <div key={e.emirate} className="flex items-center justify-between">
+                        <span className="text-sm">{e.emirate || "Unknown"}</span>
+                        <span className="text-sm font-medium tabular-nums">{e.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function KPICard({ icon: Icon, label, value, color, bgColor }: {
-  icon: typeof FolderOpen; label: string; value: string; color: string; bgColor: string;
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border/50 bg-card p-6">
+      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-4">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function KPI({ icon: Icon, label, value, suffix, color, bg }: {
+  icon: typeof FolderOpen; label: string; value: number | string; suffix?: string; color: string; bg: string;
 }) {
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-5 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)]">
+    <div className="rounded-xl border border-border/40 bg-card p-4">
       <div className="flex items-center gap-3">
-        <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", bgColor)}>
-          <Icon className={cn("h-5 w-5", color)} />
+        <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", bg)}>
+          <Icon className={cn("h-[18px] w-[18px]", color)} />
         </div>
         <div>
-          <p className="text-2xl font-bold tabular-nums text-foreground">{value}</p>
+          <p className="text-2xl font-bold tabular-nums">{value}{suffix && <span className="text-sm text-muted-foreground/50 font-medium">{suffix}</span>}</p>
+          <p className="text-xs text-muted-foreground">{label}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ComplianceCard({ icon: Icon, label, value, severity }: {
+  icon: typeof Shield; label: string; value: number; severity: "green" | "amber" | "red";
+}) {
+  return (
+    <div className={cn("rounded-xl border p-5",
+      severity === "red" ? "border-red-500/20 bg-red-500/[0.03]" :
+      severity === "amber" ? "border-amber-500/20 bg-amber-500/[0.03]" :
+      "border-emerald-500/20 bg-emerald-500/[0.03]"
+    )}>
+      <div className="flex items-center gap-3">
+        <Icon className={cn("h-5 w-5",
+          severity === "red" ? "text-red-500" : severity === "amber" ? "text-amber-500" : "text-emerald-500"
+        )} />
+        <div>
+          <p className="text-2xl font-bold tabular-nums">{value}</p>
           <p className="text-xs text-muted-foreground">{label}</p>
         </div>
       </div>
