@@ -52,7 +52,13 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(yes n:*)",
       "WebFetch(domain:business.wio.io)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "WebFetch(domain:github.com)",
+      "mcp__supabase__execute_sql"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }
