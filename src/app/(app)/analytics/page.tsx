@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LAYOUT } from "@/lib/layout";
+import { StatusPieChart, TimeSeriesChart } from "@/components/charts/dashboard-charts";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ export default function AnalyticsPage() {
   const [docs, setDocs] = useState<D>(null);
   const [compliance, setCompliance] = useState<D>(null);
   const [financial, setFinancial] = useState<D>(null);
+  const [timeseries, setTimeseries] = useState<D[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
@@ -51,12 +53,14 @@ export default function AnalyticsPage() {
       fetch("/api/analytics/documents").then((r) => r.json()).catch(() => null),
       fetch("/api/analytics/compliance").then((r) => r.json()).catch(() => null),
       fetch("/api/analytics/financial").then((r) => r.json()).catch(() => null),
+      fetch(`/api/analytics/timeseries?period=${period === "all" ? "month" : period}`).then((r) => r.json()).catch(() => null),
     ]);
     setSummary(results[0]);
     setTeam(results[1]);
     setDocs(results[2]);
     setCompliance(results[3]);
     setFinancial(results[4]);
+    setTimeseries(results[5]?.timeseries || []);
     setLoading(false);
   }, [period]);
 
@@ -84,7 +88,7 @@ export default function AnalyticsPage() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <h1 className="text-xl font-semibold tracking-tight">Analytics</h1>
           {/* Period selector */}
-          <div className="flex items-center gap-1 rounded-lg border border-border/40 p-0.5">
+          <div className="flex items-center gap-1 rounded-lg border border-border/50 p-0.5">
             {PERIODS.map((p) => (
               <Button key={p.id} variant={period === p.id ? "default" : "ghost"} size="sm"
                 onClick={() => setPeriod(p.id)} className="h-7 text-xs px-2.5 rounded-md">
@@ -111,13 +115,13 @@ export default function AnalyticsPage() {
           {/* ══ OVERVIEW ══ */}
           {tab === "overview" && summary && (
             <>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <KPI icon={FolderOpen} label="Total Cases" value={summary.totalCases || 0} color="text-primary" bg="bg-primary/10" />
                 <KPI icon={TrendingUp} label="This Month" value={summary.thisMonth || 0} color="text-blue-500" bg="bg-blue-500/10" />
-                <KPI icon={BarChart3} label="Avg Readiness" value={`${summary.avgReadiness || 0}`} suffix="/100" color="text-emerald-500" bg="bg-emerald-500/10" />
+                <KPI icon={BarChart3} label="Submission Quality" value={`${summary.avgReadiness || 0}`} suffix="/100" color="text-emerald-500" bg="bg-emerald-500/10" />
                 <KPI icon={CheckCircle2} label="Approval Rate" value={`${summary.approvalRate || 0}%`} color="text-emerald-500" bg="bg-emerald-500/10" />
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <KPI icon={Clock} label="Avg Processing" value={`${summary.avgProcessingTime || 0}h`} color="text-amber-500" bg="bg-amber-500/10" />
                 <KPI icon={AlertTriangle} label="Escalated" value={summary.escalatedCount || 0} color="text-orange-500" bg="bg-orange-500/10" />
                 <KPI icon={Globe} label="Active Merchants" value={summary.activeMerchants || 0} color="text-emerald-500" bg="bg-emerald-500/10" />
@@ -143,6 +147,20 @@ export default function AnalyticsPage() {
                   </div>
                 </Card>
               )}
+
+              {/* Charts */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {timeseries.length > 0 && (
+                  <Card title="Cases Over Time">
+                    <TimeSeriesChart data={timeseries} />
+                  </Card>
+                )}
+                {summary?.byStatus && (
+                  <Card title="Status Breakdown">
+                    <StatusPieChart data={summary.byStatus} />
+                  </Card>
+                )}
+              </div>
             </>
           )}
 
@@ -151,7 +169,7 @@ export default function AnalyticsPage() {
             <>
               {/* Team summary KPIs */}
               {team.teamSummary && (
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <KPI icon={FolderOpen} label="Total Cases" value={team.teamSummary.totalCases} color="text-primary" bg="bg-primary/10" />
                   <KPI icon={CheckCircle2} label="Approval Rate" value={`${team.teamSummary.overallApprovalRate}%`} color="text-emerald-500" bg="bg-emerald-500/10" />
                   <KPI icon={AlertTriangle} label="Return Rate" value={`${team.teamSummary.overallReturnRate}%`} color="text-red-500" bg="bg-red-500/10" />
@@ -166,31 +184,31 @@ export default function AnalyticsPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-border/30 text-xs text-muted-foreground/70">
-                          <th className="text-left py-2 pr-4 font-medium">Name</th>
-                          <th className="text-right py-2 px-3 font-medium">Created</th>
-                          <th className="text-right py-2 px-3 font-medium">Submitted</th>
-                          <th className="text-right py-2 px-3 font-medium">Approved</th>
-                          <th className="text-right py-2 px-3 font-medium">Returned</th>
-                          <th className="text-right py-2 px-3 font-medium">Avg Readiness</th>
-                          <th className="text-right py-2 px-3 font-medium">Approval %</th>
-                          <th className="text-right py-2 px-3 font-medium">Return %</th>
+                          <th className="text-left py-3 pr-4 font-medium">Name</th>
+                          <th className="text-right py-3 px-3 font-medium">Created</th>
+                          <th className="text-right py-3 px-3 font-medium">Submitted</th>
+                          <th className="text-right py-3 px-3 font-medium">Approved</th>
+                          <th className="text-right py-3 px-3 font-medium">Returned</th>
+                          <th className="text-right py-3 px-3 font-medium">Sub. Quality</th>
+                          <th className="text-right py-3 px-3 font-medium">Approval %</th>
+                          <th className="text-right py-3 px-3 font-medium">Return %</th>
                         </tr>
                       </thead>
                       <tbody>
                         {team.salesPerformance.map((s: D) => (
                           <tr key={s.userId} className="border-b border-border/20 last:border-0">
-                            <td className="py-2.5 pr-4 font-medium">{s.name}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums">{s.casesCreated}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums">{s.casesSubmitted}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-emerald-600">{s.casesApproved}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-red-500">{s.casesReturned}</td>
-                            <td className="py-2.5 px-3 text-right">
+                            <td className="py-3 pr-4 font-medium">{s.name}</td>
+                            <td className="py-3 px-3 text-right tabular-nums">{s.casesCreated}</td>
+                            <td className="py-3 px-3 text-right tabular-nums">{s.casesSubmitted}</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-emerald-600">{s.casesApproved}</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-red-500">{s.casesReturned}</td>
+                            <td className="py-3 px-3 text-right">
                               <span className={cn("tabular-nums font-medium",
                                 s.avgReadiness >= 85 ? "text-emerald-500" : s.avgReadiness >= 50 ? "text-amber-500" : "text-red-500"
                               )}>{s.avgReadiness}/100</span>
                             </td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-emerald-600">{s.approvalRate}%</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-red-500">{s.returnRate}%</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-emerald-600">{s.approvalRate}%</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-red-500">{s.returnRate}%</td>
                           </tr>
                         ))}
                       </tbody>
@@ -227,35 +245,35 @@ export default function AnalyticsPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-border/30 text-xs text-muted-foreground/70">
-                          <th className="text-left py-2 pr-4 font-medium">Name</th>
-                          <th className="text-right py-2 px-3 font-medium">Reviewed</th>
-                          <th className="text-right py-2 px-3 font-medium">Active</th>
-                          <th className="text-right py-2 px-3 font-medium">Approved</th>
-                          <th className="text-right py-2 px-3 font-medium">Returned</th>
-                          <th className="text-right py-2 px-3 font-medium">Escalated</th>
-                          <th className="text-right py-2 px-3 font-medium">Avg Time</th>
-                          <th className="text-right py-2 px-3 font-medium">SLA 24h</th>
-                          <th className="text-right py-2 px-3 font-medium">SLA 48h</th>
-                          <th className="text-right py-2 px-3 font-medium">Approval %</th>
+                          <th className="text-left py-3 pr-4 font-medium">Name</th>
+                          <th className="text-right py-3 px-3 font-medium">Reviewed</th>
+                          <th className="text-right py-3 px-3 font-medium">Active</th>
+                          <th className="text-right py-3 px-3 font-medium">Approved</th>
+                          <th className="text-right py-3 px-3 font-medium">Returned</th>
+                          <th className="text-right py-3 px-3 font-medium">Escalated</th>
+                          <th className="text-right py-3 px-3 font-medium">Avg Time</th>
+                          <th className="text-right py-3 px-3 font-medium">SLA 24h</th>
+                          <th className="text-right py-3 px-3 font-medium">SLA 48h</th>
+                          <th className="text-right py-3 px-3 font-medium">Approval %</th>
                         </tr>
                       </thead>
                       <tbody>
                         {team.processorPerformance.map((p: D) => (
                           <tr key={p.userId} className="border-b border-border/20 last:border-0">
-                            <td className="py-2.5 pr-4 font-medium">{p.name}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums">{p.casesReviewed}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-amber-500">{p.currentlyReviewing}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-emerald-600">{p.casesApproved}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-red-500">{p.casesReturned}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-orange-500">{p.casesEscalated}</td>
-                            <td className="py-2.5 px-3 text-right tabular-nums">{p.avgReviewTimeHours}h</td>
-                            <td className="py-2.5 px-3 text-right">
+                            <td className="py-3 pr-4 font-medium">{p.name}</td>
+                            <td className="py-3 px-3 text-right tabular-nums">{p.casesReviewed}</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-amber-500">{p.currentlyReviewing}</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-emerald-600">{p.casesApproved}</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-red-500">{p.casesReturned}</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-orange-500">{p.casesEscalated}</td>
+                            <td className="py-3 px-3 text-right tabular-nums">{p.avgReviewTimeHours}h</td>
+                            <td className="py-3 px-3 text-right">
                               <span className={cn("tabular-nums font-medium", p.sla24hRate >= 80 ? "text-emerald-500" : p.sla24hRate >= 50 ? "text-amber-500" : "text-red-500")}>{p.sla24hRate}%</span>
                             </td>
-                            <td className="py-2.5 px-3 text-right">
+                            <td className="py-3 px-3 text-right">
                               <span className={cn("tabular-nums font-medium", p.sla48hRate >= 90 ? "text-emerald-500" : p.sla48hRate >= 70 ? "text-amber-500" : "text-red-500")}>{p.sla48hRate}%</span>
                             </td>
-                            <td className="py-2.5 px-3 text-right tabular-nums text-emerald-600">{p.approvalRate}%</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-emerald-600">{p.approvalRate}%</td>
                           </tr>
                         ))}
                       </tbody>
@@ -269,7 +287,7 @@ export default function AnalyticsPage() {
           {/* ══ DOCUMENTS ══ */}
           {tab === "documents" && docs && (
             <>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <KPI icon={FileText} label="Total Documents" value={docs.totalDocuments || 0} color="text-blue-500" bg="bg-blue-500/10" />
                 <KPI icon={AlertTriangle} label="Total Exceptions" value={docs.totalExceptions || 0} color="text-amber-500" bg="bg-amber-500/10" />
                 <KPI icon={Sparkles} label="Signature Rate" value={`${docs.signatureDetectionRate || 0}%`} color="text-violet-500" bg="bg-violet-500/10" />
@@ -295,21 +313,21 @@ export default function AnalyticsPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-border/30 text-xs text-muted-foreground/70">
-                          <th className="text-left py-2 pr-4 font-medium">Document</th>
-                          <th className="text-right py-2 px-3 font-medium">Avg Confidence</th>
-                          <th className="text-right py-2 px-3 font-medium">Samples</th>
+                          <th className="text-left py-3 pr-4 font-medium">Document</th>
+                          <th className="text-right py-3 px-3 font-medium">Avg Confidence</th>
+                          <th className="text-right py-3 px-3 font-medium">Samples</th>
                         </tr>
                       </thead>
                       <tbody>
                         {docs.avgConfidenceByType.map((d: D) => (
                           <tr key={d.documentType} className="border-b border-border/20 last:border-0">
-                            <td className="py-2 pr-4">{d.documentType}</td>
-                            <td className="py-2 px-3 text-right">
+                            <td className="py-3 pr-4">{d.documentType}</td>
+                            <td className="py-3 px-3 text-right">
                               <span className={cn("tabular-nums font-medium",
                                 d.avgConfidence >= 80 ? "text-emerald-500" : d.avgConfidence >= 50 ? "text-amber-500" : "text-red-500"
                               )}>{d.avgConfidence}%</span>
                             </td>
-                            <td className="py-2 px-3 text-right tabular-nums text-muted-foreground">{d.sampleSize}</td>
+                            <td className="py-3 px-3 text-right tabular-nums text-muted-foreground">{d.sampleSize}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -348,7 +366,7 @@ export default function AnalyticsPage() {
 
           {/* ══ COMPLIANCE ══ */}
           {tab === "compliance" && compliance && (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
               <ComplianceCard icon={FileText} label="Expired Trade Licenses" value={compliance.expiredTradeLicenses || 0}
                 severity={compliance.expiredTradeLicenses > 0 ? "red" : "green"} />
               <ComplianceCard icon={Users} label="Expired KYC Documents" value={compliance.expiredKyc || 0}
@@ -406,7 +424,7 @@ export default function AnalyticsPage() {
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-border/50 bg-card p-6">
-      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-4">{title}</p>
+      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60 mb-3">{title}</p>
       {children}
     </div>
   );
@@ -416,7 +434,7 @@ function KPI({ icon: Icon, label, value, suffix, color, bg }: {
   icon: typeof FolderOpen; label: string; value: number | string; suffix?: string; color: string; bg: string;
 }) {
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4">
+    <div className="rounded-xl border border-border/50 bg-card p-5">
       <div className="flex items-center gap-3">
         <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", bg)}>
           <Icon className={cn("h-[18px] w-[18px]", color)} />

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseServer } from "@/lib/supabase-server";
+import { createNotification, notifyRole } from "@/lib/notifications";
 
 export async function POST(
   req: NextRequest,
@@ -58,6 +59,8 @@ export async function POST(
     changed_by: user.id,
     note: reason || null,
   });
+
+  await notifyRole("management", "case_escalated", "Case Escalated", `A case has been escalated${reason ? `: ${reason}` : ""}`, id);
 
   return NextResponse.json({ ok: true, status: "escalated" });
 }

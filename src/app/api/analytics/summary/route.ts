@@ -26,6 +26,7 @@ export async function GET(_req: NextRequest) {
     escalatedRes,
     activeMerchantsRes,
     allCasesRes,
+    statusBreakdownRes,
   ] = await Promise.all([
     supabase.from("cases").select("id", { count: "exact", head: true }),
     supabase
@@ -55,6 +56,9 @@ export async function GET(_req: NextRequest) {
     supabase
       .from("cases")
       .select("readiness_score, submitted_at, reviewed_at"),
+    supabase
+      .from("cases")
+      .select("status"),
   ]);
 
   const totalCases = totalRes.count || 0;
@@ -103,6 +107,12 @@ export async function GET(_req: NextRequest) {
         ) / 10
       : 0;
 
+  // Status breakdown
+  const byStatus: Record<string, number> = {};
+  for (const row of statusBreakdownRes.data || []) {
+    byStatus[row.status] = (byStatus[row.status] || 0) + 1;
+  }
+
   return NextResponse.json({
     totalCases,
     thisWeek,
@@ -112,5 +122,6 @@ export async function GET(_req: NextRequest) {
     avgProcessingTime,
     escalatedCount,
     activeMerchants,
+    byStatus,
   });
 }

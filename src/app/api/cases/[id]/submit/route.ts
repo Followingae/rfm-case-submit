@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseServer } from "@/lib/supabase-server";
+import { createNotification, notifyRole } from "@/lib/notifications";
 
 export async function POST(
   req: NextRequest,
@@ -17,7 +18,7 @@ export async function POST(
   // Verify case exists and user owns it
   const { data: caseData } = await supabase
     .from("cases")
-    .select("id, status, created_by")
+    .select("id, status, created_by, legal_name")
     .eq("id", id)
     .single();
 
@@ -59,6 +60,8 @@ export async function POST(
     to_status: "submitted",
     changed_by: user.id,
   });
+
+  await notifyRole("processing", "case_submitted", "New Case Submitted", `${caseData.legal_name || "A merchant"} case has been submitted for review`, id);
 
   return NextResponse.json({ ok: true, status: "submitted" });
 }

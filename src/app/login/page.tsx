@@ -63,11 +63,6 @@ export default function LoginPage() {
 
         {/* Main content — vertically centered */}
         <div className="flex-1 flex flex-col justify-center max-w-lg">
-          {/* Step indicator */}
-          <p className="text-primary font-medium text-sm mb-4">
-            {step === 0 ? "1/2" : "2/2"}
-          </p>
-
           {/* Big bold statement */}
           {step === 0 ? (
             <h1 className="text-3xl md:text-[2.5rem] font-normal leading-[1.2] tracking-tight text-foreground">

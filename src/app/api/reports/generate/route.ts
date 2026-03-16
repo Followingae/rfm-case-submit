@@ -36,6 +36,8 @@ export async function POST(req: NextRequest) {
         return await generateComplianceReport(supabase);
       case "merchant-portfolio":
         return await generateMerchantPortfolioReport(supabase);
+      case "rate-summary":
+        return await generateRateSummaryReport(supabase);
       default:
         return NextResponse.json(
           { error: `Unknown report type: ${type}` },
@@ -468,4 +470,49 @@ async function generateMerchantPortfolioReport(supabase: any) {
   });
 
   return NextResponse.json({ type: "merchant-portfolio", columns, rows });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function generateRateSummaryReport(supabase: any) {
+  const { data: cases } = await supabase
+    .from("cases")
+    .select("id, legal_name")
+    .in("status", ["active", "exported", "approved", "renewal_pending"])
+    .order("legal_name", { ascending: true });
+
+  if (!cases || cases.length === 0) {
+    return NextResponse.json({ type: "rate-summary", columns: [], rows: [] });
+  }
+
+  const caseIds = cases.map((c: { id: string }) => c.id);
+  const caseMap = new Map(
+    cases.map((c: { id: string; legal_name: string }) => [c.id, c.legal_name])
+  );
+
+  const { data: fees } = await supabase
+    .from("ocr_fee_schedule")
+    .select("case_id, card_type, pos_rate, ecom_rate, premium_rate, international_rate, dcc_rate")
+    .in("case_id", caseIds);
+
+  const columns = [
+    "Merchant",
+    "Card Type",
+    "POS Rate",
+    "ECOM Rate",
+    "Premium Rate",
+    "International Rate",
+    "DCC Rate",
+  ];
+
+  const rows = (fees || []).map((f: { case_id: string; card_type: string; pos_rate: string; ecom_rate: string; premium_rate: string; international_rate: string; dcc_rate: string }) => ({
+    merchantName: caseMap.get(f.case_id) || "",
+    cardType: f.card_type,
+    posRate: f.pos_rate || "—",
+    ecomRate: f.ecom_rate || "—",
+    premiumRate: f.premium_rate || "—",
+    internationalRate: f.international_rate || "—",
+    dccRate: f.dcc_rate || "—",
+  }));
+
+  return NextResponse.json({ type: "rate-summary", columns, rows });
 }

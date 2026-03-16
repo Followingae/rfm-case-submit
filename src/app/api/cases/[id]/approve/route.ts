@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseServer } from "@/lib/supabase-server";
+import { createNotification, notifyRole } from "@/lib/notifications";
 
 export async function POST(
   req: NextRequest,
@@ -16,7 +17,7 @@ export async function POST(
 
   const { data: caseData } = await supabase
     .from("cases")
-    .select("id, status")
+    .select("id, status, created_by")
     .eq("id", id)
     .single();
 
@@ -53,6 +54,10 @@ export async function POST(
     to_status: "approved",
     changed_by: user.id,
   });
+
+  if (caseData.created_by) {
+    await createNotification({ userId: caseData.created_by, type: "case_approved", title: "Case Approved", message: `Your case has been approved`, caseId: id });
+  }
 
   return NextResponse.json({ ok: true, status: "approved" });
 }

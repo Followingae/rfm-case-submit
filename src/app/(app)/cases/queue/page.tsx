@@ -90,7 +90,7 @@ export default function ProcessingQueuePage() {
         {/* My Active Reviews */}
         {myReviews.length > 0 && (
           <>
-            <p className="mt-8 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">
+            <p className="mt-6 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">
               My Active Reviews ({myReviews.length})
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -118,19 +118,19 @@ export default function ProcessingQueuePage() {
         )}
 
         {/* Unassigned Queue */}
-        <p className="mt-8 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">
+        <p className="mt-6 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">
           Waiting for Review ({unassigned.length})
         </p>
 
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : unassigned.length === 0 ? (
-          <div className="mt-3 rounded-xl border border-border/40 bg-card p-12 text-center">
+          <div className="mt-3 rounded-xl border border-border/50 bg-card p-12 text-center">
             <Inbox className="mx-auto h-10 w-10 text-muted-foreground/20" />
             <p className="mt-3 text-sm text-muted-foreground">Queue is empty</p>
           </div>
         ) : (
-          <div className="mt-3 rounded-xl border border-border/40 bg-card overflow-hidden">
+          <div className="mt-3 rounded-xl border border-border/50 bg-card overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/30 text-left text-xs text-muted-foreground/70">

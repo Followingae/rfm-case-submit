@@ -122,7 +122,7 @@ export default function ExpiriesPage() {
         </div>
 
         {/* Filters */}
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input placeholder="Search merchant..." value={search} onChange={(e) => setSearch(e.target.value)}
@@ -158,7 +158,7 @@ export default function ExpiriesPage() {
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : expiries.length === 0 ? (
-          <div className="mt-6 rounded-xl border border-border/40 bg-card p-12 text-center">
+          <div className="mt-6 rounded-xl border border-border/50 bg-card p-12 text-center">
             <Calendar className="mx-auto h-10 w-10 text-muted-foreground/20" />
             <p className="mt-3 text-sm text-muted-foreground">No expiring documents in this window</p>
           </div>
@@ -186,7 +186,7 @@ export default function ExpiriesPage() {
 
 function SummaryCard({ label, count, color, bgColor }: { label: string; count: number; color: string; bgColor: string }) {
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4">
+    <div className="rounded-xl border border-border/50 bg-card p-5">
       <div className="flex items-center gap-3">
         <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", bgColor)}>
           <AlertTriangle className={cn("h-[18px] w-[18px]", color)} />
@@ -204,7 +204,7 @@ function ExpirySection({ title, items, onRenewal }: { title: string; items: Expi
   return (
     <div className="mt-6">
       <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60 mb-3">{title} ({items.length})</p>
-      <div className="rounded-xl border border-border/40 bg-card overflow-hidden">
+      <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border/30 text-left text-xs text-muted-foreground/70">

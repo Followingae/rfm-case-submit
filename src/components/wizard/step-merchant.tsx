@@ -107,7 +107,7 @@ export function StepMerchant({
             </div>
 
             {/* Form card */}
-            <div className="rounded-xl border border-border/40 bg-card p-6 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)] space-y-6">
+            <div className="rounded-xl border border-border/50 bg-card p-6 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)] space-y-6">
               {/* Name fields */}
               <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -178,7 +178,7 @@ export function StepMerchant({
                           "relative flex flex-col items-center gap-2.5 rounded-xl border-2 p-5 text-center cursor-pointer transition-all duration-200",
                           selected
                             ? "shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.15)]"
-                            : "border-border/40 hover:border-border/60"
+                            : "border-border/50 hover:border-border/60"
                         )}
                         style={selected ? {
                           borderColor: ct.color,

@@ -670,7 +670,7 @@ export function BulkUploadHero({
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
                     dragOver
                       ? "border-primary/50 bg-primary/[0.04] scale-[1.01] shadow-xl shadow-primary/5"
-                      : "border-border/40 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/[0.03]"
+                      : "border-border/50 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/[0.03]"
                   )}
                 >
                   <div className={cn(
@@ -947,7 +947,7 @@ export function BulkUploadHero({
                               "transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50",
                               selectedShareholder
                                 ? "border-primary/30"
-                                : "border-border/40"
+                                : "border-border/50"
                             )}
                           >
                             <option value="">Select a shareholder...</option>
@@ -981,7 +981,7 @@ export function BulkUploadHero({
                             "transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50",
                             selectedSlot
                               ? "border-primary/30"
-                              : "border-border/40"
+                              : "border-border/50"
                           )}
                         >
                           <option value="">Select a slot...</option>
@@ -1098,7 +1098,7 @@ export function BulkUploadHero({
 
                 {/* Results */}
                 {(result.assigned.length > 0 || result.unassigned.length > 0) && (
-                  <div className="rounded-2xl border border-border/40 bg-card/80 divide-y divide-border/30 overflow-hidden">
+                  <div className="rounded-2xl border border-border/50 bg-card/80 divide-y divide-border/30 overflow-hidden">
                     {result.assigned.length > 0 && (
                       <div className="px-5 py-4 space-y-2.5">
                         <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/40">

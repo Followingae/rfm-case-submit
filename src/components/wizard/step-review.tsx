@@ -374,7 +374,7 @@ export function StepReview({
             <div className="border-t border-border/30 my-4" />
             <div className="flex flex-wrap gap-2">
               {shareholders.map((sh, idx) => (
-                <div key={sh.id} className="flex items-center gap-2 rounded-lg border border-border/40 px-3 py-1.5 text-xs">
+                <div key={sh.id} className="flex items-center gap-2 rounded-lg border border-border/50 px-3 py-1.5 text-xs">
                   <User className="h-3 w-3 text-muted-foreground" />
                   <span className="font-medium">{sh.name || `Shareholder ${idx + 1}`}</span>
                   <span className="text-muted-foreground">{sh.percentage || "?"}%</span>

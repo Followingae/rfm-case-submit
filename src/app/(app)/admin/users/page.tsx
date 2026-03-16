@@ -150,7 +150,7 @@ export default function AdminUsersPage() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="rounded-xl border border-border/40 bg-card overflow-hidden">
+            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/30 text-left text-xs text-muted-foreground/70">
@@ -297,7 +297,7 @@ export default function AdminUsersPage() {
                       "flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-sm transition-colors",
                       editUser.role === r
                         ? "border-primary bg-primary/5 font-medium"
-                        : "border-border/40 hover:bg-muted/30"
+                        : "border-border/50 hover:bg-muted/30"
                     )}
                   >
                     <Shield className="h-4 w-4 text-muted-foreground" />

@@ -209,7 +209,7 @@ function CategoryCard({
           ? "border-amber-500/20 bg-amber-500/5"
           : isActive
           ? "shadow-sm"
-          : "border-border/40 bg-card hover:border-border/60 hover:bg-muted/30",
+          : "border-border/50 bg-card hover:border-border/60 hover:bg-muted/30",
         isFlashing && !stat.hasMismatch && "animate-pulse border-emerald-500/40 bg-emerald-500/10"
       )}
       style={isActive && !stat.complete && !stat.hasMismatch ? {
@@ -678,7 +678,7 @@ function UploadSlot({
           ? "border-amber-500/30 bg-amber-500/[0.04]"
           : isUploaded
           ? "border-emerald-500/20 bg-emerald-500/[0.03]"
-          : "border-border/40 bg-muted/30 hover:border-border/60 hover:bg-muted/40",
+          : "border-border/50 bg-muted/30 hover:border-border/60 hover:bg-muted/40",
         isDragging && "border-primary bg-primary/5 ring-2 ring-primary/20",
         !isProcessing && isRecentlyFulfilled && !isMismatch && "ring-2 ring-emerald-400/40"
       )}

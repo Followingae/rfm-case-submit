@@ -198,7 +198,7 @@ export function ShareholderKYCSection({
                   ? "border-red-500/20 bg-red-500/[0.02]"
                   : passportDone && eidDone
                   ? "border-emerald-500/20 bg-emerald-500/[0.03]"
-                  : "border-border/40"
+                  : "border-border/50"
               )}
             >
               {/* Row 1: Identity + uploads */}
@@ -459,7 +459,7 @@ export function ShareholderKYCSection({
       {/* Add shareholder button */}
       <button
         onClick={addShareholder}
-        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/40 py-2 text-xs font-medium text-muted-foreground hover:border-border/60 hover:text-foreground transition-colors"
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/50 py-2 text-xs font-medium text-muted-foreground hover:border-border/60 hover:text-foreground transition-colors"
       >
         <Plus className="h-3.5 w-3.5" />
         Add shareholder manually

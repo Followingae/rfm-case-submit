@@ -201,7 +201,7 @@ export default function CaseDetailPage({
         </Link>
 
         {/* Header */}
-        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-foreground">
               {caseData.legal_name || "Untitled Case"}

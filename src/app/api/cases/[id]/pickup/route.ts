@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseServer } from "@/lib/supabase-server";
+import { createNotification, notifyRole } from "@/lib/notifications";
 
 export async function POST(
   req: NextRequest,
@@ -14,7 +15,7 @@ export async function POST(
 
   const { data: caseData } = await supabase
     .from("cases")
-    .select("id, status, assigned_to")
+    .select("id, status, assigned_to, created_by")
     .eq("id", id)
     .single();
 
@@ -38,6 +39,10 @@ export async function POST(
   await supabase.from("case_status_history").insert({
     case_id: id, from_status: "submitted", to_status: "in_review", changed_by: user.id,
   });
+
+  if (caseData.created_by) {
+    await createNotification({ userId: caseData.created_by, type: "case_assigned", title: "Case In Review", message: "Your case is now being reviewed", caseId: id });
+  }
 
   return NextResponse.json({ ok: true, status: "in_review" });
 }

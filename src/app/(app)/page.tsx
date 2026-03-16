@@ -1,30 +1,48 @@
 "use client";
 
+import * as React from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowRight, ChevronRight, ShieldCheck, ShieldAlert, Globe,
-  FilePlus2, MapPin, CreditCard, FolderOpen, Clock, CheckCircle2,
+  ArrowRight, ShieldCheck, ShieldAlert, Globe,
+  FilePlus2, MapPin, CreditCard, FolderOpen, Clock,
   AlertTriangle, RotateCcw, Inbox, BarChart3, Users, Loader2,
-  Building2, FileText, Pencil, Send, Timer, TrendingUp, Shield,
+  Building2, FileText, Pencil, Timer, Target, CircleCheckBig,
 } from "lucide-react";
+import { IconTrendingUp, IconTrendingDown } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { LAYOUT } from "@/lib/layout";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card, CardAction, CardContent, CardDescription,
+  CardFooter, CardHeader, CardTitle,
+} from "@/components/ui/card";
+import {
+  ChartContainer, ChartTooltip, ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Area, AreaChart, CartesianGrid, XAxis, YAxis, Bar, BarChart,
+  RadialBarChart, RadialBar, PolarGrid, PolarRadiusAxis, Label,
+} from "recharts";
+import { useIsMobile } from "@/hooks/use-mobile";
 import type { CaseRow } from "@/lib/types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyData = any;
+type D = any;
 
 const caseTypes = [
-  { value: "low-risk", label: "Low Risk (POS)", desc: "Standard merchant onboarding — full KYC, trade license, and document package.", icon: ShieldCheck, href: "/case/new?type=low-risk", color: "var(--case-low-risk)" },
-  { value: "high-risk", label: "High Risk (POS)", desc: "Enhanced due diligence — includes PEP form, supplier invoice, and additional compliance checks.", icon: ShieldAlert, href: "/case/new?type=high-risk", color: "var(--case-high-risk)" },
-  { value: "additional-mid", label: "Additional MID", desc: "New merchant ID for an existing account — simplified document requirements.", icon: FilePlus2, href: "/case/new?type=additional-mid", color: "var(--case-add-mid)" },
-  { value: "new-location", label: "New Location", desc: "New branch location for an existing merchant — requires branch form and site visit.", icon: MapPin, href: "/case/new?type=new-location", color: "var(--case-new-location)" },
-  { value: "einvoice", label: "E-Invoice", desc: "E-Invoice and payment link merchants — adds AML questionnaire and risk assessment.", icon: Globe, href: "/case/new?type=einvoice", color: "var(--case-einvoice)" },
-  { value: "payment-gateway", label: "Payment Gateway", desc: "Payment gateway integration — includes PG questionnaire on top of base documents.", icon: CreditCard, href: "/case/new?type=payment-gateway", color: "var(--case-payment-gateway)" },
+  { value: "low-risk", label: "Low Risk (POS)", desc: "Standard merchant onboarding", icon: ShieldCheck, href: "/case/new?type=low-risk", color: "var(--case-low-risk)", primary: true },
+  { value: "high-risk", label: "High Risk (POS)", desc: "Enhanced due diligence", icon: ShieldAlert, href: "/case/new?type=high-risk", color: "var(--case-high-risk)", primary: false },
+  { value: "additional-mid", label: "Additional MID", desc: "New merchant ID", icon: FilePlus2, href: "/case/new?type=additional-mid", color: "var(--case-add-mid)", primary: false },
+  { value: "new-location", label: "New Location", desc: "New branch location", icon: MapPin, href: "/case/new?type=new-location", color: "var(--case-new-location)", primary: false },
+  { value: "einvoice", label: "E-Invoice", desc: "E-Invoice & payment links", icon: Globe, href: "/case/new?type=einvoice", color: "var(--case-einvoice)", primary: true },
+  { value: "payment-gateway", label: "Payment Gateway", desc: "PG integration", icon: CreditCard, href: "/case/new?type=payment-gateway", color: "var(--case-payment-gateway)", primary: true },
 ];
 
 const STATUS_STYLES: Record<string, string> = {
@@ -36,29 +54,58 @@ const STATUS_STYLES: Record<string, string> = {
   suspended: "bg-red-500/10 text-red-600 dark:text-red-400", closed: "bg-muted/50 text-muted-foreground",
 };
 
+// ── Weekly MID targets ──
+const WEEKLY_TARGET = 3;
+const MID_WEEKS = [
+  { label: "Week 1", range: "1st – 7th", start: 1, end: 7, color: "var(--chart-3)" },
+  { label: "Week 2", range: "8th – 14th", start: 8, end: 14, color: "var(--chart-5)" },
+  { label: "Week 3", range: "15th – 21st", start: 15, end: 21, color: "var(--chart-2)" },
+  { label: "Week 4", range: "22nd – 28th", start: 22, end: 28, color: "var(--chart-4)" },
+];
+
+const SECTION_GRID = "grid grid-cols-1 gap-4 px-4 *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4";
+
 function StatusBadge({ status }: { status: string }) {
   return <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium capitalize", STATUS_STYLES[status] || STATUS_STYLES.incomplete)}>{status.replace("_", " ")}</span>;
 }
 
-function timeAgo(date: string) {
-  const h = Math.floor((Date.now() - new Date(date).getTime()) / 3600000);
-  if (h < 1) return "< 1h ago";
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+function timeAgo(d: string) { const h = Math.floor((Date.now() - new Date(d).getTime()) / 3600000); return h < 1 ? "< 1h" : h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`; }
+
+// ── Metric Card (no footer slop) ──
+function MetricCard({ label, value, suffix, badge, badgeUp }: { label: string; value: string | number; suffix?: string; badge: string; badgeUp?: boolean }) {
+  return (
+    <Card className="@container/card">
+      <CardHeader>
+        <CardDescription>{label}</CardDescription>
+        <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+          {value}{suffix && <span className="text-sm font-medium text-muted-foreground/60">{suffix}</span>}
+        </CardTitle>
+        <CardAction>
+          <Badge variant="outline">
+            {badgeUp !== false ? <IconTrendingUp /> : <IconTrendingDown />}
+            {badge}
+          </Badge>
+        </CardAction>
+      </CardHeader>
+    </Card>
+  );
 }
 
+// ══════════════════════════════════════════════════
 export default function DashboardPage() {
   const { user, hasRole, isLoading: authLoading } = useAuth();
   const [cases, setCases] = useState<CaseRow[]>([]);
   const [stats, setStats] = useState<Record<string, number>>({});
-  const [summary, setSummary] = useState<AnyData>(null);
-  const [expiries, setExpiries] = useState<AnyData[]>([]);
+  const [summary, setSummary] = useState<D>(null);
+  const [timeseries, setTimeseries] = useState<D[]>([]);
+  const [expiries, setExpiries] = useState<D[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
+    const caseLimit = hasRole("sales") ? 50 : 10;
     const fetches: Promise<void>[] = [
-      fetch("/api/cases?limit=10").then((r) => r.json()).then((data) => {
+      fetch(`/api/cases?limit=${caseLimit}`).then((r) => r.json()).then((data) => {
         setCases(data.cases || []);
         const s: Record<string, number> = {};
         for (const c of data.cases || []) s[c.status] = (s[c.status] || 0) + 1;
@@ -66,396 +113,579 @@ export default function DashboardPage() {
         setStats(s);
       }),
     ];
-    // Management/SuperAdmin/Processing get richer data
     if (hasRole("management", "processing")) {
       fetches.push(
         fetch("/api/analytics/summary").then((r) => r.json()).then(setSummary).catch(() => {}),
+        fetch("/api/analytics/timeseries?period=week").then((r) => r.json()).then((d) => setTimeseries(d.timeseries || [])).catch(() => {}),
         fetch("/api/expiries?window=30").then((r) => r.json()).then((d) => setExpiries(d.expiries || [])).catch(() => {}),
       );
     }
     Promise.all(fetches).finally(() => setLoading(false));
   }, [user, hasRole]);
 
-  if (authLoading) {
-    return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
-  }
+  if (authLoading) return <div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
 
   const role = user?.role;
   const returnedCases = cases.filter((c) => c.status === "returned");
 
-  // ══════════════════════════════════════════════════
-  // SALES DASHBOARD
-  // ══════════════════════════════════════════════════
-  if (role === "sales") {
-    const avgReadiness = cases.filter((c) => c.readiness_score != null).reduce((sum, c) => sum + (c.readiness_score || 0), 0) / (cases.filter((c) => c.readiness_score != null).length || 1);
+  if (role === "sales") return <SalesDashboard cases={cases} stats={stats} returnedCases={returnedCases} loading={loading} />;
+  if (role === "processing") return <ProcessingDashboard cases={cases} stats={stats} summary={summary} expiries={expiries} userId={user?.id} loading={loading} />;
+  return <ManagementDashboard cases={cases} stats={stats} summary={summary} timeseries={timeseries} expiries={expiries} role={role} loading={loading} />;
+}
 
-    return (
-      <div className="h-full overflow-y-auto">
-        <div className={LAYOUT.page}>
-          {/* Returned cases alert banner */}
-          {returnedCases.length > 0 && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-500/10">
-                <RotateCcw className="h-[18px] w-[18px] text-red-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-red-600 dark:text-red-400">
-                  {returnedCases.length} case{returnedCases.length !== 1 ? "s" : ""} returned by Processing
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {returnedCases.map((c) => c.legal_name || "Untitled").join(", ")}
-                </p>
-              </div>
-              <Link href="/cases?status=returned">
-                <Button size="sm" variant="outline" className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10">
-                  <Pencil className="h-3 w-3" /> Fix & Resubmit
-                </Button>
-              </Link>
-            </div>
-          )}
 
-          {/* Pipeline stats */}
-          <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <StatCard icon={FileText} label="Draft" value={stats.incomplete || 0} color="text-muted-foreground" bgColor="bg-muted/50" />
-            <StatCard icon={Send} label="Submitted" value={stats.submitted || 0} color="text-violet-500" bgColor="bg-violet-500/10" />
-            <StatCard icon={Clock} label="In Review" value={stats.in_review || 0} color="text-amber-500" bgColor="bg-amber-500/10" />
-            <StatCard icon={RotateCcw} label="Returned" value={stats.returned || 0} color="text-red-500" bgColor="bg-red-500/10" />
-            <StatCard icon={CheckCircle2} label="Approved" value={(stats.approved || 0) + (stats.exported || 0) + (stats.active || 0)} color="text-emerald-500" bgColor="bg-emerald-500/10" />
-          </div>
+// ── Monthly MID Target + Weekly Mini Radials ──
+function WeeklyMIDProgress({ cases }: { cases: CaseRow[] }) {
+  const now = new Date();
+  const month = now.getMonth();
+  const year = now.getFullYear();
+  const day = now.getDate();
 
-          {/* Avg readiness */}
-          {cases.some((c) => c.readiness_score != null) && (
-            <div className="mt-3 rounded-xl border border-border/40 bg-card p-4 flex items-center gap-4">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                <BarChart3 className="h-[18px] w-[18px] text-primary" />
-              </div>
-              <div className="flex-1">
-                <p className="text-xs text-muted-foreground">My Avg Readiness Score</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-xl font-bold tabular-nums">{Math.round(avgReadiness)}</span>
-                  <span className="text-sm text-muted-foreground/50">/100</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-muted/30 overflow-hidden max-w-[200px]">
-                    <div className={cn("h-full rounded-full", avgReadiness >= 85 ? "bg-emerald-500" : avgReadiness >= 50 ? "bg-amber-500" : "bg-red-500")} style={{ width: `${avgReadiness}%` }} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+  const monthCases = cases.filter((c) => {
+    const d = new Date(c.created_at);
+    return d.getMonth() === month && d.getFullYear() === year;
+  });
 
-          {/* Case type cards */}
-          <p className="mt-8 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">New Case</p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {caseTypes.map((ct) => (
-              <Link key={ct.value} href={ct.href}
-                className={cn("group relative flex flex-col rounded-xl border border-border/40 bg-card p-5",
-                  "shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)]",
-                  "dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)]",
-                  "transition-all duration-200 hover:border-border hover:shadow-[0_4px_12px_rgba(50,50,93,0.1),0_2px_4px_rgba(0,0,0,0.06)]")}>
-                <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-full opacity-0 transition-opacity group-hover:opacity-100" style={{ backgroundColor: ct.color }} />
-                <div className="flex items-start justify-between">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg" style={{ backgroundColor: `color-mix(in oklch, ${ct.color} 12%, transparent)` }}>
-                    <ct.icon className="h-[18px] w-[18px]" style={{ color: ct.color }} />
-                  </div>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground/0 transition-all group-hover:translate-x-0.5 group-hover:text-muted-foreground" />
-                </div>
-                <p className="mt-4 text-sm font-medium text-foreground">{ct.label}</p>
-                <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{ct.desc}</p>
-              </Link>
-            ))}
-          </div>
+  const totalThisMonth = monthCases.length;
+  const totalTarget = WEEKLY_TARGET * 4;
+  const monthEndAngle = Math.round(Math.min(totalThisMonth / totalTarget, 1) * 360);
+  const monthMet = totalThisMonth >= totalTarget;
+  const monthColor = monthMet ? "var(--chart-2)" : "var(--chart-5)";
+  const monthData = [{ month: "total", mids: totalThisMonth, fill: "var(--color-total)" }];
+  const monthCfg: ChartConfig = {
+    mids: { label: "MIDs" },
+    total: { label: "This Month", color: monthColor },
+  };
 
-          {/* Recent cases with return reason preview */}
-          {cases.length > 0 && (
-            <>
-              <div className="mt-10 flex items-center justify-between">
-                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">My Recent Cases</p>
-                <Link href="/cases" className="text-xs text-primary hover:underline">View all</Link>
-              </div>
-              <div className="mt-3"><RecentCasesTable cases={cases} showReadiness /></div>
-            </>
-          )}
+  const weekData = MID_WEEKS.map((w, i) => {
+    const count = monthCases.filter((c) => {
+      const d = new Date(c.created_at).getDate();
+      return d >= w.start && d <= w.end;
+    }).length;
+    const met = count >= WEEKLY_TARGET;
+    return { ...w, count, met, key: `w${i + 1}` };
+  });
+
+  const remaining = totalTarget - totalThisMonth;
+
+  return (
+    <Card className="flex flex-col">
+      <CardHeader className="pb-0">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">MID Target</CardTitle>
+          <CardDescription className="text-right">
+            {now.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+          </CardDescription>
         </div>
-      </div>
-    );
-  }
+      </CardHeader>
+      <CardContent className="flex-1 pb-0">
+        <ChartContainer
+          config={monthCfg}
+          className="mx-auto aspect-square max-h-[210px]"
+        >
+          <RadialBarChart
+            data={monthData}
+            startAngle={0}
+            endAngle={monthEndAngle}
+            innerRadius={70}
+            outerRadius={92}
+          >
+            <PolarGrid
+              gridType="circle"
+              radialLines={false}
+              stroke="none"
+              className="first:fill-muted last:fill-background"
+              polarRadius={[82, 62]}
+            />
+            <RadialBar dataKey="mids" background cornerRadius={10} />
+            <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
+              <Label
+                content={({ viewBox }) => {
+                  if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                    return (
+                      <text
+                        x={viewBox.cx}
+                        y={viewBox.cy}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                      >
+                        <tspan
+                          x={viewBox.cx}
+                          y={viewBox.cy}
+                          className="fill-foreground text-4xl font-bold"
+                        >
+                          {totalThisMonth}
+                        </tspan>
+                        <tspan
+                          x={viewBox.cx}
+                          y={(viewBox.cy || 0) + 24}
+                          className="fill-muted-foreground"
+                        >
+                          /{totalTarget} MIDs
+                        </tspan>
+                      </text>
+                    );
+                  }
+                }}
+              />
+            </PolarRadiusAxis>
+          </RadialBarChart>
+        </ChartContainer>
 
-  // ══════════════════════════════════════════════════
-  // PROCESSING DASHBOARD
-  // ══════════════════════════════════════════════════
-  if (role === "processing") {
-    const myCases = cases.filter((c) => c.assigned_to === user?.id && c.status === "in_review");
-    const unassigned = cases.filter((c) => c.status === "submitted" && !c.assigned_to);
-    // SLA: cases waiting >24h
-    const slaCases = cases.filter((c) => c.status === "submitted" && c.submitted_at && (Date.now() - new Date(c.submitted_at).getTime()) > 24 * 3600000);
+        {/* Mini weekly radials */}
+        <div className="flex items-center justify-center gap-4 -mt-2">
+          {weekData.map((w, i) => {
+            const endAngle = Math.round(Math.min(w.count / WEEKLY_TARGET, 1) * 360);
+            const fillColor = w.met ? "var(--chart-2)" : w.color;
+            const wData = [{ week: w.key, mids: w.count, fill: `var(--color-${w.key})` }];
+            const wCfg: ChartConfig = {
+              mids: { label: "MIDs" },
+              [w.key]: { label: w.label, color: fillColor },
+            };
 
-    return (
-      <div className="h-full overflow-y-auto">
-        <div className={LAYOUT.page}>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">Processing Dashboard</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Your review queue and daily activity</p>
-          </div>
-
-          {/* SLA Alert */}
-          {slaCases.length > 0 && (
-            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 flex items-center gap-3">
-              <Timer className="h-5 w-5 text-red-500 shrink-0" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-red-600 dark:text-red-400">{slaCases.length} case{slaCases.length !== 1 ? "s" : ""} waiting over 24 hours</p>
-                <p className="text-xs text-muted-foreground mt-0.5">{slaCases.map((c) => c.legal_name).join(", ")}</p>
+            return (
+              <div key={w.key} className="flex flex-col items-center gap-0.5">
+                <ChartContainer
+                  config={wCfg}
+                  className="aspect-square h-[48px]"
+                >
+                  <RadialBarChart
+                    data={wData}
+                    startAngle={0}
+                    endAngle={endAngle}
+                    innerRadius={16}
+                    outerRadius={22}
+                  >
+                    <PolarGrid
+                      gridType="circle"
+                      radialLines={false}
+                      stroke="none"
+                      className="first:fill-muted last:fill-background"
+                      polarRadius={[20, 13]}
+                    />
+                    <RadialBar dataKey="mids" background cornerRadius={5} />
+                    <PolarRadiusAxis tick={false} tickLine={false} axisLine={false}>
+                      <Label
+                        content={({ viewBox }) => {
+                          if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                            return (
+                              <text
+                                x={viewBox.cx}
+                                y={viewBox.cy}
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                                className="fill-foreground text-[9px] font-bold"
+                              >
+                                {w.count}
+                              </text>
+                            );
+                          }
+                        }}
+                      />
+                    </PolarRadiusAxis>
+                  </RadialBarChart>
+                </ChartContainer>
+                <span className="text-[9px] text-muted-foreground">W{i + 1}</span>
               </div>
-              <Link href="/cases/queue"><Button size="sm" className="gap-1.5"><Inbox className="h-3 w-3" /> View Queue</Button></Link>
-            </div>
-          )}
-
-          {/* Stats */}
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard icon={Inbox} label="Unassigned" value={unassigned.length} color="text-violet-500" bgColor="bg-violet-500/10" />
-            <StatCard icon={Clock} label="My Reviews" value={myCases.length} color="text-amber-500" bgColor="bg-amber-500/10" />
-            <StatCard icon={CheckCircle2} label="Approved" value={stats.approved || 0} color="text-emerald-500" bgColor="bg-emerald-500/10" />
-            <StatCard icon={RotateCcw} label="Returned" value={stats.returned || 0} color="text-red-500" bgColor="bg-red-500/10" />
+            );
+          })}
+        </div>
+      </CardContent>
+      <CardFooter className="flex-col gap-2 text-sm pt-0">
+        {monthMet ? (
+          <div className="flex items-center gap-2 leading-none font-medium text-emerald-500">
+            <CircleCheckBig className="h-4 w-4" />
+            Target met{totalThisMonth > totalTarget ? ` +${totalThisMonth - totalTarget}` : ""}
           </div>
+        ) : (
+          <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-1.5">
+            <Target className="h-3.5 w-3.5 text-muted-foreground/60" />
+            <span className="text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">{remaining}</span> more to go
+            </span>
+          </div>
+        )}
+      </CardFooter>
+    </Card>
+  );
+}
 
-          {/* Expiry alerts */}
-          {expiries.length > 0 && (
-            <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-4 flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-amber-600 dark:text-amber-400">{expiries.length} document{expiries.length !== 1 ? "s" : ""} expiring within 30 days</p>
+// ══════════════════════════════════════════════════
+// SALES
+// ══════════════════════════════════════════════════
+function SalesDashboard({ cases, stats, returnedCases, loading }: { cases: CaseRow[]; stats: Record<string, number>; returnedCases: CaseRow[]; loading: boolean }) {
+  const approved = (stats.approved || 0) + (stats.exported || 0) + (stats.active || 0);
+  const avg = cases.filter((c) => c.readiness_score != null);
+  const avgR = avg.length > 0 ? Math.round(avg.reduce((s, c) => s + (c.readiness_score || 0), 0) / avg.length) : 0;
+
+  return (
+    <div className="h-full overflow-y-auto @container/main">
+      <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+        {/* Metrics */}
+        <div className={SECTION_GRID}>
+          <MetricCard label="Total Cases" value={stats.total || 0} badge={`${stats.total || 0}`} />
+          <MetricCard label="Submitted" value={stats.submitted || 0} badge={`${stats.submitted || 0}`} />
+          <MetricCard label="Approved" value={approved} badge={`${approved}`} />
+          <MetricCard label="Submission Quality" value={avgR} suffix="/100" badge={avgR >= 70 ? "Good" : "Low"} badgeUp={avgR >= 70} />
+        </div>
+
+        {/* Returned alert */}
+        {returnedCases.length > 0 && (
+          <div className="px-4 lg:px-6">
+            <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 flex items-center gap-3">
+              <RotateCcw className="h-5 w-5 text-red-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-red-600 dark:text-red-400">{returnedCases.length} returned</p>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">{returnedCases.map((c) => c.legal_name).join(", ")}</p>
               </div>
-              <Link href="/expiries"><Button size="sm" variant="outline" className="gap-1.5 border-amber-500/30 text-amber-600"><AlertTriangle className="h-3 w-3" /> View</Button></Link>
+              <Link href="/cases?status=returned"><Button size="sm" variant="outline" className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10 shrink-0"><Pencil className="h-3 w-3" /> Fix</Button></Link>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* My Active Reviews */}
-          {myCases.length > 0 && (
-            <>
-              <p className="mt-8 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">My Active Reviews</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {myCases.map((c) => (
-                  <Link key={c.id} href={`/cases/${c.id}/review`}
-                    className="group rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-4 transition-colors hover:border-amber-500/40">
-                    <p className="text-sm font-medium">{c.legal_name || "Untitled"}</p>
-                    {c.readiness_score != null && (
-                      <span className={cn("text-xs font-medium tabular-nums mt-1 inline-block",
-                        c.readiness_tier === "green" ? "text-emerald-500" : c.readiness_tier === "amber" ? "text-amber-500" : "text-red-500"
-                      )}>{c.readiness_score}/100</span>
-                    )}
-                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                      <Timer className="h-3 w-3" />
-                      Picked up {c.submitted_at ? timeAgo(c.submitted_at) : "—"}
+        {/* MID Target + New Case — side by side */}
+        <div className="px-4 lg:px-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <WeeklyMIDProgress cases={cases} />
+          <Card className="flex flex-col">
+            <CardHeader>
+              <CardTitle className="text-base">New Case</CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 space-y-4">
+              {/* Primary — full-width stacked */}
+              <div className="space-y-2">
+                {caseTypes.filter((ct) => ct.primary).map((ct) => (
+                  <Link
+                    key={ct.value}
+                    href={ct.href}
+                    className="group flex items-center gap-3.5 rounded-xl px-4 py-4 transition-all hover:opacity-90"
+                    style={{ backgroundColor: `color-mix(in oklch, ${ct.color} 10%, transparent)` }}
+                  >
+                    <div
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                      style={{ backgroundColor: `color-mix(in oklch, ${ct.color} 20%, transparent)` }}
+                    >
+                      <ct.icon className="h-5 w-5" style={{ color: ct.color }} />
                     </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold truncate">{ct.label}</p>
+                      <p className="text-xs text-muted-foreground truncate">{ct.desc}</p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-foreground/60 transition-colors shrink-0" />
                   </Link>
                 ))}
               </div>
-            </>
-          )}
+              {/* Secondary — compact row */}
+              <div className="grid grid-cols-3 gap-2">
+                {caseTypes.filter((ct) => !ct.primary).map((ct) => (
+                  <Link
+                    key={ct.value}
+                    href={ct.href}
+                    className="group flex flex-col items-center gap-2 rounded-lg px-3 py-3 text-center transition-all hover:opacity-80"
+                    style={{ backgroundColor: `color-mix(in oklch, ${ct.color} 6%, transparent)` }}
+                  >
+                    <div
+                      className="flex h-7 w-7 items-center justify-center rounded-md"
+                      style={{ backgroundColor: `color-mix(in oklch, ${ct.color} 14%, transparent)` }}
+                    >
+                      <ct.icon className="h-3.5 w-3.5" style={{ color: ct.color }} />
+                    </div>
+                    <p className="text-[11px] font-medium text-muted-foreground leading-tight">{ct.label}</p>
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Recent cases */}
+        {cases.length > 0 && (
+          <div className="px-4 lg:px-6">
+            <Card>
+              <CardHeader><CardTitle className="text-base">Recent Cases</CardTitle><CardAction><Link href="/cases" className="text-xs text-primary hover:underline">View all</Link></CardAction></CardHeader>
+              <CardContent className="px-0">{loading ? <Loader2 className="mx-auto my-8 h-5 w-5 animate-spin text-muted-foreground" /> : <CasesTable cases={cases.slice(0, 10)} showReadiness />}</CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ══════════════════════════════════════════════════
+// PROCESSING
+// ══════════════════════════════════════════════════
+function ProcessingDashboard({ cases, stats, summary, expiries, userId, loading }: { cases: CaseRow[]; stats: Record<string, number>; summary: D; expiries: D[]; userId?: string; loading: boolean }) {
+  const myReviews = cases.filter((c) => c.assigned_to === userId && c.status === "in_review");
+  const unassigned = cases.filter((c) => c.status === "submitted" && !c.assigned_to);
+  const slaOver24h = cases.filter((c) => c.status === "submitted" && c.submitted_at && (Date.now() - new Date(c.submitted_at).getTime()) > 86400000);
+  const approvedToday = cases.filter((c) => c.status === "approved" && c.reviewed_at && new Date(c.reviewed_at).toDateString() === new Date().toDateString());
+  const avgTime = summary?.avgProcessingTime;
+
+  // Pipeline bar data
+  const pipeline = [
+    { name: "Submitted", value: stats.submitted || 0 },
+    { name: "In Review", value: stats.in_review || 0 },
+    { name: "Approved", value: stats.approved || 0 },
+    { name: "Returned", value: stats.returned || 0 },
+  ].filter((d) => d.value > 0);
+  const barConfig: ChartConfig = { value: { label: "Cases", color: "var(--chart-5)" } };
+
+  return (
+    <div className="h-full overflow-y-auto @container/main">
+      <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+        {/* Metrics */}
+        <div className={SECTION_GRID}>
+          <MetricCard label="Queue" value={unassigned.length} badge={unassigned.length > 5 ? "High" : "Normal"} badgeUp={unassigned.length <= 5} />
+          <MetricCard label="My Reviews" value={myReviews.length} badge="Active" />
+          <MetricCard label="Approved Today" value={approvedToday.length} badge={`${approvedToday.length}`} />
+          <MetricCard label="Avg Review Time" value={avgTime ?? "—"} suffix="h" badge={typeof avgTime === "number" && avgTime <= 24 ? "On track" : "—"} badgeUp={typeof avgTime === "number" && avgTime <= 24} />
+        </div>
+
+        {/* SLA + Expiry alerts */}
+        {(slaOver24h.length > 0 || expiries.length > 0) && (
+          <div className="px-4 lg:px-6 flex flex-col gap-3">
+            {slaOver24h.length > 0 && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 flex items-center gap-3">
+                <Timer className="h-5 w-5 text-red-500 shrink-0" />
+                <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{slaOver24h.length} case{slaOver24h.length !== 1 ? "s" : ""} waiting &gt;24h</p>
+                <Link href="/cases/queue"><Button size="sm" className="gap-1.5 shrink-0"><Inbox className="h-3 w-3" /> Queue</Button></Link>
+              </div>
+            )}
+            {expiries.length > 0 && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-4 flex items-center gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
+                <p className="flex-1 text-sm font-medium text-amber-600 dark:text-amber-400">{expiries.length} doc{expiries.length !== 1 ? "s" : ""} expiring within 30d</p>
+                <Link href="/expiries"><Button size="sm" variant="outline" className="gap-1.5 shrink-0 border-amber-500/30 text-amber-600"><AlertTriangle className="h-3 w-3" /> View</Button></Link>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Pipeline chart — full width */}
+        {pipeline.length > 0 && (
+          <div className="px-4 lg:px-6">
+            <Card>
+              <CardHeader><CardTitle className="text-base">Pipeline Overview</CardTitle></CardHeader>
+              <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+                <ChartContainer config={barConfig} className="aspect-auto h-[160px] w-full">
+                  <BarChart data={pipeline} layout="vertical" margin={{ left: 80 }}>
+                    <CartesianGrid horizontal={false} />
+                    <XAxis type="number" hide />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="value" fill="var(--color-value)" radius={[0, 6, 6, 0]} barSize={28} />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Active reviews + quick links — 2 cols */}
+        <div className="px-4 lg:px-6 grid gap-4 lg:grid-cols-2">
+          {/* Active reviews */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">My Active Reviews</CardTitle></CardHeader>
+            <CardContent>
+              {myReviews.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">No active reviews</p>
+              ) : (
+                <div className="space-y-2">
+                  {myReviews.map((c) => (
+                    <Link key={c.id} href={`/cases/${c.id}/review`} className="flex items-center gap-3 rounded-lg border border-border/30 p-3 transition-colors hover:bg-muted/30">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{c.legal_name || "Untitled"}</p>
+                        <p className="text-xs text-muted-foreground">{c.submitted_at ? timeAgo(c.submitted_at) : "—"}</p>
+                      </div>
+                      {c.readiness_score != null && <span className={cn("text-xs font-semibold tabular-nums", c.readiness_tier === "green" ? "text-emerald-500" : c.readiness_tier === "amber" ? "text-amber-500" : "text-red-500")}>{c.readiness_score}</span>}
+                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Quick links */}
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <Link href="/cases/queue" className="flex items-center gap-3 rounded-xl border border-border/40 bg-card p-4 text-sm font-medium transition-colors hover:bg-muted/30">
-              <Inbox className="h-4 w-4 text-violet-500" /> Pick Up Cases <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-            </Link>
-            <Link href="/merchants" className="flex items-center gap-3 rounded-xl border border-border/40 bg-card p-4 text-sm font-medium transition-colors hover:bg-muted/30">
-              <Building2 className="h-4 w-4 text-emerald-500" /> Active Merchants <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-            </Link>
-            <Link href="/expiries" className="flex items-center gap-3 rounded-xl border border-border/40 bg-card p-4 text-sm font-medium transition-colors hover:bg-muted/30">
-              <AlertTriangle className="h-4 w-4 text-amber-500" /> Expiries <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-            </Link>
-          </div>
+          <Card>
+            <CardHeader><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <Link href="/cases/queue" className="flex items-center gap-3 rounded-lg border border-border/30 p-3 text-sm font-medium transition-colors hover:bg-muted/30">
+                  <Inbox className="h-4 w-4 text-violet-500 shrink-0" /> Pick Up Cases <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/40" />
+                </Link>
+                <Link href="/merchants" className="flex items-center gap-3 rounded-lg border border-border/30 p-3 text-sm font-medium transition-colors hover:bg-muted/30">
+                  <Building2 className="h-4 w-4 text-emerald-500 shrink-0" /> Active Merchants <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/40" />
+                </Link>
+                <Link href="/expiries" className="flex items-center gap-3 rounded-lg border border-border/30 p-3 text-sm font-medium transition-colors hover:bg-muted/30">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" /> Expiries <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/40" />
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-          {/* Recent cases */}
-          <div className="mt-8 flex items-center justify-between">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">All Recent Cases</p>
-            <Link href="/cases" className="text-xs text-primary hover:underline">View all</Link>
-          </div>
-          <div className="mt-3">
-            {loading ? <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-              : <RecentCasesTable cases={cases} showReadiness showCreator />}
-          </div>
+        {/* Cases table */}
+        <div className="px-4 lg:px-6">
+          <Card>
+            <CardHeader><CardTitle className="text-base">Recent Cases</CardTitle><CardAction><Link href="/cases" className="text-xs text-primary hover:underline">View all</Link></CardAction></CardHeader>
+            <CardContent className="px-0">{loading ? <Loader2 className="mx-auto my-8 h-5 w-5 animate-spin text-muted-foreground" /> : <CasesTable cases={cases} showReadiness showCreator />}</CardContent>
+          </Card>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
-  // ══════════════════════════════════════════════════
-  // MANAGEMENT / SUPERADMIN DASHBOARD
-  // ══════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════
+// MANAGEMENT / SUPERADMIN
+// ══════════════════════════════════════════════════
+function ManagementDashboard({ cases, stats, summary, timeseries, expiries, role, loading }: { cases: CaseRow[]; stats: Record<string, number>; summary: D; timeseries: D[]; expiries: D[]; role?: string; loading: boolean }) {
+  const isMobile = useIsMobile();
+  const [timeRange, setTimeRange] = React.useState("90d");
+  React.useEffect(() => { if (isMobile) setTimeRange("7d"); }, [isMobile]);
+
+  const chartConfig: ChartConfig = {
+    created: { label: "Created", color: "var(--chart-5)" },
+    submitted: { label: "Submitted", color: "var(--chart-3)" },
+    approved: { label: "Approved", color: "var(--chart-2)" },
+  };
+
+  const filteredTs = React.useMemo(() => {
+    if (!timeseries.length) return [];
+    const sorted = [...timeseries].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const ref = new Date(sorted[sorted.length - 1].date);
+    const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
+    const start = new Date(ref); start.setDate(start.getDate() - days);
+    return sorted.filter((i) => new Date(i.date) >= start);
+  }, [timeseries, timeRange]);
+
   return (
-    <div className="h-full overflow-y-auto">
-      <div className={LAYOUT.page}>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Platform overview and key metrics</p>
+    <div className="h-full overflow-y-auto @container/main">
+      <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
+        {/* Metrics */}
+        <div className={SECTION_GRID}>
+          <MetricCard label="Total Cases" value={summary?.totalCases ?? stats.total ?? 0} badge={`+${summary?.thisMonth ?? 0} this month`} />
+          <MetricCard label="Active Merchants" value={summary?.activeMerchants ?? 0} badge="Active" />
+          <MetricCard label="Approval Rate" value={`${summary?.approvalRate ?? 0}`} suffix="%" badge={(summary?.approvalRate ?? 0) >= 70 ? "Healthy" : "Low"} badgeUp={(summary?.approvalRate ?? 0) >= 70} />
+          <MetricCard label="Avg Processing" value={summary?.avgProcessingTime ?? 0} suffix="h" badge={(summary?.avgProcessingTime ?? 0) <= 24 ? "On target" : "Slow"} badgeUp={(summary?.avgProcessingTime ?? 0) <= 24} />
         </div>
 
-        {/* KPI row from analytics API */}
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard icon={FolderOpen} label="Total Cases" value={summary?.totalCases ?? stats.total ?? 0} color="text-primary" bgColor="bg-primary/10" />
-          <StatCard icon={Building2} label="Active Merchants" value={summary?.activeMerchants ?? 0} color="text-emerald-500" bgColor="bg-emerald-500/10" />
-          <StatCard icon={TrendingUp} label="This Month" value={summary?.thisMonth ?? 0} color="text-blue-500" bgColor="bg-blue-500/10" />
-          <StatCard icon={BarChart3} label="Avg Readiness" value={summary?.avgReadiness ?? 0} suffix="/100" color="text-emerald-500" bgColor="bg-emerald-500/10" />
-        </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard icon={CheckCircle2} label="Approval Rate" value={`${summary?.approvalRate ?? 0}%`} color="text-emerald-500" bgColor="bg-emerald-500/10" />
-          <StatCard icon={Clock} label="Avg Processing" value={`${summary?.avgProcessingTime ?? 0}h`} color="text-amber-500" bgColor="bg-amber-500/10" />
-          <StatCard icon={AlertTriangle} label="Escalated" value={summary?.escalatedCount ?? stats.escalated ?? 0} color="text-orange-500" bgColor="bg-orange-500/10" />
-          <StatCard icon={Inbox} label="In Queue" value={stats.submitted ?? 0} color="text-violet-500" bgColor="bg-violet-500/10" />
-        </div>
+        {/* Area chart — full width, dashboard-01 pattern */}
+        {filteredTs.length > 0 && (
+          <div className="px-4 lg:px-6">
+            <Card className="@container/card">
+              <CardHeader>
+                <CardTitle>Case Activity</CardTitle>
+                <CardDescription>
+                  <span className="hidden @[540px]/card:block">Created, submitted, and approved</span>
+                  <span className="@[540px]/card:hidden">Activity</span>
+                </CardDescription>
+                <CardAction>
+                  <ToggleGroup type="single" value={timeRange} onValueChange={setTimeRange} variant="outline" className="hidden *:data-[slot=toggle-group-item]:px-4! @[767px]/card:flex">
+                    <ToggleGroupItem value="90d">3 months</ToggleGroupItem>
+                    <ToggleGroupItem value="30d">30 days</ToggleGroupItem>
+                    <ToggleGroupItem value="7d">7 days</ToggleGroupItem>
+                  </ToggleGroup>
+                  <Select value={timeRange} onValueChange={setTimeRange}>
+                    <SelectTrigger className="flex w-32 **:data-[slot=select-value]:block **:data-[slot=select-value]:truncate @[767px]/card:hidden" size="sm"><SelectValue placeholder="3 months" /></SelectTrigger>
+                    <SelectContent className="rounded-xl">
+                      <SelectItem value="90d" className="rounded-lg">3 months</SelectItem>
+                      <SelectItem value="30d" className="rounded-lg">30 days</SelectItem>
+                      <SelectItem value="7d" className="rounded-lg">7 days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </CardAction>
+              </CardHeader>
+              <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+                <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
+                  <AreaChart data={filteredTs}>
+                    <defs>
+                      <linearGradient id="gC" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--color-created)" stopOpacity={0.8} /><stop offset="95%" stopColor="var(--color-created)" stopOpacity={0.1} /></linearGradient>
+                      <linearGradient id="gS" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--color-submitted)" stopOpacity={0.8} /><stop offset="95%" stopColor="var(--color-submitted)" stopOpacity={0.1} /></linearGradient>
+                      <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--color-approved)" stopOpacity={0.8} /><stop offset="95%" stopColor="var(--color-approved)" stopOpacity={0.1} /></linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={(v) => new Date(v).toLocaleDateString("en-US", { month: "short", day: "numeric" })} />
+                    <ChartTooltip cursor={false} content={<ChartTooltipContent labelFormatter={(v) => new Date(v).toLocaleDateString("en-US", { month: "short", day: "numeric" })} indicator="dot" />} />
+                    <Area dataKey="created" type="natural" fill="url(#gC)" stroke="var(--color-created)" stackId="a" />
+                    <Area dataKey="submitted" type="natural" fill="url(#gS)" stroke="var(--color-submitted)" stackId="a" />
+                    <Area dataKey="approved" type="natural" fill="url(#gA)" stroke="var(--color-approved)" stackId="a" />
+                  </AreaChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-        {/* Expiry + compliance alerts */}
+        {/* Expiry alert */}
         {expiries.length > 0 && (
-          <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 flex items-center gap-3">
-            <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-red-600 dark:text-red-400">{expiries.length} merchant document{expiries.length !== 1 ? "s" : ""} expiring within 30 days</p>
+          <div className="px-4 lg:px-6">
+            <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+              <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{expiries.length} doc{expiries.length !== 1 ? "s" : ""} expiring within 30 days</p>
+              <Link href="/expiries"><Button size="sm" variant="outline" className="gap-1.5 shrink-0 border-red-500/30 text-red-600"><AlertTriangle className="h-3 w-3" /> View</Button></Link>
             </div>
-            <Link href="/expiries"><Button size="sm" variant="outline" className="gap-1.5 border-red-500/30 text-red-600"><AlertTriangle className="h-3 w-3" /> View Expiries</Button></Link>
           </div>
         )}
 
         {/* Quick links */}
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {role === "superadmin" && (
-            <Link href="/case/new" className="flex items-center gap-3 rounded-xl border border-border/40 bg-card p-4 text-sm font-medium transition-colors hover:bg-muted/30">
-              <FilePlus2 className="h-4 w-4 text-primary" /> New Case <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-            </Link>
-          )}
-          <Link href="/analytics" className="flex items-center gap-3 rounded-xl border border-border/40 bg-card p-4 text-sm font-medium transition-colors hover:bg-muted/30">
-            <BarChart3 className="h-4 w-4 text-amber-500" /> Analytics <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-          </Link>
-          <Link href="/merchants" className="flex items-center gap-3 rounded-xl border border-border/40 bg-card p-4 text-sm font-medium transition-colors hover:bg-muted/30">
-            <Building2 className="h-4 w-4 text-emerald-500" /> Merchants <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-          </Link>
-          <Link href="/reports" className="flex items-center gap-3 rounded-xl border border-border/40 bg-card p-4 text-sm font-medium transition-colors hover:bg-muted/30">
-            <FileText className="h-4 w-4 text-blue-500" /> Reports <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-          </Link>
-          {role === "superadmin" && (
-            <Link href="/admin/users" className="flex items-center gap-3 rounded-xl border border-border/40 bg-card p-4 text-sm font-medium transition-colors hover:bg-muted/30">
-              <Users className="h-4 w-4 text-violet-500" /> Manage Users <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground" />
-            </Link>
-          )}
+        <div className="px-4 lg:px-6 grid gap-3 grid-cols-2 lg:grid-cols-4">
+          {role === "superadmin" && <QuickLink href="/case/new" icon={FilePlus2} label="New Case" color="text-primary" />}
+          <QuickLink href="/analytics" icon={BarChart3} label="Analytics" color="text-amber-500" />
+          <QuickLink href="/merchants" icon={Building2} label="Merchants" color="text-emerald-500" />
+          <QuickLink href="/reports" icon={FileText} label="Reports" color="text-blue-500" />
+          {role === "superadmin" && <QuickLink href="/admin/users" icon={Users} label="Users" color="text-violet-500" />}
         </div>
 
-        {/* Status breakdown */}
-        {summary?.byStatus && (
-          <div className="mt-6 rounded-xl border border-border/50 bg-card p-6">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-4">Status Distribution</p>
-            <div className="space-y-2">
-              {Object.entries(summary.byStatus as Record<string, number>)
-                .sort(([, a], [, b]) => (b as number) - (a as number))
-                .map(([status, count]) => {
-                  const pct = summary.totalCases > 0 ? ((count as number) / summary.totalCases) * 100 : 0;
-                  return (
-                    <div key={status} className="flex items-center gap-3">
-                      <Badge className={cn("w-28 justify-center text-xs border-0 capitalize", STATUS_STYLES[status])}>{status.replace("_", " ")}</Badge>
-                      <div className="flex-1 h-2 rounded-full bg-muted/30 overflow-hidden">
-                        <div className="h-full rounded-full bg-primary/40 transition-all" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="text-sm font-medium tabular-nums w-8 text-right">{count as number}</span>
-                    </div>
-                  );
-                })}
-            </div>
-          </div>
-        )}
-
-        {/* Recent cases */}
-        <div className="mt-8 flex items-center justify-between">
-          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/60">Recent Cases</p>
-          <Link href="/cases" className="text-xs text-primary hover:underline">View all</Link>
-        </div>
-        <div className="mt-3">
-          {loading ? <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-            : <RecentCasesTable cases={cases} showReadiness showCreator />}
+        {/* Cases table */}
+        <div className="px-4 lg:px-6">
+          <Card>
+            <CardHeader><CardTitle className="text-base">Recent Cases</CardTitle><CardAction><Link href="/cases" className="text-xs text-primary hover:underline">View all</Link></CardAction></CardHeader>
+            <CardContent className="px-0">{loading ? <Loader2 className="mx-auto my-8 h-5 w-5 animate-spin text-muted-foreground" /> : <CasesTable cases={cases} showReadiness showCreator />}</CardContent>
+          </Card>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Shared Components ──
 
-function StatCard({ icon: Icon, label, value, suffix, color, bgColor }: {
-  icon: typeof FolderOpen; label: string; value: number | string; suffix?: string; color: string; bgColor: string;
-}) {
+// ── Quick Link ──
+function QuickLink({ href, icon: Icon, label, color }: { href: string; icon: typeof BarChart3; label: string; color: string }) {
   return (
-    <div className="rounded-xl border border-border/40 bg-card p-4 shadow-[0_1px_3px_rgba(50,50,93,0.06),0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.25)]">
-      <div className="flex items-center gap-3">
-        <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", bgColor)}>
-          <Icon className={cn("h-[18px] w-[18px]", color)} />
-        </div>
-        <div>
-          <p className="text-2xl font-bold tabular-nums text-foreground">{value}{suffix && <span className="text-sm text-muted-foreground/50 font-medium">{suffix}</span>}</p>
-          <p className="text-xs text-muted-foreground">{label}</p>
-        </div>
-      </div>
-    </div>
+    <Link href={href} className="flex items-center gap-3 rounded-xl border border-border/50 bg-card p-4 text-sm font-medium transition-colors hover:bg-muted/30">
+      <Icon className={cn("h-4 w-4 shrink-0", color)} /> {label} <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/40" />
+    </Link>
   );
 }
 
-function RecentCasesTable({ cases, showReadiness, showCreator }: { cases: CaseRow[]; showReadiness?: boolean; showCreator?: boolean }) {
-  if (cases.length === 0) {
-    return (
-      <div className="rounded-xl border border-border/40 bg-card p-8 text-center">
-        <FolderOpen className="mx-auto h-8 w-8 text-muted-foreground/30" />
-        <p className="mt-2 text-sm text-muted-foreground">No cases yet</p>
-      </div>
-    );
-  }
-
+// ── Cases Table ──
+function CasesTable({ cases, showReadiness, showCreator }: { cases: CaseRow[]; showReadiness?: boolean; showCreator?: boolean }) {
+  if (!cases.length) return <div className="p-8 text-center"><FolderOpen className="mx-auto h-8 w-8 text-muted-foreground/30" /><p className="mt-2 text-sm text-muted-foreground">No cases yet</p></div>;
   return (
-    <div className="rounded-xl border border-border/40 bg-card overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border/30 text-left text-xs text-muted-foreground/70">
-            <th className="px-4 py-3 font-medium">Merchant</th>
-            <th className="px-4 py-3 font-medium hidden sm:table-cell">Type</th>
-            <th className="px-4 py-3 font-medium">Status</th>
-            {showReadiness && <th className="px-4 py-3 font-medium hidden md:table-cell">Readiness</th>}
-            {showCreator && <th className="px-4 py-3 font-medium hidden lg:table-cell">Created By</th>}
-            <th className="px-4 py-3 font-medium hidden md:table-cell">Date</th>
-            <th className="px-4 py-3 w-8"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {cases.map((c) => (
-            <tr key={c.id} className="border-b border-border/20 last:border-0 transition-colors hover:bg-muted/20">
-              <td className="px-4 py-3">
-                <p className="font-medium text-foreground truncate max-w-[200px]">{c.legal_name || "Untitled"}</p>
-                {c.dba && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{c.dba}</p>}
-              </td>
-              <td className="px-4 py-3 hidden sm:table-cell">
-                <span className="text-xs text-muted-foreground capitalize">{c.case_type?.replace("-", " ") || "—"}</span>
-              </td>
-              <td className="px-4 py-3"><StatusBadge status={c.status} /></td>
-              {showReadiness && (
-                <td className="px-4 py-3 hidden md:table-cell">
-                  {c.readiness_score != null ? (
-                    <span className={cn("text-xs font-medium tabular-nums",
-                      c.readiness_tier === "green" ? "text-emerald-500" :
-                      c.readiness_tier === "amber" ? "text-amber-500" : "text-red-500"
-                    )}>{c.readiness_score}/100</span>
-                  ) : <span className="text-xs text-muted-foreground/40">—</span>}
-                </td>
-              )}
-              {showCreator && (
-                <td className="px-4 py-3 hidden lg:table-cell">
-                  <span className="text-xs text-muted-foreground">{(c.creator as AnyData)?.full_name || "—"}</span>
-                </td>
-              )}
-              <td className="px-4 py-3 hidden md:table-cell">
-                <span className="text-xs text-muted-foreground tabular-nums">{new Date(c.created_at).toLocaleDateString("en-GB")}</span>
-              </td>
-              <td className="px-4 py-3">
-                <Link href={`/cases/${c.id}`}>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground/40 hover:text-primary transition-colors" />
-                </Link>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <table className="w-full text-sm">
+      <thead><tr className="border-b border-border/30 text-left text-xs text-muted-foreground/70">
+        <th className="px-4 py-3 font-medium">Merchant</th>
+        <th className="px-4 py-3 font-medium hidden sm:table-cell">Type</th>
+        <th className="px-4 py-3 font-medium">Status</th>
+        {showReadiness && <th className="px-4 py-3 font-medium hidden md:table-cell">Quality</th>}
+        {showCreator && <th className="px-4 py-3 font-medium hidden lg:table-cell">Creator</th>}
+        <th className="px-4 py-3 font-medium hidden md:table-cell">Date</th>
+        <th className="px-4 py-3 w-8"></th>
+      </tr></thead>
+      <tbody>{cases.map((c) => (
+        <tr key={c.id} className="border-b border-border/20 last:border-0 hover:bg-muted/20">
+          <td className="px-4 py-3"><p className="font-medium truncate max-w-[200px]">{c.legal_name || "Untitled"}</p>{c.dba && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{c.dba}</p>}</td>
+          <td className="px-4 py-3 hidden sm:table-cell"><span className="text-xs text-muted-foreground capitalize">{c.case_type?.replace("-", " ") || "—"}</span></td>
+          <td className="px-4 py-3"><StatusBadge status={c.status} /></td>
+          {showReadiness && <td className="px-4 py-3 hidden md:table-cell">{c.readiness_score != null ? <span className={cn("text-xs font-medium tabular-nums", c.readiness_tier === "green" ? "text-emerald-500" : c.readiness_tier === "amber" ? "text-amber-500" : "text-red-500")}>{c.readiness_score}</span> : <span className="text-xs text-muted-foreground/40">—</span>}</td>}
+          {showCreator && <td className="px-4 py-3 hidden lg:table-cell"><span className="text-xs text-muted-foreground">{(c.creator as D)?.full_name || "—"}</span></td>}
+          <td className="px-4 py-3 hidden md:table-cell"><span className="text-xs text-muted-foreground tabular-nums">{new Date(c.created_at).toLocaleDateString("en-GB")}</span></td>
+          <td className="px-4 py-3"><Link href={`/cases/${c.id}`}><ArrowRight className="h-4 w-4 text-muted-foreground/40 hover:text-primary" /></Link></td>
+        </tr>
+      ))}</tbody>
+    </table>
   );
 }

@@ -82,12 +82,12 @@ export default function MerchantsPage() {
           {loading ? (
             <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : merchants.length === 0 ? (
-            <div className="rounded-xl border border-border/40 bg-card p-12 text-center">
+            <div className="rounded-xl border border-border/50 bg-card p-12 text-center">
               <Building2 className="mx-auto h-10 w-10 text-muted-foreground/20" />
               <p className="mt-3 text-sm text-muted-foreground">No active merchants</p>
             </div>
           ) : (
-            <div className="rounded-xl border border-border/40 bg-card overflow-hidden">
+            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/30 text-left text-xs text-muted-foreground/70">

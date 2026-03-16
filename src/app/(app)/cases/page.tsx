@@ -113,18 +113,18 @@ export default function CasesPage() {
         </div>
 
         {/* Table */}
-        <div className="mt-4">
+        <div className="mt-6">
           {loading ? (
             <div className="flex justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : cases.length === 0 ? (
-            <div className="rounded-xl border border-border/40 bg-card p-12 text-center">
+            <div className="rounded-xl border border-border/50 bg-card p-12 text-center">
               <FolderOpen className="mx-auto h-10 w-10 text-muted-foreground/30" />
               <p className="mt-3 text-sm text-muted-foreground">No cases found</p>
             </div>
           ) : (
-            <div className="rounded-xl border border-border/40 bg-card overflow-hidden">
+            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/30 text-left text-xs text-muted-foreground/70">
@@ -186,7 +186,7 @@ export default function CasesPage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-6 flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
               Page {page} of {totalPages}
             </p>
