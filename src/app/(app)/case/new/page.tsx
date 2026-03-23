@@ -172,19 +172,24 @@ function NewCasePageInner() {
   // Track which submission fields were auto-populated by AI
   const [autofilledFields, setAutofilledFields] = useState<Set<string>>(new Set());
 
-  // Extraction queue — prevents concurrent Gemini calls that cause 429s
-  const extractionQueueRef = useRef<Array<() => Promise<void>>>([]);
+  // Extraction queue — runs in parallel batches of 3, prioritized by business importance
+  const EXTRACTION_PRIORITY: Record<string, number> = {
+    "mdf": 0, "trade-license": 1, "iban-proof": 2,
+    "bank-statement": 3, "vat-cert": 4, "main-moa": 5,
+  };
+  const extractionQueueRef = useRef<Array<{ slotId: string; task: () => Promise<void> }>>([]);
   const extractionRunningRef = useRef(false);
+  const EXTRACTION_CONCURRENCY = 5;
   const processExtractionQueue = useCallback(async () => {
     if (extractionRunningRef.current) return;
     extractionRunningRef.current = true;
+    // Sort by priority — MDF first, then TL, then banking, then rest
+    extractionQueueRef.current.sort((a, b) =>
+      (EXTRACTION_PRIORITY[a.slotId] ?? 50) - (EXTRACTION_PRIORITY[b.slotId] ?? 50)
+    );
     while (extractionQueueRef.current.length > 0) {
-      const task = extractionQueueRef.current.shift()!;
-      await task();
-      // Small delay between extractions to avoid rate limits
-      if (extractionQueueRef.current.length > 0) {
-        await new Promise((r) => setTimeout(r, 500));
-      }
+      const batch = extractionQueueRef.current.splice(0, EXTRACTION_CONCURRENCY);
+      await Promise.all(batch.map((item) => item.task().catch(() => {})));
     }
     extractionRunningRef.current = false;
   }, []);
@@ -450,6 +455,85 @@ function NewCasePageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load existing case data when reopening a returned/draft case
+  useEffect(() => {
+    if (!existingCaseId || !user) return;
+    const loadExistingCase = async () => {
+      try {
+        const res = await fetch(`/api/cases/${existingCaseId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const c = data.case;
+        if (!c) return;
+
+        // Pre-populate merchant info
+        setMerchantInfo({
+          legalName: c.legal_name || "",
+          dba: c.dba || "",
+          caseType: c.case_type || "low-risk",
+          existingMid: "",
+        });
+
+        // Pre-populate conditionals
+        if (c.conditionals && typeof c.conditionals === "object") {
+          setConditionals(c.conditionals);
+        }
+
+        // Rebuild checklist for this case type
+        buildChecklist({
+          legalName: c.legal_name || "",
+          dba: c.dba || "",
+          caseType: c.case_type || "low-risk",
+          existingMid: "",
+        });
+
+        // Pre-populate checklist with existing documents
+        const docs = data.documents || [];
+        if (docs.length > 0) {
+          setChecklist((prev) => {
+            const next = [...prev];
+            for (const doc of docs) {
+              const idx = next.findIndex((item) => item.id === doc.item_id);
+              if (idx >= 0) {
+                const existing = next[idx].files || [];
+                const alreadyHas = existing.some((f: { name: string }) => f.name === doc.file_name);
+                if (!alreadyHas) {
+                  next[idx] = {
+                    ...next[idx],
+                    status: "uploaded",
+                    files: [...existing, {
+                      id: doc.id,
+                      name: doc.file_name,
+                      size: doc.file_size,
+                      type: doc.file_type,
+                    }],
+                  };
+                }
+              }
+            }
+            return next;
+          });
+        }
+
+        // Load submission details
+        try {
+          const sdRes = await fetch(`/api/cases/${existingCaseId}/extracted-data`);
+          if (sdRes.ok) {
+            const sdData = await sdRes.json();
+            if (sdData.submissionDetails?.data) {
+              setSubmissionDetails((prev) => ({ ...prev, ...sdData.submissionDetails.data }));
+            }
+          }
+        } catch { /* ignore */ }
+
+        // Skip step 0 (merchant info) — go straight to documents
+        setStep(1);
+      } catch { /* ignore load failures */ }
+    };
+    loadExistingCase();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingCaseId, user]);
+
   // Recompute readiness whenever relevant state changes
   const recomputeReadiness = useCallback(() => {
     setChecklist((currentChecklist) => {
@@ -565,11 +649,18 @@ function NewCasePageInner() {
       const newFiles = rawFiles.filter(f => !existingForDedup.some(e => e.name === f.name && e.size === f.size));
       if (newFiles.length === 0) return;
 
-      // Auto-toggle "noVat" when files are added to the VAT Declaration slot
-      if (itemId === "vat-declaration") {
+      // Auto-toggle conditionals when gated documents are uploaded
+      const autoToggles: Record<string, string> = {
+        "vat-declaration": "noVat",
+        "payment-proof": "hasCheque",
+        "personal-bank": "personalBank",
+        "bank-statement": "hasBankStatement",
+      };
+      const toggleKey = autoToggles[itemId];
+      if (toggleKey) {
         setConditionals((prev) => {
-          if (prev.noVat) return prev;
-          const next = { ...prev, noVat: true };
+          if (prev[toggleKey]) return prev;
+          const next = { ...prev, [toggleKey]: true };
           updateCaseConditionals(caseIdRef.current, next);
           return next;
         });
@@ -1601,11 +1692,18 @@ function NewCasePageInner() {
       handleItemUpdate(toSlotId, uploadedFiles);
       handleRawFilesAdded(toSlotId, rawFiles);
 
-      // Auto-toggle "noVat" when a file is moved to the VAT Declaration slot
-      if (toSlotId === "vat-declaration") {
+      // Auto-toggle conditionals when gated documents are moved to a slot
+      const moveToggles: Record<string, string> = {
+        "vat-declaration": "noVat",
+        "payment-proof": "hasCheque",
+        "personal-bank": "personalBank",
+        "bank-statement": "hasBankStatement",
+      };
+      const moveToggleKey = moveToggles[toSlotId];
+      if (moveToggleKey) {
         setConditionals((prev) => {
-          if (prev.noVat) return prev;
-          const next = { ...prev, noVat: true };
+          if (prev[moveToggleKey]) return prev;
+          const next = { ...prev, [moveToggleKey]: true };
           updateCaseConditionals(caseIdRef.current, next);
           return next;
         });
@@ -1645,19 +1743,26 @@ function NewCasePageInner() {
         // Set progress immediately so the slot shows "processing" not "complete"
         setSlotProgress(slotId, { phase: "uploading", message: "Queued..." });
 
-        // Auto-toggle "noVat" when a VAT Declaration is assigned
-        if (slotId === "vat-declaration") {
+        // Auto-toggle conditionals when gated documents are assigned
+        const autoToggles: Record<string, string> = {
+          "vat-declaration": "noVat",
+          "payment-proof": "hasCheque",
+          "personal-bank": "personalBank",
+          "bank-statement": "hasBankStatement",
+        };
+        const toggleKey = autoToggles[slotId];
+        if (toggleKey) {
           setConditionals((prev) => {
-            if (prev.noVat) return prev;
-            const next = { ...prev, noVat: true };
+            if (prev[toggleKey]) return prev;
+            const next = { ...prev, [toggleKey]: true };
             updateCaseConditionals(caseIdRef.current, next);
             return next;
           });
           recomputeReadiness();
         }
 
-        // Queue the extraction (runs one at a time with 500ms gaps)
-        extractionQueueRef.current.push(() => handleRawFilesAdded(slotId, dedupedFiles));
+        // Queue the extraction (runs in parallel batches, prioritized)
+        extractionQueueRef.current.push({ slotId, task: () => handleRawFilesAdded(slotId, dedupedFiles) });
       }
       // Start processing the queue
       processExtractionQueue();

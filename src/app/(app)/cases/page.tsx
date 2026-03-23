@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LAYOUT } from "@/lib/layout";
+import { STATUS_LABELS, CASE_TYPE_LABELS } from "@/lib/labels";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,8 +42,8 @@ const ALL_STATUSES: CaseStatus[] = [
 
 function StatusBadge({ status }: { status: string }) {
   return (
-    <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium capitalize", STATUS_STYLES[status] || STATUS_STYLES.incomplete)}>
-      {status.replace("_", " ")}
+    <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", STATUS_STYLES[status] || STATUS_STYLES.incomplete)}>
+      {STATUS_LABELS[status] || status}
     </span>
   );
 }
@@ -106,7 +107,7 @@ export default function CasesPage() {
             >
               <option value="">All statuses</option>
               {ALL_STATUSES.map((s) => (
-                <option key={s} value={s}>{s.replace("_", " ")}</option>
+                <option key={s} value={s}>{STATUS_LABELS[s] || s}</option>
               ))}
             </select>
           </div>
@@ -145,7 +146,7 @@ export default function CasesPage() {
                         {c.dba && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{c.dba}</p>}
                       </td>
                       <td className="px-4 py-3 hidden sm:table-cell">
-                        <span className="text-xs text-muted-foreground capitalize">{c.case_type?.replace("-", " ") || "—"}</span>
+                        <span className="text-xs text-muted-foreground">{(c.case_type && CASE_TYPE_LABELS[c.case_type]) || c.case_type || "—"}</span>
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={c.status} /></td>
                       <td className="px-4 py-3 hidden md:table-cell">

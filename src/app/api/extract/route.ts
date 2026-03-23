@@ -160,10 +160,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Rate limit
-  if (!checkRateLimit()) {
+  // 2. Rate limit (per-user)
+  if (!checkRateLimit(user.id)) {
     return NextResponse.json(
-      { error: "Rate limit exceeded", remaining: remainingRequests() },
+      { error: "Rate limit exceeded", remaining: remainingRequests(user.id) },
       { status: 429 }
     );
   }

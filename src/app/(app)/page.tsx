@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { IconTrendingUp, IconTrendingDown } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { STATUS_LABELS, CASE_TYPE_LABELS } from "@/lib/labels";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,7 @@ const MID_WEEKS = [
 const SECTION_GRID = "grid grid-cols-1 gap-4 px-4 *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4";
 
 function StatusBadge({ status }: { status: string }) {
-  return <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium capitalize", STATUS_STYLES[status] || STATUS_STYLES.incomplete)}>{status.replace("_", " ")}</span>;
+  return <span className={cn("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", STATUS_STYLES[status] || STATUS_STYLES.incomplete)}>{STATUS_LABELS[status] || status}</span>;
 }
 
 function timeAgo(d: string) { const h = Math.floor((Date.now() - new Date(d).getTime()) / 3600000); return h < 1 ? "< 1h" : h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`; }
@@ -329,16 +330,32 @@ function SalesDashboard({ cases, stats, returnedCases, loading }: { cases: CaseR
           <MetricCard label="Submission Quality" value={avgR} suffix="/100" badge={avgR >= 70 ? "Good" : "Low"} badgeUp={avgR >= 70} />
         </div>
 
-        {/* Returned alert */}
+        {/* Returned cases */}
         {returnedCases.length > 0 && (
           <div className="px-4 lg:px-6">
-            <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 flex items-center gap-3">
-              <RotateCcw className="h-5 w-5 text-red-500 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-red-600 dark:text-red-400">{returnedCases.length} returned</p>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">{returnedCases.map((c) => c.legal_name).join(", ")}</p>
+            <div className="rounded-xl border border-red-500/20 bg-red-500/[0.02] overflow-hidden">
+              <div className="px-4 py-3 border-b border-red-500/10 flex items-center gap-2">
+                <RotateCcw className="h-4 w-4 text-red-500 shrink-0" />
+                <span className="text-sm font-medium text-red-600 dark:text-red-400">{returnedCases.length} case{returnedCases.length !== 1 ? "s" : ""} returned</span>
               </div>
-              <Link href="/cases?status=returned"><Button size="sm" variant="outline" className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10 shrink-0"><Pencil className="h-3 w-3" /> Fix</Button></Link>
+              <div className="divide-y divide-red-500/10">
+                {returnedCases.slice(0, 3).map((c) => (
+                  <Link key={c.id} href={`/cases/${c.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-red-500/[0.03] transition-colors group">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate group-hover:text-red-600 transition-colors">{c.legal_name || "Untitled"}</p>
+                      <p className="text-xs text-muted-foreground">{CASE_TYPE_LABELS[c.case_type] || c.case_type}</p>
+                    </div>
+                    <Button size="sm" variant="outline" className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10 shrink-0 h-7 text-xs">
+                      <Pencil className="h-3 w-3" /> Fix
+                    </Button>
+                  </Link>
+                ))}
+              </div>
+              {returnedCases.length > 3 && (
+                <div className="px-4 py-2 text-center border-t border-red-500/10">
+                  <Link href="/cases?status=returned" className="text-xs text-red-500 hover:underline">View all {returnedCases.length} returned cases</Link>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -417,19 +434,11 @@ function SalesDashboard({ cases, stats, returnedCases, loading }: { cases: CaseR
 // ══════════════════════════════════════════════════
 function ProcessingDashboard({ cases, stats, summary, expiries, userId, loading }: { cases: CaseRow[]; stats: Record<string, number>; summary: D; expiries: D[]; userId?: string; loading: boolean }) {
   const myReviews = cases.filter((c) => c.assigned_to === userId && c.status === "in_review");
-  const unassigned = cases.filter((c) => c.status === "submitted" && !c.assigned_to);
-  const slaOver24h = cases.filter((c) => c.status === "submitted" && c.submitted_at && (Date.now() - new Date(c.submitted_at).getTime()) > 86400000);
+  const submitted = cases.filter((c) => c.status === "submitted");
+  const unassigned = submitted.filter((c) => !c.assigned_to);
+  const slaOver24h = submitted.filter((c) => c.submitted_at && (Date.now() - new Date(c.submitted_at).getTime()) > 86400000);
   const approvedToday = cases.filter((c) => c.status === "approved" && c.reviewed_at && new Date(c.reviewed_at).toDateString() === new Date().toDateString());
   const avgTime = summary?.avgProcessingTime;
-
-  // Pipeline bar data
-  const pipeline = [
-    { name: "Submitted", value: stats.submitted || 0 },
-    { name: "In Review", value: stats.in_review || 0 },
-    { name: "Approved", value: stats.approved || 0 },
-    { name: "Returned", value: stats.returned || 0 },
-  ].filter((d) => d.value > 0);
-  const barConfig: ChartConfig = { value: { label: "Cases", color: "var(--chart-5)" } };
 
   return (
     <div className="h-full overflow-y-auto @container/main">
@@ -442,48 +451,146 @@ function ProcessingDashboard({ cases, stats, summary, expiries, userId, loading 
           <MetricCard label="Avg Review Time" value={avgTime ?? "—"} suffix="h" badge={typeof avgTime === "number" && avgTime <= 24 ? "On track" : "—"} badgeUp={typeof avgTime === "number" && avgTime <= 24} />
         </div>
 
-        {/* SLA + Expiry alerts */}
-        {(slaOver24h.length > 0 || expiries.length > 0) && (
-          <div className="px-4 lg:px-6 flex flex-col gap-3">
-            {slaOver24h.length > 0 && (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/[0.04] p-4 flex items-center gap-3">
-                <Timer className="h-5 w-5 text-red-500 shrink-0" />
-                <p className="flex-1 text-sm font-medium text-red-600 dark:text-red-400">{slaOver24h.length} case{slaOver24h.length !== 1 ? "s" : ""} waiting &gt;24h</p>
-                <Link href="/cases/queue"><Button size="sm" className="gap-1.5 shrink-0"><Inbox className="h-3 w-3" /> Queue</Button></Link>
-              </div>
-            )}
-            {expiries.length > 0 && (
-              <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-4 flex items-center gap-3">
-                <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
-                <p className="flex-1 text-sm font-medium text-amber-600 dark:text-amber-400">{expiries.length} doc{expiries.length !== 1 ? "s" : ""} expiring within 30d</p>
-                <Link href="/expiries"><Button size="sm" variant="outline" className="gap-1.5 shrink-0 border-amber-500/30 text-amber-600"><AlertTriangle className="h-3 w-3" /> View</Button></Link>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Submitted Cases — the primary work queue */}
+        <div className="px-4 lg:px-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Submitted Cases</CardTitle>
+              <CardDescription>{submitted.length} case{submitted.length !== 1 ? "s" : ""} awaiting review</CardDescription>
+              {unassigned.length > 0 && (
+                <CardAction>
+                  <Link href="/cases/queue">
+                    <Button size="sm" className="gap-1.5">
+                      <Inbox className="h-3 w-3" />
+                      Pick Up ({unassigned.length})
+                    </Button>
+                  </Link>
+                </CardAction>
+              )}
+            </CardHeader>
+            <CardContent>
+              {submitted.length === 0 ? (
+                <div className="flex flex-col items-center py-8 text-center">
+                  <FolderOpen className="h-8 w-8 text-muted-foreground/30 mb-2" />
+                  <p className="text-sm text-muted-foreground">No cases in queue</p>
+                </div>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {submitted.slice(0, 6).map((c) => {
+                    const hoursWaiting = c.submitted_at ? Math.floor((Date.now() - new Date(c.submitted_at).getTime()) / 3600000) : 0;
+                    const isOverdue = hoursWaiting > 24;
+                    const isMine = c.assigned_to === userId;
+                    return (
+                      <Link
+                        key={c.id}
+                        href={isMine ? `/cases/${c.id}/review` : `/cases/${c.id}`}
+                        className={cn(
+                          "group flex flex-col rounded-xl border p-4 transition-all hover:shadow-sm",
+                          isOverdue
+                            ? "border-red-500/30 bg-red-500/[0.03]"
+                            : "border-border/50 hover:border-border"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium truncate">{c.legal_name || "Untitled"}</p>
+                          {c.readiness_score != null && (
+                            <span className={cn("text-xs font-semibold tabular-nums shrink-0", c.readiness_tier === "green" ? "text-emerald-500" : c.readiness_tier === "amber" ? "text-amber-500" : "text-red-500")}>{c.readiness_score}</span>
+                          )}
+                        </div>
+                        {c.dba && <p className="text-xs text-muted-foreground truncate mt-0.5">{c.dba}</p>}
+                        <div className="flex items-center gap-2 mt-2.5">
+                          <span className="text-[11px] text-muted-foreground">{(c.case_type && CASE_TYPE_LABELS[c.case_type]) || c.case_type || "—"}</span>
+                          <span className="text-muted-foreground/30">·</span>
+                          <span className={cn("text-[11px] tabular-nums", isOverdue ? "text-red-500 font-medium" : "text-muted-foreground")}>
+                            {hoursWaiting < 1 ? "< 1h" : hoursWaiting < 24 ? `${hoursWaiting}h` : `${Math.floor(hoursWaiting / 24)}d ${hoursWaiting % 24}h`}
+                          </span>
+                          {isMine && <span className="text-[10px] font-medium text-primary ml-auto">Assigned to you</span>}
+                          {!isMine && !c.assigned_to && <span className="text-[10px] text-muted-foreground/50 ml-auto">Unassigned</span>}
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+              {submitted.length > 6 && (
+                <div className="mt-3 text-center">
+                  <Link href="/cases/queue" className="text-xs text-primary hover:underline">View all {submitted.length} submitted cases</Link>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
-        {/* Pipeline chart — full width */}
-        {pipeline.length > 0 && (
-          <div className="px-4 lg:px-6">
-            <Card>
-              <CardHeader><CardTitle className="text-base">Pipeline Overview</CardTitle></CardHeader>
-              <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-                <ChartContainer config={barConfig} className="aspect-auto h-[160px] w-full">
-                  <BarChart data={pipeline} layout="vertical" margin={{ left: 80 }}>
-                    <CartesianGrid horizontal={false} />
-                    <XAxis type="number" hide />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="value" fill="var(--color-value)" radius={[0, 6, 6, 0]} barSize={28} />
-                  </BarChart>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        {/* Pipeline + Attention needed — side by side */}
+        <div className="px-4 lg:px-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          {/* Pipeline status */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">Pipeline</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {[
+                  { label: "Submitted", count: stats.submitted || 0, color: "bg-violet-500" },
+                  { label: "In Review", count: stats.in_review || 0, color: "bg-amber-500" },
+                  { label: "Approved", count: stats.approved || 0, color: "bg-emerald-500" },
+                  { label: "Returned", count: stats.returned || 0, color: "bg-red-500" },
+                ].map((stage) => {
+                  const total = (stats.submitted || 0) + (stats.in_review || 0) + (stats.approved || 0) + (stats.returned || 0);
+                  const pct = total > 0 ? (stage.count / total) * 100 : 0;
+                  return (
+                    <div key={stage.label} className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground w-20 shrink-0">{stage.label}</span>
+                      <div className="flex-1 h-2 rounded-full bg-muted/50 overflow-hidden">
+                        <div className={cn("h-full rounded-full", stage.color)} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-sm font-semibold tabular-nums w-6 text-right">{stage.count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
 
-        {/* Active reviews + quick links — 2 cols */}
+          {/* Attention needed */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">Attention Needed</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {slaOver24h.length > 0 && (
+                  <Link href="/cases/queue" className="flex items-center gap-3 rounded-lg py-3 px-3.5 transition-all hover:opacity-80" style={{ backgroundColor: "color-mix(in oklch, var(--destructive) 8%, transparent)" }}>
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: "color-mix(in oklch, var(--destructive) 15%, transparent)" }}>
+                      <Timer className="h-4 w-4 text-red-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{slaOver24h.length} case{slaOver24h.length !== 1 ? "s" : ""} waiting &gt;24h</p>
+                      <p className="text-[11px] text-muted-foreground">SLA breach — pick up from queue</p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                  </Link>
+                )}
+                {expiries.length > 0 && (
+                  <Link href="/expiries" className="flex items-center gap-3 rounded-lg py-3 px-3.5 transition-all hover:opacity-80" style={{ backgroundColor: "color-mix(in oklch, var(--chart-4) 8%, transparent)" }}>
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg" style={{ backgroundColor: "color-mix(in oklch, var(--chart-4) 15%, transparent)" }}>
+                      <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{expiries.length} doc{expiries.length !== 1 ? "s" : ""} expiring</p>
+                      <p className="text-[11px] text-muted-foreground">Within 30 days — review expiries</p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                  </Link>
+                )}
+                {slaOver24h.length === 0 && expiries.length === 0 && (
+                  <div className="flex items-center gap-3 py-6 justify-center">
+                    <p className="text-sm text-muted-foreground">All clear — no urgent items</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Active reviews + quick actions — 2 cols */}
         <div className="px-4 lg:px-6 grid gap-4 lg:grid-cols-2">
-          {/* Active reviews */}
           <Card>
             <CardHeader><CardTitle className="text-base">My Active Reviews</CardTitle></CardHeader>
             <CardContent>
@@ -492,7 +599,7 @@ function ProcessingDashboard({ cases, stats, summary, expiries, userId, loading 
               ) : (
                 <div className="space-y-2">
                   {myReviews.map((c) => (
-                    <Link key={c.id} href={`/cases/${c.id}/review`} className="flex items-center gap-3 rounded-lg border border-border/30 p-3 transition-colors hover:bg-muted/30">
+                    <Link key={c.id} href={`/cases/${c.id}/review`} className="flex items-center gap-3 rounded-lg border border-border/50 p-3 transition-colors hover:bg-muted/30">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{c.legal_name || "Untitled"}</p>
                         <p className="text-xs text-muted-foreground">{c.submitted_at ? timeAgo(c.submitted_at) : "—"}</p>
@@ -506,18 +613,17 @@ function ProcessingDashboard({ cases, stats, summary, expiries, userId, loading 
             </CardContent>
           </Card>
 
-          {/* Quick links */}
           <Card>
             <CardHeader><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <Link href="/cases/queue" className="flex items-center gap-3 rounded-lg border border-border/30 p-3 text-sm font-medium transition-colors hover:bg-muted/30">
+                <Link href="/cases/queue" className="flex items-center gap-3 rounded-lg border border-border/50 p-3 text-sm font-medium transition-colors hover:bg-muted/30">
                   <Inbox className="h-4 w-4 text-violet-500 shrink-0" /> Pick Up Cases <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/40" />
                 </Link>
-                <Link href="/merchants" className="flex items-center gap-3 rounded-lg border border-border/30 p-3 text-sm font-medium transition-colors hover:bg-muted/30">
+                <Link href="/merchants" className="flex items-center gap-3 rounded-lg border border-border/50 p-3 text-sm font-medium transition-colors hover:bg-muted/30">
                   <Building2 className="h-4 w-4 text-emerald-500 shrink-0" /> Active Merchants <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/40" />
                 </Link>
-                <Link href="/expiries" className="flex items-center gap-3 rounded-lg border border-border/30 p-3 text-sm font-medium transition-colors hover:bg-muted/30">
+                <Link href="/expiries" className="flex items-center gap-3 rounded-lg border border-border/50 p-3 text-sm font-medium transition-colors hover:bg-muted/30">
                   <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" /> Expiries <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted-foreground/40" />
                 </Link>
               </div>
@@ -678,7 +784,7 @@ function CasesTable({ cases, showReadiness, showCreator }: { cases: CaseRow[]; s
       <tbody>{cases.map((c) => (
         <tr key={c.id} className="border-b border-border/20 last:border-0 hover:bg-muted/20">
           <td className="px-4 py-3"><p className="font-medium truncate max-w-[200px]">{c.legal_name || "Untitled"}</p>{c.dba && <p className="text-xs text-muted-foreground truncate max-w-[200px]">{c.dba}</p>}</td>
-          <td className="px-4 py-3 hidden sm:table-cell"><span className="text-xs text-muted-foreground capitalize">{c.case_type?.replace("-", " ") || "—"}</span></td>
+          <td className="px-4 py-3 hidden sm:table-cell"><span className="text-xs text-muted-foreground">{(c.case_type && CASE_TYPE_LABELS[c.case_type]) || c.case_type || "—"}</span></td>
           <td className="px-4 py-3"><StatusBadge status={c.status} /></td>
           {showReadiness && <td className="px-4 py-3 hidden md:table-cell">{c.readiness_score != null ? <span className={cn("text-xs font-medium tabular-nums", c.readiness_tier === "green" ? "text-emerald-500" : c.readiness_tier === "amber" ? "text-amber-500" : "text-red-500")}>{c.readiness_score}</span> : <span className="text-xs text-muted-foreground/40">—</span>}</td>}
           {showCreator && <td className="px-4 py-3 hidden lg:table-cell"><span className="text-xs text-muted-foreground">{(c.creator as D)?.full_name || "—"}</span></td>}

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LAYOUT } from "@/lib/layout";
+import { CASE_TYPE_LABELS } from "@/lib/labels";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -150,7 +151,7 @@ export default function ProcessingQueuePage() {
                       {c.dba && <p className="text-xs text-muted-foreground truncate max-w-[180px]">{c.dba}</p>}
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
-                      <span className="text-xs text-muted-foreground capitalize">{c.case_type?.replace("-", " ")}</span>
+                      <span className="text-xs text-muted-foreground">{(c.case_type && CASE_TYPE_LABELS[c.case_type]) || c.case_type || "—"}</span>
                     </td>
                     <td className="px-4 py-3">
                       {c.readiness_score != null ? (

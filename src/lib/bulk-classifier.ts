@@ -62,8 +62,8 @@ function getAutoAssignThreshold(detectedType: string): number {
   return RELAXED_TYPES.has(detectedType) ? 55 : 75;
 }
 
-/** Max concurrent AI calls */
-const CONCURRENCY = 3;
+/** Max concurrent AI classification calls (doc-detect is lightweight — 2 pages only) */
+const CONCURRENCY = 10;
 
 // ── Main classifier ──
 
@@ -202,6 +202,14 @@ export async function classifyBulkFiles(
       });
     }
   }
+
+  // Re-sort assigned files by checklist config order (not confidence order)
+  const slotOrder = new Map(items.map((item, idx) => [item.id, idx]));
+  assigned.sort((a, b) => {
+    const orderA = slotOrder.get(a.slotId) ?? 999;
+    const orderB = slotOrder.get(b.slotId) ?? 999;
+    return orderA - orderB;
+  });
 
   return { assigned, unassigned };
 }

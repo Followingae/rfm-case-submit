@@ -54,7 +54,13 @@
       "WebFetch(domain:business.wio.io)",
       "Bash(cd:*)",
       "WebFetch(domain:github.com)",
-      "mcp__supabase__execute_sql"
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__get_logs",
+      "Bash(cat:*)",
+      "Bash(grep -n \"returned\\\\|version\\\\|previous\\\\|changed\\\\|diff\" /c/Users/user/Desktop/rfm-case-submit/src/app/\\\\\\(app\\\\\\)/cases/[id]/page.tsx)",
+      "Bash(grep -n \"return_reason\\\\|returnReason\\\\|reason.*return\" /c/Users/user/Desktop/rfm-case-submit/src/app/\\\\\\(app\\\\\\)/cases/[id]/page.tsx)",
+      "Bash(grep -n \"created_at\\\\|isNew\\\\|isOld\\\\|version\\\\|previous\\\\|first.*submission\\\\|timestamp\" /c/Users/user/Desktop/rfm-case-submit/src/app/\\\\\\(app\\\\\\)/cases/[id]/page.tsx)",
+      "mcp__supabase__apply_migration"
     ]
   },
   "enableAllProjectMcpServers": true,

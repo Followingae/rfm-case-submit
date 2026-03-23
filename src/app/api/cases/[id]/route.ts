@@ -53,11 +53,26 @@ export async function GET(
     .eq("case_id", id)
     .order("created_at", { ascending: false });
 
+  // Count how many times this case has been returned
+  const { data: maxReturn } = await supabase
+    .from("case_return_items")
+    .select("return_number")
+    .eq("case_id", id)
+    .order("return_number", { ascending: false })
+    .limit(1);
+
+  const returnCount = maxReturn?.[0]?.return_number || 0;
+
+  // Count submissions (how many times status went from returned/complete to submitted)
+  const submissionCount = (history || []).filter((h: { to_status: string }) => h.to_status === "submitted").length;
+
   return NextResponse.json({
     case: caseData,
     documents: docs || [],
     notes: notes || [],
     statusHistory: history || [],
+    returnCount,
+    submissionCount,
   });
 }
 

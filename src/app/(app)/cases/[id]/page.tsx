@@ -28,6 +28,8 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { STATUS_LABELS, CASE_TYPE_LABELS, DOC_SLOT_LABELS, NOTE_TYPE_LABELS, TIER_LABELS, EXCEPTION_CATEGORY_LABELS, label } from "@/lib/labels";
+import { ReturnModal } from "@/components/readiness/return-modal";
 
 const STATUS_STYLES: Record<string, string> = {
   incomplete: "bg-muted/50 text-muted-foreground",
@@ -38,6 +40,8 @@ const STATUS_STYLES: Record<string, string> = {
   returned: "bg-red-500/10 text-red-600 dark:text-red-400",
   escalated: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
   exported: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  active: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  renewal_pending: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
 };
 
 interface CaseDetail {
@@ -108,17 +112,18 @@ export default function CaseDetailPage({
   const [extracted, setExtracted] = useState<AnyData>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState("");
-  const [returnReason, setReturnReason] = useState("");
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [newNote, setNewNote] = useState("");
-  const [notesExpanded, setNotesExpanded] = useState(true);
-  const [historyExpanded, setHistoryExpanded] = useState(false);
-  const [extractedExpanded, setExtractedExpanded] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [returnItems, setReturnItems] = useState<any[]>([]);
+  const [returnCount, setReturnCount] = useState(0);
+  const [submissionCount, setSubmissionCount] = useState(0);
 
   const fetchCase = useCallback(async () => {
-    const [caseRes, extRes] = await Promise.all([
+    const [caseRes, extRes, returnRes] = await Promise.all([
       fetch(`/api/cases/${id}`),
       fetch(`/api/cases/${id}/extracted-data`).catch(() => null),
+      fetch(`/api/cases/${id}/return-items`).catch(() => null),
     ]);
     if (!caseRes.ok) {
       toast.error("Failed to load case");
@@ -129,9 +134,15 @@ export default function CaseDetailPage({
     setDocuments(data.documents || []);
     setNotes(data.notes || []);
     setHistory(data.statusHistory || []);
+    setReturnCount(data.returnCount || 0);
+    setSubmissionCount(data.submissionCount || 0);
     if (extRes?.ok) {
       const extData = await extRes.json();
       setExtracted(extData);
+    }
+    if (returnRes?.ok) {
+      const retData = await returnRes.json();
+      setReturnItems(retData.items || []);
     }
     setLoading(false);
   }, [id]);
@@ -188,332 +199,434 @@ export default function CaseDetailPage({
   const canSubmit = (hasRole("sales") && isOwner) || hasRole("superadmin");
   const canReview = canProcess || hasRole("superadmin");
 
+  const tierColor = caseData.readiness_tier === "green" ? "text-emerald-500" : caseData.readiness_tier === "amber" ? "text-amber-500" : "text-red-500";
+
+  // Derive correct category from item_id when DB has "Other" or missing
+  const ITEM_CATEGORY: Record<string, string> = {
+    "mdf": "Forms", "ack-form": "Forms", "signed-svr": "Forms",
+    "trade-license": "Legal", "trademark-cert": "Legal", "main-moa": "Legal", "amended-moa": "Legal",
+    "poa": "Legal", "vat-cert": "Legal", "vat-declaration": "Legal", "org-structure": "Legal",
+    "letter-of-intent": "Legal", "freezone-aoa": "Legal", "freezone-share-cert": "Legal",
+    "freezone-incumbency": "Legal", "freezone-bor": "Legal",
+    "iban-proof": "Banking", "bank-statement": "Banking", "payment-proof": "Banking", "personal-bank": "Banking",
+    "shop-photos": "Premises", "tenancy-ejari": "Premises",
+    "pep-form": "Forms", "supplier-invoice": "Legal", "aml-questionnaire": "Forms",
+    "addendum": "Forms", "branch-form": "Forms", "pg-questionnaire": "Forms",
+  };
+
+  // Deduplicate documents per case — keep one per item_id (latest)
+  const deduped = documents.reduce<Map<string, CaseDoc>>((acc, doc) => {
+    const existing = acc.get(doc.item_id);
+    if (!existing || new Date(doc.created_at) > new Date(existing.created_at)) {
+      acc.set(doc.item_id, doc);
+    }
+    return acc;
+  }, new Map());
+  const uniqueDocs = Array.from(deduped.values());
+
+  // Group by corrected category, ordered
+  const categoryOrder = ["Forms", "Legal", "Banking", "Premises", "Other"];
+  const docsByCategory = uniqueDocs.reduce<Record<string, CaseDoc[]>>((acc, doc) => {
+    const cat = (doc.category && doc.category !== "Other") ? doc.category : (ITEM_CATEGORY[doc.item_id] || "Other");
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(doc);
+    return acc;
+  }, {});
+
   return (
     <div className="h-full overflow-y-auto">
       <div className={LAYOUT.page}>
-        {/* Back link */}
+        {/* Breadcrumb */}
         <Link
           href="/cases"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back to Cases
+          <ArrowLeft className="h-3 w-3" />
+          Cases
         </Link>
 
-        {/* Header */}
-        <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">
-              {caseData.legal_name || "Untitled Case"}
-            </h1>
-            {caseData.dba && (
-              <p className="mt-0.5 text-sm text-muted-foreground">{caseData.dba}</p>
+        {/* Header bar */}
+        <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            {/* Readiness circle */}
+            {caseData.readiness_score != null && (
+              <div className={cn("flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border-2", caseData.readiness_tier === "green" ? "border-emerald-500/30 bg-emerald-500/5" : caseData.readiness_tier === "amber" ? "border-amber-500/30 bg-amber-500/5" : "border-red-500/30 bg-red-500/5")}>
+                <span className={cn("text-lg font-bold tabular-nums", tierColor)}>{caseData.readiness_score}</span>
+              </div>
             )}
-            <div className="mt-2 flex items-center gap-2 flex-wrap">
-              <Badge className={cn("text-xs font-medium border-0 capitalize", STATUS_STYLES[status])}>
-                {status.replace("_", " ")}
-              </Badge>
-              <span className="text-xs text-muted-foreground capitalize">
-                {caseData.case_type?.replace("-", " ")}
-              </span>
-              <span className="text-xs text-muted-foreground/50">
-                {caseData.id.slice(0, 8)}
-              </span>
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-xl font-semibold tracking-tight">{caseData.legal_name || "Untitled Case"}</h1>
+                <Badge className={cn("text-[11px] font-medium border-0", STATUS_STYLES[status])}>
+                  {STATUS_LABELS[status] || status}
+                </Badge>
+                {submissionCount > 1 && (
+                  <span className="text-[10px] font-medium text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-md">
+                    Resubmission #{submissionCount}
+                  </span>
+                )}
+                {returnCount > 0 && status !== "returned" && (
+                  <span className="text-[10px] text-muted-foreground">
+                    Returned {returnCount}x previously
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                {caseData.dba && <span>{caseData.dba}</span>}
+                {caseData.dba && <span className="text-muted-foreground/30">·</span>}
+                <span>{CASE_TYPE_LABELS[caseData.case_type] || caseData.case_type}</span>
+                <span className="text-muted-foreground/30">·</span>
+                <span className="tabular-nums">{caseData.id.slice(0, 8)}</span>
+              </div>
             </div>
           </div>
 
-          {/* Action buttons */}
+          {/* Actions */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Sales: Continue draft cases */}
             {canSubmit && ["incomplete", "complete"].includes(status) && (
-              <Button
-                size="sm"
-                onClick={() => router.push(`/case/new?caseId=${id}`)}
-                className="gap-1.5"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Continue Editing
+              <Button size="sm" onClick={() => router.push(`/case/new?caseId=${id}`)} className="gap-1.5">
+                <Pencil className="h-3.5 w-3.5" /> Continue Editing
               </Button>
             )}
-
-            {/* Sales: Edit returned cases */}
             {canSubmit && status === "returned" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => router.push(`/case/new?caseId=${id}`)}
-                className="gap-1.5"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Edit & Resubmit
+              <Button size="sm" variant="outline" onClick={() => router.push(`/case/new?caseId=${id}`)} className="gap-1.5">
+                <Pencil className="h-3.5 w-3.5" /> Edit & Resubmit
               </Button>
             )}
-
-            {/* Sales: Delete draft cases */}
             {canSubmit && ["incomplete", "complete"].includes(status) && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  if (!confirm("Are you sure you want to delete this draft case? This cannot be undone.")) return;
-                  setActionLoading("delete");
-                  const res = await fetch(`/api/cases/${id}`, { method: "DELETE" });
-                  if (res.ok) {
-                    toast.success("Case deleted");
-                    router.push("/cases");
-                  } else {
-                    toast.error("Failed to delete case");
-                  }
-                  setActionLoading("");
-                }}
-                disabled={!!actionLoading}
-                className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10"
-              >
-                {actionLoading === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
-                Delete Draft
+              <Button size="sm" variant="outline" onClick={async () => { if (!confirm("Delete this draft?")) return; setActionLoading("delete"); const res = await fetch(`/api/cases/${id}`, { method: "DELETE" }); if (res.ok) { toast.success("Deleted"); router.push("/cases"); } else toast.error("Failed"); setActionLoading(""); }} disabled={!!actionLoading} className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10">
+                {actionLoading === "delete" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />} Delete
               </Button>
             )}
-
-            {/* Sales: Submit complete cases */}
             {canSubmit && ["complete", "returned"].includes(status) && (
-              <Button
-                size="sm"
-                onClick={() => performAction("submit")}
-                disabled={!!actionLoading}
-                className="gap-1.5"
-              >
-                {actionLoading === "submit" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                Submit to Processing
+              <Button size="sm" onClick={() => performAction("submit")} disabled={!!actionLoading} className="gap-1.5">
+                {actionLoading === "submit" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Submit
               </Button>
             )}
-
-            {/* Processing: Approve */}
             {canReview && ["submitted", "in_review"].includes(status) && (
-              <Button
-                size="sm"
-                onClick={() => performAction("approve")}
-                disabled={!!actionLoading}
-                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                {actionLoading === "approve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                Approve
-              </Button>
-            )}
-
-            {/* Processing: Return */}
-            {canReview && ["submitted", "in_review"].includes(status) && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowReturnModal(true)}
-                disabled={!!actionLoading}
-                className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Return
-              </Button>
-            )}
-
-            {/* Processing: Escalate */}
-            {canReview && ["submitted", "in_review"].includes(status) && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  const reason = prompt("Escalation reason (optional):");
-                  if (reason !== null) performAction("escalate", { reason });
-                }}
-                disabled={!!actionLoading}
-                className="gap-1.5 border-orange-500/30 text-orange-600 hover:bg-orange-500/10"
-              >
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Escalate
-              </Button>
+              <>
+                <Button size="sm" onClick={() => performAction("approve")} disabled={!!actionLoading} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
+                  {actionLoading === "approve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />} Approve
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowReturnModal(true)} disabled={!!actionLoading} className="gap-1.5 border-red-500/30 text-red-600 hover:bg-red-500/10">
+                  <RotateCcw className="h-3.5 w-3.5" /> Return
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => { const r = prompt("Escalation reason (optional):"); if (r !== null) performAction("escalate", { reason: r }); }} disabled={!!actionLoading} className="gap-1.5 border-orange-500/30 text-orange-600 hover:bg-orange-500/10">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Escalate
+                </Button>
+              </>
             )}
           </div>
         </div>
 
-        {/* Info Cards */}
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          {/* Merchant Info */}
-          <div className="rounded-xl border border-border/50 bg-card p-5">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-3">
-              Merchant Info
-            </p>
-            <div className="space-y-2 text-sm">
-              <InfoRow label="Legal Name" value={caseData.legal_name} />
-              <InfoRow label="DBA" value={caseData.dba} />
-              <InfoRow label="Case Type" value={caseData.case_type?.replace("-", " ")} />
-            </div>
-          </div>
+        {/* Return Feedback — Structured */}
+        {status === "returned" && returnItems.length > 0 && (() => {
+          const latestReturn = Math.max(...returnItems.map((r: AnyData) => r.return_number || 1));
+          const currentItems = returnItems.filter((r: AnyData) => r.return_number === latestReturn);
+          const docItems = currentItems.filter((r: AnyData) => r.item_type === "document");
+          const additionalItems = currentItems.filter((r: AnyData) => r.item_type === "additional_request");
+          const generalItems = currentItems.filter((r: AnyData) => r.item_type === "general");
+          const requiredItems = currentItems.filter((r: AnyData) => r.severity === "required");
+          const resolvedCount = currentItems.filter((r: AnyData) => r.resolved).length;
+          const requiredResolved = requiredItems.filter((r: AnyData) => r.resolved).length;
+          const allRequiredDone = requiredResolved === requiredItems.length;
 
-          {/* Workflow Info */}
-          <div className="rounded-xl border border-border/50 bg-card p-5">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-3">
-              Workflow
-            </p>
-            <div className="space-y-2 text-sm">
-              <InfoRow label="Created By" value={caseData.creator?.full_name || "—"} />
-              <InfoRow label="Assigned To" value={caseData.assignee?.full_name || "Unassigned"} />
-              <InfoRow label="Created" value={new Date(caseData.created_at).toLocaleDateString("en-GB")} />
-              {caseData.submitted_at && (
-                <InfoRow label="Submitted" value={new Date(caseData.submitted_at).toLocaleDateString("en-GB")} />
-              )}
-              {caseData.reviewed_at && (
-                <InfoRow label="Reviewed" value={`${new Date(caseData.reviewed_at).toLocaleDateString("en-GB")} by ${caseData.reviewer?.full_name || "—"}`} />
-              )}
-              {caseData.readiness_score != null && (
-                <InfoRow
-                  label="Readiness"
-                  value={`${caseData.readiness_score}/100`}
-                  valueClass={
-                    caseData.readiness_tier === "green" ? "text-emerald-500 font-semibold" :
-                    caseData.readiness_tier === "amber" ? "text-amber-500 font-semibold" :
-                    "text-red-500 font-semibold"
-                  }
-                />
+          const CATEGORY_COLORS: Record<string, string> = {
+            missing: "bg-red-500/10 text-red-600",
+            unclear: "bg-amber-500/10 text-amber-600",
+            expired: "bg-red-500/10 text-red-600",
+            incorrect: "bg-orange-500/10 text-orange-600",
+            low_quality: "bg-amber-500/10 text-amber-600",
+            additional: "bg-blue-500/10 text-blue-600",
+            general: "bg-muted/50 text-muted-foreground",
+          };
+          const CATEGORY_LABELS: Record<string, string> = {
+            missing: "Missing", unclear: "Unclear", expired: "Expired",
+            incorrect: "Incorrect", low_quality: "Low Quality", additional: "Additional", general: "General",
+          };
+
+          const toggleResolve = async (itemId: string, current: boolean) => {
+            await fetch(`/api/cases/${id}/return-items`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ itemId, resolved: !current }),
+            });
+            fetchCase();
+          };
+
+          return (
+            <div className="mt-6 rounded-xl border border-red-500/20 bg-red-500/[0.02] overflow-hidden">
+              <div className="px-5 py-4 border-b border-red-500/10 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <RotateCcw className="h-4 w-4 text-red-500" />
+                  <span className="text-sm font-semibold text-red-600 dark:text-red-400">Return #{latestReturn}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {currentItems[0]?.creator?.full_name || "Processing"} · {currentItems[0]?.created_at ? formatDateTime(currentItems[0].created_at) : ""}
+                  </span>
+                </div>
+                <span className="text-xs tabular-nums text-muted-foreground">{resolvedCount}/{currentItems.length} resolved</span>
+              </div>
+
+              <div className="divide-y divide-red-500/10">
+                {[...docItems, ...additionalItems, ...generalItems].map((item: AnyData) => (
+                  <div key={item.id} className={cn("flex items-start gap-3 px-5 py-3.5", item.resolved && "opacity-50")}>
+                    <button
+                      onClick={() => canSubmit && toggleResolve(item.id, item.resolved)}
+                      disabled={!canSubmit}
+                      className={cn("mt-0.5 h-4 w-4 rounded border-2 shrink-0 flex items-center justify-center transition-colors",
+                        item.resolved ? "border-emerald-500 bg-emerald-500" : "border-red-400 hover:border-red-500"
+                      )}
+                    >
+                      {item.resolved && <span className="text-white text-[10px] font-bold">✓</span>}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {item.document_id && (
+                          <span className="text-sm font-medium">{DOC_SLOT_LABELS[item.document_id] || item.document_id}</span>
+                        )}
+                        <span className={cn("text-[10px] font-medium rounded px-1.5 py-0.5", CATEGORY_COLORS[item.category] || CATEGORY_COLORS.general)}>
+                          {CATEGORY_LABELS[item.category] || item.category}
+                        </span>
+                        {item.severity === "recommended" && (
+                          <span className="text-[10px] text-muted-foreground/50">Optional</span>
+                        )}
+                      </div>
+                      <p className={cn("text-sm text-muted-foreground mt-0.5", item.resolved && "line-through")}>{item.feedback}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {canSubmit && (
+                <div className="px-5 py-3.5 border-t border-red-500/10 flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    {allRequiredDone ? "All required items resolved" : `${requiredItems.length - requiredResolved} required item${requiredItems.length - requiredResolved !== 1 ? "s" : ""} remaining`}
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => router.push(`/case/new?caseId=${id}`)}
+                    className="gap-1.5"
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Edit & Resubmit
+                  </Button>
+                </div>
               )}
             </div>
-          </div>
-        </div>
+          );
+        })()}
 
-        {/* Return Feedback Card */}
-        {status === "returned" && notes.some((n) => n.note_type === "return_reason") && (
+        {/* Legacy return feedback (for cases returned before structured returns) */}
+        {status === "returned" && returnItems.length === 0 && notes.some((n) => n.note_type === "return_reason") && (
           <div className="mt-6 rounded-xl border border-red-500/20 bg-red-500/[0.04] p-5">
             <div className="flex items-center gap-2 mb-3">
               <RotateCcw className="h-4 w-4 text-red-500" />
-              <p className="text-sm font-medium text-red-600 dark:text-red-400">Return Feedback from Processing</p>
+              <p className="text-sm font-medium text-red-600 dark:text-red-400">Return Feedback</p>
             </div>
             {notes.filter((n) => n.note_type === "return_reason").map((n) => (
               <div key={n.id} className="rounded-lg bg-red-500/5 px-4 py-3 mb-2 last:mb-0">
                 <p className="text-sm">{n.content}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  {n.author?.full_name || "Processing"} — {new Date(n.created_at).toLocaleDateString("en-GB")}
-                </p>
+                <p className="text-[10px] text-muted-foreground mt-1">{n.author?.full_name || "Processing"} · {formatDateTime(n.created_at)}</p>
               </div>
             ))}
             {canSubmit && (
-              <button onClick={() => router.push(`/case/new?caseId=${id}`)}
-                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+              <button onClick={() => router.push(`/case/new?caseId=${id}`)} className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
                 <Pencil className="h-3.5 w-3.5" /> Edit & Resubmit
               </button>
             )}
           </div>
         )}
 
-        {/* Consistency Warnings */}
-        {caseData.consistency_results && Array.isArray(caseData.consistency_results) && caseData.consistency_results.length > 0 && (
-          <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-5">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-amber-600/70 mb-3">
-              Consistency Warnings ({(caseData.consistency_results as AnyData[]).length})
-            </p>
-            <div className="space-y-2">
-              {(caseData.consistency_results as AnyData[]).map((w: AnyData, i: number) => (
-                <div key={i} className="flex items-start gap-2 text-sm">
-                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
-                  <span className="text-muted-foreground">{w.message}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Two-column layout: Left (details + docs) | Right (timeline + notes) */}
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
 
-        {/* Extracted Merchant Data Preview */}
-        {extracted?.merchantDetails && (
-          <div className="mt-6 rounded-xl border border-border/50 bg-card">
-            <button onClick={() => setExtractedExpanded(!extractedExpanded)}
-              className="flex w-full items-center gap-2 px-5 py-4">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <span className="flex-1 text-left text-sm font-medium">AI-Extracted Merchant Data</span>
-              {extractedExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-            </button>
-            {extractedExpanded && (
-              <div className="border-t border-border/30 px-5 py-4">
-                <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 text-sm">
+          {/* ── LEFT COLUMN ── */}
+          <div className="space-y-6">
+
+            {/* Key Details */}
+            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+              <div className="grid grid-cols-2 divide-x divide-border/30">
+                <div className="p-5">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Created</p>
+                  <p className="mt-1.5 text-sm font-semibold">{caseData.creator?.full_name || "—"}</p>
+                  <p className="text-xs text-muted-foreground tabular-nums">{formatDateTime(caseData.created_at)}</p>
+                </div>
+                <div className="p-5">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Submitted</p>
+                  <p className="mt-1.5 text-sm font-semibold">{caseData.submitted_at ? caseData.assignee?.full_name || "Unassigned" : "Pending"}</p>
+                  <p className="text-xs text-muted-foreground tabular-nums">{caseData.submitted_at ? formatDateTime(caseData.submitted_at) : "—"}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 divide-x divide-border/30 border-t border-border/30">
+                <div className="p-5">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Reviewed</p>
+                  <p className="mt-1.5 text-sm font-semibold">{caseData.reviewer?.full_name || "Pending"}</p>
+                  <p className="text-xs text-muted-foreground tabular-nums">{caseData.reviewed_at ? formatDateTime(caseData.reviewed_at) : "—"}</p>
+                </div>
+                <div className="p-5">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Readiness</p>
+                  {caseData.readiness_score != null ? (
+                    <div className="flex items-baseline gap-1.5 mt-1.5">
+                      <span className={cn("text-2xl font-bold tabular-nums", tierColor)}>{caseData.readiness_score}</span>
+                      <span className="text-xs text-muted-foreground">/100 · {TIER_LABELS[caseData.readiness_tier || ""] || "—"}</span>
+                    </div>
+                  ) : (
+                    <p className="mt-1.5 text-sm text-muted-foreground">Not computed</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* AI-Extracted Data */}
+            {extracted?.merchantDetails && (
+              <div className="rounded-xl border border-border/50 bg-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Merchant Data</p>
+                  {hasRole("processing") && (
+                    <Link href={`/cases/${id}/review`} className="ml-auto text-xs text-primary hover:underline">Full review</Link>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                   {[
-                    ["Legal Name", extracted.merchantDetails.merchant_legal_name],
-                    ["DBA", extracted.merchantDetails.doing_business_as],
-                    ["Emirate", extracted.merchantDetails.emirate],
-                    ["Address", extracted.merchantDetails.address],
-                    ["Contact", extracted.merchantDetails.contact_name],
-                    ["Mobile", extracted.merchantDetails.mobile_no],
-                    ["Email", extracted.merchantDetails.email_1],
-                    ["IBAN", extracted.merchantDetails.iban],
-                    ["Bank", extracted.merchantDetails.bank_name],
-                    ["Business Type", extracted.merchantDetails.business_type],
-                  ].map(([label, value]) => (
-                    <div key={label as string}>
-                      <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/60">{label}</span>
-                      <p className="mt-0.5 text-sm font-medium truncate">{(value as string) || "—"}</p>
+                    { l: "Legal Name", v: extracted.merchantDetails.merchant_legal_name },
+                    { l: "Trade Name", v: extracted.merchantDetails.doing_business_as },
+                    { l: "Emirate", v: extracted.merchantDetails.emirate },
+                    { l: "Contact", v: extracted.merchantDetails.contact_name },
+                    { l: "Mobile", v: extracted.merchantDetails.mobile_no },
+                    { l: "Email", v: extracted.merchantDetails.email_1 },
+                    { l: "Bank", v: extracted.merchantDetails.bank_name },
+                    { l: "IBAN", v: extracted.merchantDetails.iban },
+                  ].filter((f) => f.v).map((f) => (
+                    <div key={f.l}>
+                      <p className="text-[11px] text-muted-foreground">{f.l}</p>
+                      <p className="text-sm font-medium truncate mt-0.5">{f.v}</p>
                     </div>
                   ))}
                 </div>
                 {extracted.tradeLicense && (
-                  <div className="mt-4 pt-4 border-t border-border/30 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 text-sm">
+                  <div className="mt-4 pt-4 border-t border-border/30 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
                     {[
-                      ["TL Number", extracted.tradeLicense.license_number],
-                      ["TL Expiry", extracted.tradeLicense.expiry_date],
-                      ["Authority", extracted.tradeLicense.authority],
-                      ["Activities", extracted.tradeLicense.activities],
-                    ].map(([label, value]) => (
-                      <div key={label as string}>
-                        <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground/60">{label}</span>
-                        <p className="mt-0.5 text-sm font-medium truncate">{(value as string) || "—"}</p>
+                      { l: "TL Number", v: extracted.tradeLicense.license_number },
+                      { l: "TL Expiry", v: extracted.tradeLicense.expiry_date },
+                      { l: "Authority", v: extracted.tradeLicense.authority },
+                      { l: "Activities", v: extracted.tradeLicense.activities },
+                    ].filter((f) => f.v).map((f) => (
+                      <div key={f.l}>
+                        <p className="text-[11px] text-muted-foreground">{f.l}</p>
+                        <p className="text-sm font-semibold truncate mt-0.5 tabular-nums">{f.v}</p>
                       </div>
                     ))}
                   </div>
                 )}
-                {hasRole("processing") && (
-                  <Link href={`/cases/${id}/review`} className="mt-4 inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
-                    View full extracted data →
-                  </Link>
-                )}
+              </div>
+            )}
+
+            {/* Documents */}
+            <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+              <div className="px-5 py-4 border-b border-border/30">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Documents · {uniqueDocs.length}</p>
+              </div>
+              {uniqueDocs.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">No documents</p>
+              ) : (
+                <div className="divide-y divide-border/20">
+                  {categoryOrder.filter((cat) => docsByCategory[cat]?.length).map((cat) => (
+                    docsByCategory[cat].map((doc) => {
+                      const sz = doc.file_size / 1024;
+                      const catStyles: Record<string, string> = {
+                        Forms: "bg-violet-500/10 text-violet-500",
+                        Legal: "bg-blue-500/10 text-blue-500",
+                        Banking: "bg-emerald-500/10 text-emerald-500",
+                        Premises: "bg-amber-500/10 text-amber-500",
+                        Other: "bg-muted/50 text-muted-foreground",
+                      };
+                      const cs = catStyles[cat] || catStyles.Other;
+                      return (
+                        <a
+                          key={doc.id}
+                          href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/case-documents/${doc.file_path}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/20 group"
+                        >
+                          <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", cs.split(" ").slice(0, -1).join(" "))}>
+                            <FileText className={cn("h-3.5 w-3.5", cs.split(" ").pop())} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">{DOC_SLOT_LABELS[doc.item_id] || doc.label}</p>
+                            <p className="text-[11px] text-muted-foreground">{cat}</p>
+                          </div>
+                          <span className="text-xs text-muted-foreground/50 tabular-nums shrink-0">{sz >= 1024 ? `${(sz / 1024).toFixed(1)} MB` : `${sz.toFixed(0)} KB`}</span>
+                          <Download className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-primary shrink-0 transition-colors" />
+                        </a>
+                      );
+                    })
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Consistency Warnings */}
+            {caseData.consistency_results && Array.isArray(caseData.consistency_results) && (caseData.consistency_results as AnyData[]).length > 0 && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.03] p-5">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-amber-600/70 mb-3">
+                  Warnings · {(caseData.consistency_results as AnyData[]).length}
+                </p>
+                <div className="space-y-2">
+                  {(caseData.consistency_results as AnyData[]).map((w: AnyData, i: number) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+                      <span className="text-muted-foreground">{w.message}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-        )}
 
-        {/* Documents */}
-        <div className="mt-6 rounded-xl border border-border/50 bg-card p-5">
-          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70 mb-3">
-            Documents ({documents.length})
-          </p>
-          {documents.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No documents uploaded</p>
-          ) : (
-            <div className="space-y-1.5">
-              {documents.map((doc) => (
-                <div key={doc.id} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-muted/20 transition-colors">
-                  <FileText className="h-4 w-4 text-muted-foreground/50 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-foreground truncate">{doc.label}</p>
-                    <p className="text-xs text-muted-foreground truncate">{doc.file_name}</p>
+          {/* ── RIGHT COLUMN ── */}
+          <div className="space-y-6">
+
+            {/* Status Timeline */}
+            <div className="rounded-xl border border-border/50 bg-card p-5">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-4">Timeline</p>
+              {history.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No history</p>
+              ) : (
+                <div className="relative pl-5">
+                  <div className="absolute left-[7px] top-1 bottom-1 w-px bg-border/40" />
+                  <div className="space-y-5">
+                    {history.map((h, i) => {
+                      const isLatest = i === 0;
+                      const dc = h.to_status === "approved" || h.to_status === "active" ? "bg-emerald-500" : h.to_status === "returned" ? "bg-red-500" : h.to_status === "escalated" ? "bg-orange-500" : h.to_status === "submitted" ? "bg-violet-500" : h.to_status === "in_review" ? "bg-amber-500" : "bg-muted-foreground/40";
+                      return (
+                        <div key={h.id} className="relative flex gap-3">
+                          <div className={cn("absolute -left-5 top-1 h-[9px] w-[9px] rounded-full border-2 border-background", dc, isLatest && "ring-2 ring-offset-1 ring-offset-background ring-primary/20")} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <Badge className={cn("text-[10px] border-0 px-1.5", STATUS_STYLES[h.to_status])}>
+                                {STATUS_LABELS[h.to_status] || h.to_status}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {h.changer?.full_name || "System"} · <span className="tabular-nums">{formatDateTime(h.created_at)}</span>
+                            </p>
+                            {h.note && <p className="text-xs text-muted-foreground/70 mt-1 italic">{h.note}</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <span className="text-[10px] text-muted-foreground/50 shrink-0">
-                    {(doc.file_size / 1024).toFixed(0)} KB
-                  </span>
                 </div>
-              ))}
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Notes */}
-        <div className="mt-6 rounded-xl border border-border/50 bg-card">
-          <button
-            onClick={() => setNotesExpanded(!notesExpanded)}
-            className="flex w-full items-center gap-2 px-5 py-4"
-          >
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-            <span className="flex-1 text-left text-sm font-medium">Notes ({notes.length})</span>
-            {notesExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          </button>
+            {/* Notes */}
+            <div className="rounded-xl border border-border/50 bg-card p-5">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-4">Notes · {notes.length}</p>
 
-          {notesExpanded && (
-            <div className="border-t border-border/30 px-5 py-4 space-y-3">
-              {/* Add note */}
               {(hasRole("sales", "processing") || hasRole("superadmin")) && (
-                <div className="flex gap-2">
+                <div className="flex gap-2 mb-4">
                   <input
                     value={newNote}
                     onChange={(e) => setNewNote(e.target.value)}
@@ -521,124 +634,71 @@ export default function CaseDetailPage({
                     className="flex-1 h-9 rounded-lg border border-border bg-background px-3 text-sm"
                     onKeyDown={(e) => { if (e.key === "Enter") addNote(); }}
                   />
-                  <Button size="sm" onClick={addNote} disabled={!newNote.trim()} className="h-9">
-                    Add
-                  </Button>
+                  <Button size="sm" onClick={addNote} disabled={!newNote.trim()} className="h-9">Add</Button>
                 </div>
               )}
 
               {notes.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No notes yet</p>
+                <p className="text-sm text-muted-foreground text-center py-4">No notes yet</p>
               ) : (
-                notes.map((note) => (
-                  <div key={note.id} className="rounded-lg border border-border/30 px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <User className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-xs font-medium text-foreground">
-                        {note.author?.full_name || "Unknown"}
-                      </span>
-                      <NoteTypeBadge type={note.note_type} />
-                      <span className="ml-auto text-[10px] text-muted-foreground/50 tabular-nums">
-                        {new Date(note.created_at).toLocaleDateString("en-GB")}{" "}
-                        {new Date(note.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-                      </span>
+                <div className="space-y-3">
+                  {notes.map((note) => (
+                    <div key={note.id} className="rounded-lg bg-muted/20 px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                          {note.author?.full_name?.[0]?.toUpperCase() || "?"}
+                        </div>
+                        <span className="text-xs font-medium">{note.author?.full_name || "Unknown"}</span>
+                        <NoteTypeBadge type={note.note_type} />
+                        <span className="ml-auto text-[10px] text-muted-foreground/40 tabular-nums">{formatDateTime(note.created_at)}</span>
+                      </div>
+                      <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{note.content}</p>
                     </div>
-                    <p className="mt-1.5 text-sm text-muted-foreground">{note.content}</p>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
-            </div>
-          )}
-        </div>
-
-        {/* Status History */}
-        <div className="mt-6 rounded-xl border border-border/50 bg-card">
-          <button
-            onClick={() => setHistoryExpanded(!historyExpanded)}
-            className="flex w-full items-center gap-2 px-5 py-4"
-          >
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <span className="flex-1 text-left text-sm font-medium">Status History ({history.length})</span>
-            {historyExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          </button>
-
-          {historyExpanded && (
-            <div className="border-t border-border/30 px-5 py-4 space-y-2">
-              {history.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No history</p>
-              ) : (
-                history.map((h) => (
-                  <div key={h.id} className="flex items-center gap-3 text-sm">
-                    <span className="text-[10px] text-muted-foreground/50 tabular-nums shrink-0 w-16">
-                      {new Date(h.created_at).toLocaleDateString("en-GB")}
-                    </span>
-                    {h.from_status && (
-                      <>
-                        <Badge className={cn("text-[10px] border-0 capitalize", STATUS_STYLES[h.from_status])}>
-                          {h.from_status.replace("_", " ")}
-                        </Badge>
-                        <span className="text-muted-foreground/30">→</span>
-                      </>
-                    )}
-                    <Badge className={cn("text-[10px] border-0 capitalize", STATUS_STYLES[h.to_status])}>
-                      {h.to_status.replace("_", " ")}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      by {h.changer?.full_name || "System"}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Return Modal */}
-        {showReturnModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
-              <h3 className="text-lg font-semibold">Return Case</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Provide a reason for returning this case to the sales team.
-              </p>
-              <textarea
-                value={returnReason}
-                onChange={(e) => setReturnReason(e.target.value)}
-                placeholder="Reason for return (e.g., missing documents, unclear information)..."
-                className="mt-4 w-full rounded-lg border border-border bg-background p-3 text-sm min-h-[100px] resize-none"
-              />
-              <div className="mt-4 flex justify-end gap-2">
-                <Button variant="outline" onClick={() => { setShowReturnModal(false); setReturnReason(""); }}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={async () => {
-                    await performAction("return", { reason: returnReason });
-                    setShowReturnModal(false);
-                    setReturnReason("");
-                  }}
-                  disabled={!returnReason.trim() || !!actionLoading}
-                  className="bg-red-600 hover:bg-red-700 text-white gap-1.5"
-                >
-                  {actionLoading === "return" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                  Return Case
-                </Button>
-              </div>
             </div>
           </div>
+        </div>
+
+        {/* Structured Return Modal */}
+        {showReturnModal && (
+          <ReturnModal
+            caseId={id}
+            merchantName={caseData.legal_name || "Untitled"}
+            documents={uniqueDocs.map((d) => ({ item_id: d.item_id, label: d.label, category: ITEM_CATEGORY[d.item_id] || d.category || "Other" }))}
+            returnNumber={(returnItems.length > 0 ? Math.max(...returnItems.map((r: AnyData) => r.return_number || 0)) : 0) + 1}
+            onClose={() => setShowReturnModal(false)}
+            onSubmit={async (items, generalNote) => {
+              setActionLoading("return");
+              try {
+                const res = await fetch(`/api/cases/${id}/return`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ items, generalNote }),
+                });
+                if (!res.ok) {
+                  const data = await res.json();
+                  toast.error(data.error || "Failed to return case");
+                  return;
+                }
+                toast.success("Case returned with structured feedback");
+                setShowReturnModal(false);
+                fetchCase();
+              } finally {
+                setActionLoading("");
+              }
+            }}
+          />
         )}
       </div>
     </div>
   );
 }
 
-function InfoRow({ label, value, valueClass }: { label: string; value?: string; valueClass?: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={cn("font-medium capitalize", valueClass)}>{value || "—"}</span>
-    </div>
-  );
+function formatDateTime(iso: string) {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("en-GB")} ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
 function NoteTypeBadge({ type }: { type: string }) {
@@ -650,8 +710,8 @@ function NoteTypeBadge({ type }: { type: string }) {
   };
   if (type === "general") return null;
   return (
-    <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium capitalize", styles[type] || styles.general)}>
-      {type.replace("_", " ")}
+    <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", styles[type] || styles.general)}>
+      {NOTE_TYPE_LABELS[type] || type}
     </span>
   );
 }

@@ -206,6 +206,26 @@ export function StepReview({
     router.push("/");
   };
 
+  const issueItems = useMemo(() => {
+    if (!readiness) return [];
+    return readiness.items.filter((i) => {
+      if (i.status === "pass") return false;
+
+      // Filter out stale shareholder KYC warnings where docs are actually present
+      const kycMatch = i.itemId.match(/^kyc::(.+)::(passport|eid)$/);
+      if (kycMatch) {
+        const [, shId, docType] = kycMatch;
+        const sh = shareholders.find((s) => s.id === shId);
+        if (sh) {
+          if (docType === "passport" && sh.passportFiles.length > 0) return false;
+          if (docType === "eid" && sh.eidFiles.length > 0) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [readiness, shareholders]);
+
   // Post-submission success (Sales)
   if (submitted) {
     return (
@@ -257,26 +277,6 @@ export function StepReview({
       </div>
     );
   }
-
-  const issueItems = useMemo(() => {
-    if (!readiness) return [];
-    return readiness.items.filter((i) => {
-      if (i.status === "pass") return false;
-
-      // Filter out stale shareholder KYC warnings where docs are actually present
-      const kycMatch = i.itemId.match(/^kyc::(.+)::(passport|eid)$/);
-      if (kycMatch) {
-        const [, shId, docType] = kycMatch;
-        const sh = shareholders.find((s) => s.id === shId);
-        if (sh) {
-          if (docType === "passport" && sh.passportFiles.length > 0) return false;
-          if (docType === "eid" && sh.eidFiles.length > 0) return false;
-        }
-      }
-
-      return true;
-    });
-  }, [readiness, shareholders]);
 
   return (
     <div className="flex h-full flex-col">

@@ -28,8 +28,8 @@ export interface QueuedUpload {
 }
 
 export interface UploadQueueOptions {
-  maxConcurrent?: number; // default 3
-  maxApiCallsPerMinute?: number; // default 14 (leaves buffer under 15)
+  maxConcurrent?: number; // default 8
+  maxApiCallsPerMinute?: number; // default 80 (per-user server limit is 100)
   onStatusChange?: (itemId: string, status: QueueStatus, message: string) => void;
   onComplete?: (itemId: string, file: File) => void;
   onError?: (itemId: string, file: File, error: string) => void;
@@ -54,8 +54,8 @@ export function useUploadQueue(
   options: UploadQueueOptions = {},
 ): UploadQueueControls {
   const {
-    maxConcurrent = 3,
-    maxApiCallsPerMinute = 14,
+    maxConcurrent = 8,
+    maxApiCallsPerMinute = 80,
     onStatusChange,
     onComplete,
     onError,

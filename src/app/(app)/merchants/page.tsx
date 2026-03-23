@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Building2, ArrowRight, Search, Loader2, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LAYOUT } from "@/lib/layout";
+import { CASE_TYPE_LABELS } from "@/lib/labels";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -110,7 +111,7 @@ export default function MerchantsPage() {
                           {m.dba && <p className="text-xs text-muted-foreground truncate max-w-[180px]">{m.dba}</p>}
                         </td>
                         <td className="px-4 py-3 hidden sm:table-cell">
-                          <span className="text-xs text-muted-foreground capitalize">{m.caseType?.replace("-", " ")}</span>
+                          <span className="text-xs text-muted-foreground">{(m.caseType && CASE_TYPE_LABELS[m.caseType]) || m.caseType || "—"}</span>
                         </td>
                         <td className="px-4 py-3">
                           {m.tlExpiry ? (

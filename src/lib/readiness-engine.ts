@@ -233,7 +233,16 @@ export function computeReadiness(
   /* ── Step 2: Evaluate shareholder KYC ── */
 
   for (const sh of shareholders) {
-    if (sh.passportFiles.length === 0) {
+    // Shareholders below 25% ownership — KYC may not be required
+    const pct = parseFloat(sh.percentage) || 0;
+    const kycRequired = pct >= 25;
+
+    if (!kycRequired && sh.passportFiles.length === 0 && sh.eidFiles.length === 0) {
+      // Skip KYC checks entirely for minority shareholders without docs
+      continue;
+    }
+
+    if (sh.passportFiles.length === 0 && kycRequired) {
       const entry: ReadinessItem = {
         itemId: `kyc::${sh.id}::passport`,
         label: `Passport \u2014 ${sh.name || "Unnamed shareholder"}`,
@@ -251,7 +260,7 @@ export function computeReadiness(
       items.push(entry);
     }
 
-    if (sh.eidFiles.length === 0) {
+    if (sh.eidFiles.length === 0 && kycRequired) {
       const entry: ReadinessItem = {
         itemId: `kyc::${sh.id}::eid`,
         label: `Emirates ID \u2014 ${sh.name || "Unnamed shareholder"}`,
