@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseServer } from "@/lib/supabase-server";
 import { createNotification } from "@/lib/notifications";
+import { emailCaseReturned } from "@/lib/email/send-notifications";
 
 interface ReturnItem {
   itemType: "document" | "additional_request" | "general";
@@ -145,6 +146,23 @@ export async function POST(
       message: `${caseData.legal_name || "Case"} returned with ${summary}`,
       caseId: id,
     });
+  }
+
+  // Email Sales user
+  if (caseData.created_by) {
+    const { data: creator } = await supabase.from("profiles").select("email").eq("id", caseData.created_by).single();
+    const { data: returner } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
+    if (creator?.email) {
+      emailCaseReturned({
+        toEmail: creator.email,
+        merchantName: caseData.legal_name || "Unknown",
+        returnNumber,
+        returnedBy: returner?.full_name || user.email,
+        items: items.map((i) => ({ documentId: i.documentId, category: i.category, feedback: i.feedback })),
+        generalNote: generalNote || undefined,
+        caseId: id,
+      }).catch(() => {});
+    }
   }
 
   return NextResponse.json({ ok: true, status: "returned", returnNumber, itemCount: returnRows.length });

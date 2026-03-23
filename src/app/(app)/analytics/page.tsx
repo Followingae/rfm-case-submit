@@ -4,14 +4,16 @@ import { useEffect, useState, useCallback } from "react";
 import {
   BarChart3, FolderOpen, CheckCircle2, AlertTriangle, Clock, Users,
   FileText, Shield, CreditCard, Loader2, Globe, TrendingUp,
-  Sparkles, Stamp, Timer,
+  Sparkles, Stamp, Timer, Activity, ArrowRight, Inbox,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { LAYOUT } from "@/lib/layout";
 import { StatusPieChart, TimeSeriesChart } from "@/components/charts/dashboard-charts";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { STATUS_LABELS, CASE_TYPE_LABELS } from "@/lib/labels";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type D = any;
@@ -35,7 +37,7 @@ const PERIODS = [
 
 export default function AnalyticsPage() {
   const { user, hasRole } = useAuth();
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("operations");
   const [period, setPeriod] = useState("all");
   const [summary, setSummary] = useState<D>(null);
   const [team, setTeam] = useState<D>(null);
@@ -44,6 +46,7 @@ export default function AnalyticsPage() {
   const [financial, setFinancial] = useState<D>(null);
   const [timeseries, setTimeseries] = useState<D[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ops, setOps] = useState<D>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -54,6 +57,7 @@ export default function AnalyticsPage() {
       fetch("/api/analytics/compliance").then((r) => r.json()).catch(() => null),
       fetch("/api/analytics/financial").then((r) => r.json()).catch(() => null),
       fetch(`/api/analytics/timeseries?period=${period === "all" ? "month" : period}`).then((r) => r.json()).catch(() => null),
+      fetch("/api/analytics/operations").then((r) => r.json()).catch(() => null),
     ]);
     setSummary(results[0]);
     setTeam(results[1]);
@@ -61,6 +65,7 @@ export default function AnalyticsPage() {
     setCompliance(results[3]);
     setFinancial(results[4]);
     setTimeseries(results[5]?.timeseries || []);
+    setOps(results[6]);
     setLoading(false);
   }, [period]);
 
@@ -75,6 +80,7 @@ export default function AnalyticsPage() {
   }
 
   const tabs = [
+    { id: "operations", label: "Operations", icon: Activity },
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "team", label: "Team", icon: Users },
     { id: "documents", label: "Documents", icon: FileText },
@@ -111,6 +117,243 @@ export default function AnalyticsPage() {
         </div>
 
         <div className="mt-6 space-y-6">
+
+          {/* ══ OPERATIONS ══ */}
+          {tab === "operations" && ops && (
+            <>
+              {/* Pipeline Funnel */}
+              <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+                <div className="grid grid-cols-5 divide-x divide-border/30">
+                  {[
+                    { key: "incomplete", label: "Draft", color: "text-muted-foreground", bg: "bg-muted/50", ring: "" },
+                    { key: "submitted", label: "Submitted", color: "text-violet-600 dark:text-violet-400", bg: "bg-violet-500/10", ring: "ring-violet-500/20" },
+                    { key: "in_review", label: "In Review", color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10", ring: "ring-amber-500/20" },
+                    { key: "approved", label: "Approved", color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10", ring: "ring-emerald-500/20" },
+                    { key: "returned", label: "Returned", color: "text-red-600 dark:text-red-400", bg: "bg-red-500/10", ring: "ring-red-500/20" },
+                  ].map((stage) => {
+                    const count = (ops.pipeline?.[stage.key] || 0) + (stage.key === "incomplete" ? (ops.pipeline?.complete || 0) : 0);
+                    const total = Object.values(ops.pipeline || {}).reduce((a: number, b) => a + (b as number), 0) as number;
+                    const pct = total > 0 ? (count / total) * 100 : 0;
+                    return (
+                      <div key={stage.key} className="px-5 py-5 text-center relative">
+                        <p className={cn("text-3xl font-bold tabular-nums", stage.color)}>{count}</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">{stage.label}</p>
+                        <div className="mt-3 h-1 rounded-full bg-muted/30 overflow-hidden">
+                          <div className={cn("h-full rounded-full transition-all", stage.bg.replace("/10", ""))} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Alerts Bar */}
+              {ops.alerts?.length > 0 && (
+                <div className="flex items-center gap-3 overflow-x-auto pb-1">
+                  {ops.alerts.map((a: D, i: number) => (
+                    <div key={i} className={cn(
+                      "flex items-center gap-2 shrink-0 rounded-lg px-3 py-2 text-xs font-medium",
+                      a.type === "sla_breach" ? "bg-red-500/10 text-red-600" :
+                      a.type === "escalated" ? "bg-orange-500/10 text-orange-600" :
+                      a.type === "overloaded" ? "bg-amber-500/10 text-amber-600" :
+                      "bg-violet-500/10 text-violet-600"
+                    )}>
+                      {a.type === "sla_breach" && <Timer className="h-3 w-3" />}
+                      {a.type === "escalated" && <AlertTriangle className="h-3 w-3" />}
+                      {a.type === "overloaded" && <Users className="h-3 w-3" />}
+                      {a.type === "unassigned" && <Inbox className="h-3 w-3" />}
+                      {a.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Two-column: Sales + Processing */}
+              <div className="grid gap-6 lg:grid-cols-2">
+
+                {/* Sales Pipeline */}
+                <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+                  <div className="px-5 py-4 border-b border-border/30 flex items-center justify-between">
+                    <p className="text-sm font-semibold">Sales Pipeline</p>
+                    <p className="text-[11px] text-muted-foreground">{ops.salesPipeline?.length || 0} reps</p>
+                  </div>
+                  <div className="divide-y divide-border/20">
+                    {(ops.salesPipeline || []).map((rep: D) => (
+                      <div key={rep.userId} className="px-5 py-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
+                              {rep.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{rep.name}</p>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                {Array.from({ length: rep.weekTarget }, (_, i) => (
+                                  <div key={i} className={cn("h-1.5 w-4 rounded-full", i < rep.weekSubmitted ? "bg-primary" : "bg-muted/50")} />
+                                ))}
+                                <span className="text-[10px] text-muted-foreground ml-1">{rep.weekSubmitted}/{rep.weekTarget}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <span className="text-xs text-muted-foreground tabular-nums">{rep.cases?.length || 0} cases</span>
+                        </div>
+                        {rep.cases?.length > 0 && (
+                          <div className="space-y-1 ml-11">
+                            {rep.cases.slice(0, 4).map((c: D) => (
+                              <Link key={c.id} href={`/cases/${c.id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 -mx-2 hover:bg-muted/30 transition-colors group">
+                                <span className="text-xs font-medium truncate flex-1 group-hover:text-primary transition-colors">{c.merchantName}</span>
+                                <Badge className={cn("text-[9px] border-0 px-1.5 py-0 h-4 shrink-0",
+                                  c.status === "approved" || c.status === "active" ? "bg-emerald-500/10 text-emerald-600" :
+                                  c.status === "submitted" ? "bg-violet-500/10 text-violet-600" :
+                                  c.status === "in_review" ? "bg-amber-500/10 text-amber-600" :
+                                  c.status === "returned" ? "bg-red-500/10 text-red-600" :
+                                  "bg-muted/50 text-muted-foreground"
+                                )}>{STATUS_LABELS[c.status] || c.status}</Badge>
+                                {c.readiness != null && (
+                                  <span className={cn("text-[10px] font-semibold tabular-nums w-5 text-right",
+                                    c.tier === "green" ? "text-emerald-500" : c.tier === "amber" ? "text-amber-500" : "text-red-500"
+                                  )}>{c.readiness}</span>
+                                )}
+                              </Link>
+                            ))}
+                            {rep.cases.length > 4 && (
+                              <p className="text-[10px] text-muted-foreground/50 px-2">+{rep.cases.length - 4} more</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {(!ops.salesPipeline || ops.salesPipeline.length === 0) && (
+                      <p className="px-5 py-8 text-sm text-muted-foreground text-center">No sales reps</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Processing Pipeline */}
+                <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+                  <div className="px-5 py-4 border-b border-border/30 flex items-center justify-between">
+                    <p className="text-sm font-semibold">Processing Pipeline</p>
+                    <p className="text-[11px] text-muted-foreground">{ops.processingPipeline?.length || 0} processors</p>
+                  </div>
+                  <div className="divide-y divide-border/20">
+                    {(ops.processingPipeline || []).map((proc: D) => (
+                      <div key={proc.userId} className="px-5 py-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10 text-[11px] font-semibold text-emerald-600">
+                              {proc.name?.split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{proc.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{proc.activeCount} active · {proc.approvedToday} approved today</p>
+                            </div>
+                          </div>
+                          {proc.activeCount > 3 && <span className="text-[10px] font-medium text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">Heavy</span>}
+                        </div>
+                        {proc.cases?.length > 0 && (
+                          <div className="space-y-1 ml-11">
+                            {proc.cases.map((c: D) => (
+                              <Link key={c.id} href={`/cases/${c.id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 -mx-2 hover:bg-muted/30 transition-colors group">
+                                <span className="text-xs font-medium truncate flex-1 group-hover:text-primary transition-colors">{c.merchantName}</span>
+                                <span className={cn("text-[10px] tabular-nums", c.slaBreached ? "text-red-500 font-medium" : "text-muted-foreground")}>
+                                  {c.ageHours < 1 ? "<1h" : c.ageHours < 24 ? `${c.ageHours}h` : `${Math.floor(c.ageHours / 24)}d`}
+                                </span>
+                                {c.slaBreached && <span className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />}
+                              </Link>
+                            ))}
+                          </div>
+                        )}
+                        {proc.cases?.length === 0 && (
+                          <p className="text-[10px] text-muted-foreground/50 ml-11">No active cases</p>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Unassigned Queue */}
+                    {ops.unassignedQueue?.length > 0 && (
+                      <div className="px-5 py-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Inbox className="h-4 w-4 text-violet-500" />
+                          <p className="text-sm font-medium">Unassigned Queue</p>
+                          <span className="ml-auto text-[11px] font-semibold text-violet-600 bg-violet-500/10 px-1.5 py-0.5 rounded tabular-nums">{ops.unassignedQueue.length}</span>
+                        </div>
+                        <div className="space-y-1 ml-6">
+                          {ops.unassignedQueue.map((c: D) => (
+                            <Link key={c.id} href={`/cases/${c.id}`} className="flex items-center gap-2 rounded-md px-2 py-1.5 -mx-2 hover:bg-muted/30 transition-colors group">
+                              <span className="text-xs font-medium truncate flex-1 group-hover:text-primary transition-colors">{c.merchantName}</span>
+                              <span className="text-[10px] text-muted-foreground">{c.submittedBy}</span>
+                              <span className={cn("text-[10px] tabular-nums", c.ageHours > 24 ? "text-red-500 font-medium" : "text-muted-foreground")}>
+                                {c.ageHours < 1 ? "<1h" : c.ageHours < 24 ? `${c.ageHours}h` : `${Math.floor(c.ageHours / 24)}d`}
+                              </span>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom row: Aging + Activity */}
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+
+                {/* Case Aging */}
+                <div className="rounded-xl border border-border/50 bg-card p-5">
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-4">Queue Age</p>
+                  <div className="space-y-3">
+                    {Object.entries(ops.agingBuckets || {}).map(([bucket, count]) => {
+                      const total = Object.values(ops.agingBuckets || {}).reduce((a: number, b) => a + (b as number), 0) as number;
+                      const pct = total > 0 ? ((count as number) / total) * 100 : 0;
+                      const isCritical = bucket === "24h+";
+                      return (
+                        <div key={bucket} className="flex items-center gap-3">
+                          <span className={cn("text-xs w-10 shrink-0 tabular-nums", isCritical ? "text-red-500 font-medium" : "text-muted-foreground")}>{bucket}</span>
+                          <div className="flex-1 h-2 rounded-full bg-muted/30 overflow-hidden">
+                            <div className={cn("h-full rounded-full transition-all", isCritical ? "bg-red-500" : "bg-primary/60")} style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className={cn("text-sm font-semibold tabular-nums w-4 text-right", isCritical && (count as number) > 0 ? "text-red-500" : "text-foreground")}>{count as number}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Recent Activity */}
+                <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+                  <div className="px-5 py-4 border-b border-border/30">
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Recent Activity</p>
+                  </div>
+                  <div className="divide-y divide-border/20">
+                    {(ops.recentActivity || []).slice(0, 8).map((a: D, i: number) => {
+                      const actionColor =
+                        a.action === "approved" || a.action === "active" ? "bg-emerald-500" :
+                        a.action === "returned" ? "bg-red-500" :
+                        a.action === "escalated" ? "bg-orange-500" :
+                        a.action === "submitted" ? "bg-violet-500" :
+                        a.action === "in_review" ? "bg-amber-500" :
+                        "bg-muted-foreground/40";
+                      return (
+                        <Link key={i} href={`/cases/${a.caseId}`} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/20 transition-colors group">
+                          <div className={cn("h-2 w-2 rounded-full shrink-0", actionColor)} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs">
+                              <span className="font-medium group-hover:text-primary transition-colors">{a.userName}</span>
+                              <span className="text-muted-foreground"> {STATUS_LABELS[a.action] || a.action} </span>
+                              <span className="font-medium group-hover:text-primary transition-colors">{a.merchantName}</span>
+                            </p>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground/50 tabular-nums shrink-0">{a.agoText}</span>
+                        </Link>
+                      );
+                    })}
+                    {(!ops.recentActivity || ops.recentActivity.length === 0) && (
+                      <p className="px-5 py-8 text-sm text-muted-foreground text-center">No recent activity</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* ══ OVERVIEW ══ */}
           {tab === "overview" && summary && (

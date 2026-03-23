@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseServer } from "@/lib/supabase-server";
 import { createNotification, notifyRole } from "@/lib/notifications";
+import { emailCaseSubmitted } from "@/lib/email/send-notifications";
 
 export async function POST(
   req: NextRequest,
@@ -62,6 +63,23 @@ export async function POST(
   });
 
   await notifyRole("processing", "case_submitted", "New Case Submitted", `${caseData.legal_name || "A merchant"} case has been submitted for review`, id);
+
+  // Email processing team
+  const { data: processingUsers } = await supabase.from("profiles").select("email").in("role", ["processing", "superadmin"]).eq("is_active", true);
+  const { count: docCount } = await supabase.from("case_documents").select("id", { count: "exact", head: true }).eq("case_id", id);
+  const { data: caseWithScore } = await supabase.from("cases").select("readiness_score, readiness_tier, case_type").eq("id", id).single();
+  const { data: submitter } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
+
+  emailCaseSubmitted({
+    toEmails: (processingUsers || []).map((u: { email: string }) => u.email),
+    merchantName: caseData.legal_name || "Unknown",
+    caseType: caseWithScore?.case_type || "low-risk",
+    readinessScore: caseWithScore?.readiness_score || 0,
+    readinessTier: caseWithScore?.readiness_tier || "red",
+    submittedBy: submitter?.full_name || user.email,
+    caseId: id,
+    documentCount: docCount || 0,
+  }).catch(() => {});
 
   return NextResponse.json({ ok: true, status: "submitted" });
 }

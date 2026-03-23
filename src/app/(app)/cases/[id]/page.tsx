@@ -30,6 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { STATUS_LABELS, CASE_TYPE_LABELS, DOC_SLOT_LABELS, NOTE_TYPE_LABELS, TIER_LABELS, EXCEPTION_CATEGORY_LABELS, label } from "@/lib/labels";
 import { ReturnModal } from "@/components/readiness/return-modal";
+import { ResubmitModal } from "@/components/readiness/resubmit-modal";
 
 const STATUS_STYLES: Record<string, string> = {
   incomplete: "bg-muted/50 text-muted-foreground",
@@ -113,6 +114,7 @@ export default function CaseDetailPage({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState("");
   const [showReturnModal, setShowReturnModal] = useState(false);
+  const [showResubmitModal, setShowResubmitModal] = useState(false);
   const [newNote, setNewNote] = useState("");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [returnItems, setReturnItems] = useState<any[]>([]);
@@ -260,16 +262,6 @@ export default function CaseDetailPage({
                 <Badge className={cn("text-[11px] font-medium border-0", STATUS_STYLES[status])}>
                   {STATUS_LABELS[status] || status}
                 </Badge>
-                {submissionCount > 1 && (
-                  <span className="text-[10px] font-medium text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-md">
-                    Resubmission #{submissionCount}
-                  </span>
-                )}
-                {returnCount > 0 && status !== "returned" && (
-                  <span className="text-[10px] text-muted-foreground">
-                    Returned {returnCount}x previously
-                  </span>
-                )}
               </div>
               <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                 {caseData.dba && <span>{caseData.dba}</span>}
@@ -289,8 +281,8 @@ export default function CaseDetailPage({
               </Button>
             )}
             {canSubmit && status === "returned" && (
-              <Button size="sm" variant="outline" onClick={() => router.push(`/case/new?caseId=${id}`)} className="gap-1.5">
-                <Pencil className="h-3.5 w-3.5" /> Edit & Resubmit
+              <Button size="sm" variant="outline" onClick={() => setShowResubmitModal(true)} className="gap-1.5">
+                <Pencil className="h-3.5 w-3.5" /> Fix & Resubmit
               </Button>
             )}
             {canSubmit && ["incomplete", "complete"].includes(status) && (
@@ -316,8 +308,79 @@ export default function CaseDetailPage({
                 </Button>
               </>
             )}
+            {canReview && ["approved", "exported", "active"].includes(status) && (
+              <Link href={`/cases/${id}/export`}>
+                <Button size="sm" className="gap-1.5">
+                  <Download className="h-3.5 w-3.5" /> Export Package
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
+
+        {/* Submission Tracking Banner */}
+        {(submissionCount > 1 || returnCount > 0) && (
+          <div className="mt-6 rounded-xl border border-border/50 bg-card overflow-hidden">
+            <div className="flex items-stretch divide-x divide-border/30">
+              {/* Submission count */}
+              <div className="flex-1 px-5 py-4 flex items-center gap-4">
+                <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl font-bold text-lg tabular-nums",
+                  submissionCount > 1
+                    ? "bg-amber-500/10 text-amber-600"
+                    : "bg-primary/10 text-primary"
+                )}>
+                  {submissionCount || 1}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{submissionCount > 1 ? `Submission #${submissionCount}` : "First Submission"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {submissionCount > 1 ? "This case has been resubmitted after return" : "Original submission"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Return count */}
+              <div className="flex-1 px-5 py-4 flex items-center gap-4">
+                <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl font-bold text-lg tabular-nums",
+                  returnCount > 0
+                    ? "bg-red-500/10 text-red-600"
+                    : "bg-emerald-500/10 text-emerald-600"
+                )}>
+                  {returnCount}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{returnCount === 0 ? "No Returns" : `Returned ${returnCount} Time${returnCount !== 1 ? "s" : ""}`}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {returnCount === 0 ? "Clean submission history" : returnCount >= 3 ? "Consider escalation" : "Review return history below"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Processing time */}
+              {caseData.submitted_at && (
+                <div className="flex-1 px-5 py-4 flex items-center gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                    <Clock className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {(() => {
+                        const totalMin = Math.floor((Date.now() - new Date(caseData.submitted_at).getTime()) / 60000);
+                        const d = Math.floor(totalMin / 1440);
+                        const h = Math.floor((totalMin % 1440) / 60);
+                        const m = totalMin % 60;
+                        return d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
+                      })()}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {caseData.reviewed_at ? "Total processing time" : "Since last submission"}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Return Feedback — Structured */}
         {status === "returned" && returnItems.length > 0 && (() => {
@@ -404,10 +467,10 @@ export default function CaseDetailPage({
                   </p>
                   <Button
                     size="sm"
-                    onClick={() => router.push(`/case/new?caseId=${id}`)}
+                    onClick={() => setShowResubmitModal(true)}
                     className="gap-1.5"
                   >
-                    <Pencil className="h-3.5 w-3.5" /> Edit & Resubmit
+                    <Pencil className="h-3.5 w-3.5" /> Fix & Resubmit
                   </Button>
                 </div>
               )}
@@ -429,8 +492,8 @@ export default function CaseDetailPage({
               </div>
             ))}
             {canSubmit && (
-              <button onClick={() => router.push(`/case/new?caseId=${id}`)} className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
-                <Pencil className="h-3.5 w-3.5" /> Edit & Resubmit
+              <button onClick={() => setShowResubmitModal(true)} className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+                <Pencil className="h-3.5 w-3.5" /> Fix & Resubmit
               </button>
             )}
           </div>
@@ -660,6 +723,21 @@ export default function CaseDetailPage({
             </div>
           </div>
         </div>
+
+        {/* Resubmit Modal — focused upload for flagged documents only */}
+        {showResubmitModal && (
+          <ResubmitModal
+            caseId={id}
+            merchantName={caseData.legal_name || "Untitled"}
+            returnItems={returnItems}
+            supabaseUrl={process.env.NEXT_PUBLIC_SUPABASE_URL || ""}
+            onClose={() => setShowResubmitModal(false)}
+            onComplete={() => {
+              setShowResubmitModal(false);
+              fetchCase();
+            }}
+          />
+        )}
 
         {/* Structured Return Modal */}
         {showReturnModal && (

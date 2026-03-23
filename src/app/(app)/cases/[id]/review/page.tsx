@@ -72,7 +72,12 @@ export default function ProcessingReviewPage({ params }: { params: Promise<{ id:
       });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || `Failed to ${action}`); return; }
-      toast.success(`Case ${action}${action === "activate" ? "d" : action === "approve" ? "d" : "ed"} successfully`);
+      if (action === "approve") {
+        toast.success("Case approved — redirecting to export");
+        router.push(`/cases/${id}/export`);
+        return;
+      }
+      toast.success(`Case ${action}${action === "activate" ? "d" : "ed"} successfully`);
       fetchAll();
     } finally { setActionLoading(""); }
   };
@@ -157,10 +162,17 @@ export default function ProcessingReviewPage({ params }: { params: Promise<{ id:
               </>
             )}
             {canReview && ["approved", "exported"].includes(status) && (
-              <Button size="sm" onClick={() => performAction("activate")} disabled={!!actionLoading} className="gap-1.5">
-                {actionLoading === "activate" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                Mark Active
-              </Button>
+              <>
+                <Link href={`/cases/${id}/export`}>
+                  <Button size="sm" className="gap-1.5">
+                    <Download className="h-3.5 w-3.5" /> Export Package
+                  </Button>
+                </Link>
+                <Button size="sm" variant="outline" onClick={() => performAction("activate")} disabled={!!actionLoading} className="gap-1.5">
+                  {actionLoading === "activate" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                  Mark Active
+                </Button>
+              </>
             )}
           </div>
         </div>
