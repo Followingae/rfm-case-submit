@@ -15,8 +15,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RFM Case Submit",
+  title: "RFM Portal",
   description: "Merchant Case Submission Portal — RFM Loyalty Co.",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+  },
 };
 
 export default function RootLayout({

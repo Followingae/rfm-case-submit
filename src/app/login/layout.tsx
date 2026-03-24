@@ -1,3 +1,5 @@
+import { MobileBlock } from "@/components/layout/mobile-block";
+
 export default function LoginLayout({
   children,
 }: {
@@ -5,6 +7,7 @@ export default function LoginLayout({
 }) {
   return (
     <div className="h-dvh w-full overflow-hidden bg-background">
+      <MobileBlock />
       {children}
     </div>
   );
