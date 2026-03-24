@@ -15,6 +15,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { ReturnModal } from "@/components/readiness/return-modal";
 
 const STATUS_STYLES: Record<string, string> = {
   incomplete: "bg-muted/50 text-muted-foreground",
@@ -44,13 +45,14 @@ export default function ProcessingReviewPage({ params }: { params: Promise<{ id:
   const [tab, setTab] = useState("overview");
   const [actionLoading, setActionLoading] = useState("");
   const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnReason, setReturnReason] = useState("");
+  const [returnItems, setReturnItems] = useState<AnyData[]>([]);
   const [newNote, setNewNote] = useState("");
 
   const fetchAll = useCallback(async () => {
-    const [caseRes, extractRes] = await Promise.all([
+    const [caseRes, extractRes, returnRes] = await Promise.all([
       fetch(`/api/cases/${id}`),
       fetch(`/api/cases/${id}/extracted-data`),
+      fetch(`/api/cases/${id}/return-items`).catch(() => null),
     ]);
     const [caseJson, extractJson] = await Promise.all([caseRes.json(), extractRes.json()]);
     setCaseData(caseJson.case);
@@ -58,6 +60,10 @@ export default function ProcessingReviewPage({ params }: { params: Promise<{ id:
     setNotes(caseJson.notes || []);
     setHistory(caseJson.statusHistory || []);
     setExtracted(extractJson);
+    if (returnRes?.ok) {
+      const retData = await returnRes.json();
+      setReturnItems(retData.items || []);
+    }
     setLoading(false);
   }, [id]);
 
@@ -104,6 +110,27 @@ export default function ProcessingReviewPage({ params }: { params: Promise<{ id:
   const pep = extracted?.pepData;
   const status = caseData.status;
   const canReview = hasRole("processing") || hasRole("superadmin");
+
+  // Map item_id → category for the return modal's document list
+  const ITEM_CATEGORY: Record<string, string> = {
+    "mdf": "Forms", "ack-form": "Forms", "signed-svr": "Forms",
+    "trade-license": "Legal", "trademark-cert": "Legal", "main-moa": "Legal", "amended-moa": "Legal",
+    "poa": "Legal", "vat-cert": "Legal", "vat-declaration": "Legal", "org-structure": "Legal",
+    "letter-of-intent": "Legal", "freezone-aoa": "Legal", "freezone-share-cert": "Legal",
+    "freezone-incumbency": "Legal", "freezone-bor": "Legal",
+    "iban-proof": "Banking", "bank-statement": "Banking", "payment-proof": "Banking", "personal-bank": "Banking",
+    "shop-photos": "Premises", "tenancy-ejari": "Premises",
+    "pep-form": "Forms", "supplier-invoice": "Legal", "aml-questionnaire": "Forms",
+    "addendum": "Forms", "branch-form": "Forms", "pg-questionnaire": "Forms",
+  };
+  const deduped = documents.reduce<Map<string, AnyData>>((acc, doc) => {
+    const existing = acc.get(doc.item_id);
+    if (!existing || new Date(doc.created_at) > new Date(existing.created_at)) {
+      acc.set(doc.item_id, doc);
+    }
+    return acc;
+  }, new Map());
+  const uniqueDocs = Array.from(deduped.values());
 
   const tabs = [
     { id: "overview", label: "Overview", icon: Building2 },
@@ -614,25 +641,35 @@ export default function ProcessingReviewPage({ params }: { params: Promise<{ id:
         </div>
       </div>
 
-      {/* Return Modal */}
+      {/* Structured Return Modal */}
       {showReturnModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
-            <h3 className="text-lg font-semibold">Return Case</h3>
-            <p className="mt-1 text-sm text-muted-foreground">Provide a reason for returning this case to sales.</p>
-            <textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)}
-              placeholder="Missing documents, unclear information..."
-              className="mt-4 w-full rounded-lg border border-border bg-background p-3 text-sm min-h-[100px] resize-none" />
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { setShowReturnModal(false); setReturnReason(""); }}>Cancel</Button>
-              <Button onClick={async () => { await performAction("return", { reason: returnReason }); setShowReturnModal(false); setReturnReason(""); }}
-                disabled={!returnReason.trim() || !!actionLoading} className="bg-red-600 hover:bg-red-700 text-white gap-1.5">
-                {actionLoading === "return" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                Return Case
-              </Button>
-            </div>
-          </div>
-        </div>
+        <ReturnModal
+          caseId={id}
+          merchantName={caseData.legal_name || "Untitled"}
+          documents={uniqueDocs.map((d: AnyData) => ({ item_id: d.item_id, label: d.label, category: ITEM_CATEGORY[d.item_id] || d.category || "Other" }))}
+          returnNumber={(returnItems.length > 0 ? Math.max(...returnItems.map((r: AnyData) => r.return_number || 0)) : 0) + 1}
+          onClose={() => setShowReturnModal(false)}
+          onSubmit={async (items, generalNote) => {
+            setActionLoading("return");
+            try {
+              const res = await fetch(`/api/cases/${id}/return`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ items, generalNote }),
+              });
+              if (!res.ok) {
+                const data = await res.json();
+                toast.error(data.error || "Failed to return case");
+                return;
+              }
+              toast.success("Case returned with structured feedback");
+              setShowReturnModal(false);
+              fetchAll();
+            } finally {
+              setActionLoading("");
+            }
+          }}
+        />
       )}
     </div>
   );

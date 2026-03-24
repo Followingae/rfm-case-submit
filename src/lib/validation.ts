@@ -98,23 +98,35 @@ export function validateCase(
     } else {
       shareholders.forEach((sh, idx) => {
         const label = sh.name?.trim() || `Shareholder ${idx + 1}`;
+        const pct = parseFloat(sh.percentage) || 0;
         if (!sh.name?.trim()) {
           warnings.push({
             type: "minor",
             message: `Shareholder ${idx + 1}: Name is missing`,
           });
         }
-        if (sh.passportFiles.length === 0) {
-          warnings.push({
-            type: "major",
-            message: `${label}: Passport not uploaded — expired KYC is a major discrepancy`,
-          });
-        }
-        if (sh.eidFiles.length === 0) {
-          warnings.push({
-            type: "major",
-            message: `${label}: Emirates ID (EID) not uploaded — expired KYC is a major discrepancy`,
-          });
+        // Only flag missing KYC as major for shareholders with ≥25% ownership
+        if (pct >= 25) {
+          if (sh.passportFiles.length === 0) {
+            warnings.push({
+              type: "major",
+              message: `${label}: Passport not uploaded — expired KYC is a major discrepancy`,
+            });
+          }
+          if (sh.eidFiles.length === 0) {
+            warnings.push({
+              type: "major",
+              message: `${label}: Emirates ID (EID) not uploaded — expired KYC is a major discrepancy`,
+            });
+          }
+        } else {
+          // Minor hint for <25% shareholders — not blocking
+          if (sh.passportFiles.length === 0 && sh.eidFiles.length === 0) {
+            warnings.push({
+              type: "minor",
+              message: `${label} (${pct}%): KYC documents optional — below 25% ownership`,
+            });
+          }
         }
       });
     }

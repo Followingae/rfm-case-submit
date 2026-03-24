@@ -117,8 +117,10 @@ export function StepDocuments({
       i.status === "missing"
   );
 
-  // Count shareholders missing KYC docs
+  // Count shareholders missing KYC docs (only ≥25% ownership is required)
   const missingKyc = shareholders.reduce((count, sh) => {
+    const pct = parseFloat(sh.percentage) || 0;
+    if (pct < 25) return count; // minority shareholders — KYC is optional
     if (sh.passportFiles.length === 0) count++;
     if (sh.eidFiles.length === 0) count++;
     return count;
