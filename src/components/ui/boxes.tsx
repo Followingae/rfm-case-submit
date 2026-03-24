@@ -1,7 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
-import React, { useMemo, useEffect, useState } from "react"
+import React, { useMemo } from "react"
 import { cn } from "@/lib/utils"
 
 export interface BoxesProps {
@@ -25,25 +25,6 @@ const colors = [
 const TRANSPARENT = "rgba(0, 0, 0, 0)"
 
 const getRandomColor = () => colors[Math.floor(Math.random() * colors.length)]
-
-function useIsTouch() {
-  const [isTouch, setIsTouch] = useState(false);
-  useEffect(() => {
-    setIsTouch("ontouchstart" in window || navigator.maxTouchPoints > 0);
-  }, []);
-  return isTouch;
-}
-
-// Plain cell for touch devices — no framer-motion overhead
-const PlainBoxCell = React.memo(({ showPlus, bg }: { showPlus: boolean; bg?: string }) => (
-  <div
-    className="relative h-8 w-16 border-r border-t border-slate-700"
-    style={bg ? { backgroundColor: bg } : undefined}
-  >
-    {showPlus && <PlusSvg />}
-  </div>
-))
-PlainBoxCell.displayName = "PlainBoxCell"
 
 // Static cell — no auto animation, only hover
 const StaticBoxCell = React.memo(({ showPlus }: { showPlus: boolean }) => (
@@ -101,8 +82,8 @@ function PlusSvg() {
   )
 }
 
-const BoxRow = React.memo(({ rowIndex, cols, isTouch }: { rowIndex: number; cols: number; isTouch: boolean }) => {
-  // Pre-compute which cells get a static tinted background (touch) or animate (desktop)
+const BoxRow = React.memo(({ rowIndex, cols }: { rowIndex: number; cols: number }) => {
+  // Pre-compute which cells auto-animate with their params
   const animatedCells = useMemo(() => {
     const map = new Map<number, { color: string; duration: number; delay: number }>();
     for (let i = 0; i < cols; i++) {
@@ -122,12 +103,6 @@ const BoxRow = React.memo(({ rowIndex, cols, isTouch }: { rowIndex: number; cols
       {Array.from({ length: cols }).map((_, colIndex) => {
         const showPlus = rowIndex % 2 === 0 && colIndex % 2 === 0;
         const anim = animatedCells.get(colIndex);
-
-        // Touch devices: render plain divs (zero JS animation overhead)
-        if (isTouch) {
-          return <PlainBoxCell key={colIndex} showPlus={showPlus} bg={anim ? anim.color : undefined} />;
-        }
-
         if (anim) {
           return (
             <AnimatedBoxCell
@@ -148,13 +123,12 @@ const BoxRow = React.memo(({ rowIndex, cols, isTouch }: { rowIndex: number; cols
 BoxRow.displayName = "BoxRow"
 
 export const Boxes = ({ className, rows = 150, cols = 100 }: BoxesProps) => {
-  const isTouch = useIsTouch();
   const rowElements = useMemo(
     () =>
       Array.from({ length: rows }).map((_, rowIndex) => (
-        <BoxRow key={rowIndex} rowIndex={rowIndex} cols={cols} isTouch={isTouch} />
+        <BoxRow key={rowIndex} rowIndex={rowIndex} cols={cols} />
       )),
-    [rows, cols, isTouch],
+    [rows, cols],
   )
 
   return (
