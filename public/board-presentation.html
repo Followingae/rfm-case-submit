@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RFM — Merchant Processing Platform</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#ffffff;--bg2:#f7f7f9;--card:#ffffff;--border:#e4e4e8;--t:#0f0f10;--t2:#4b4b55;--t3:#8b8b96;--accent:#4f46e5;--g:#059669;--r:#dc2626;--a:#d97706;--b:#2563eb}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t);-webkit-font-smoothing:antialiased}
+
+.s{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:56px clamp(32px,8vw,100px);position:relative;overflow:hidden;text-align:center}
+.s-alt{background:var(--bg2)}
+
+.logo{height:52px;margin-bottom:36px}
+.eyebrow{font-size:.65rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+h1{font-size:clamp(2.6rem,5.5vw,5rem);font-weight:800;line-height:1.06;letter-spacing:-.04em;max-width:880px}
+h2{font-size:clamp(1.8rem,4vw,3.2rem);font-weight:700;line-height:1.12;letter-spacing:-.03em;max-width:800px}
+.sub{font-size:clamp(.92rem,1.5vw,1.1rem);color:var(--t2);margin-top:14px;max-width:500px;line-height:1.65}
+.grad{background:linear-gradient(135deg,#4f46e5,#7c3aed,#db2777);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+
+.big{font-size:clamp(5rem,13vw,11rem);font-weight:900;line-height:1;letter-spacing:-.06em}
+
+.stats{display:flex;gap:1px;margin-top:36px;background:var(--border);border-radius:14px;overflow:hidden}
+.stat{flex:1;padding:24px 14px;background:var(--card);text-align:center}
+.sv{font-size:clamp(1.5rem,3.2vw,2.4rem);font-weight:800;letter-spacing:-.03em;line-height:1}
+.sl{font-size:.6rem;color:var(--t3);margin-top:5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em}
+
+.grid{display:grid;gap:1px;margin-top:36px;width:100%;max-width:1000px;background:var(--border);border-radius:14px;overflow:hidden}
+.g2{grid-template-columns:1fr 1fr}
+.g3{grid-template-columns:1fr 1fr 1fr}
+.g4{grid-template-columns:1fr 1fr 1fr 1fr}
+.g5{grid-template-columns:repeat(5,1fr)}
+.gc{background:var(--card);padding:22px 20px;text-align:left}
+.gc-i{font-size:1.2rem;margin-bottom:8px}
+.gc h3{font-size:.82rem;font-weight:700;margin-bottom:3px}
+.gc p{font-size:.7rem;color:var(--t3);line-height:1.4}
+
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:1px;margin-top:36px;width:100%;max-width:860px;background:var(--border);border-radius:14px;overflow:hidden}
+.ba-c{background:var(--card);padding:28px 24px;text-align:left}
+.ba-c h3{font-size:.62rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:14px}
+.bi{display:flex;align-items:center;gap:9px;padding:6px 0}
+.bd{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.bi span{font-size:.78rem;color:var(--t2);line-height:1.35}
+
+.flow{display:flex;align-items:center;gap:0;margin-top:44px;flex-wrap:wrap;justify-content:center}
+.fn{display:flex;flex-direction:column;align-items:center;gap:7px;padding:10px 14px}
+.fi{width:50px;height:50px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;background:var(--bg2);border:1px solid var(--border)}
+.fl{font-size:.6rem;font-weight:600;color:var(--t2)}
+.fa{color:var(--t3);font-size:.9rem;padding-bottom:18px}
+
+.roles{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;margin-top:36px;width:100%;max-width:1020px;background:var(--border);border-radius:14px;overflow:hidden}
+.role{background:var(--card);padding:28px 24px;text-align:left}
+.role h3{font-size:.95rem;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.role ul{list-style:none;padding:0}
+.role li{font-size:.74rem;color:var(--t2);padding:4px 0 4px 15px;position:relative;line-height:1.35}
+.role li::before{content:"→";position:absolute;left:0;color:var(--accent);font-weight:700;font-size:.65rem}
+
+.tags{display:flex;gap:5px;flex-wrap:wrap;justify-content:center;margin-top:16px}
+.tag{padding:3px 10px;border-radius:5px;font-size:.6rem;font-weight:600}
+.ta{background:rgba(79,70,229,.07);color:var(--accent)}
+
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:1px;margin-top:36px;width:100%;max-width:860px;background:var(--border);border-radius:14px;overflow:hidden}
+.pc{background:var(--card);padding:24px 22px;text-align:left}
+.pc h4{font-size:.85rem;font-weight:700;margin-bottom:3px}
+.pc p{font-size:.7rem;color:var(--t3);line-height:1.4}
+
+.fn-note{position:absolute;bottom:22px;font-size:.55rem;color:var(--t3);letter-spacing:.04em}
+
+svg text{font-family:'Inter',system-ui,sans-serif}
+
+@media(max-width:768px){.g3,.g4,.g5{grid-template-columns:1fr 1fr}.roles{grid-template-columns:1fr}.ba{grid-template-columns:1fr}}
+@media print{.s{page-break-after:always;min-height:auto;padding:36px 44px}}
+</style>
+</head>
+<body>
+
+<!-- ═══ 1 — COVER ═══ -->
+<section class="s">
+  <img src="/rfm-logo.jpg" alt="RFM Loyalty" class="logo">
+  <h1>Merchant Processing<br><span class="grad">& Management Platform</span></h1>
+  <p class="sub">AI-powered document intelligence replacing email-driven merchant onboarding.</p>
+  <div class="fn-note">Confidential — Board Presentation — Q1 2026</div>
+</section>
+
+<!-- ═══ 2 — THE PROBLEM (one number) ═══ -->
+<section class="s s-alt">
+  <div class="eyebrow">The Problem</div>
+  <div class="big" style="color:var(--r)">100%</div>
+  <h2 style="font-size:clamp(1.1rem,2.2vw,1.6rem);font-weight:600;color:var(--t2);margin-top:10px">of merchant cases are managed through email.</h2>
+</section>
+
+<!-- ═══ 3 — 20 QUESTIONS ═══ -->
+<section class="s">
+  <div class="eyebrow">Zero Visibility</div>
+  <h2>20 questions we cannot answer</h2>
+  <div class="grid g5" style="max-width:1100px">
+    <div class="gc"><div class="gc-i">📅</div><h3>TL expiry dates?</h3></div>
+    <div class="gc"><div class="gc-i">🪪</div><h3>KYC expiring?</h3></div>
+    <div class="gc"><div class="gc-i">👤</div><h3>Who are shareholders?</h3></div>
+    <div class="gc"><div class="gc-i">🌍</div><h3>Shareholder nationalities?</h3></div>
+    <div class="gc"><div class="gc-i">⏱️</div><h3>Processing TAT?</h3></div>
+    <div class="gc"><div class="gc-i">↩️</div><h3>MSO return rates?</h3></div>
+    <div class="gc"><div class="gc-i">💳</div><h3>Rates per merchant?</h3></div>
+    <div class="gc"><div class="gc-i">🏦</div><h3>Bank distribution?</h3></div>
+    <div class="gc"><div class="gc-i">🗺️</div><h3>Emirate spread?</h3></div>
+    <div class="gc"><div class="gc-i">💰</div><h3>Projected volume?</h3></div>
+    <div class="gc"><div class="gc-i">🛡️</div><h3>PEP exposure?</h3></div>
+    <div class="gc"><div class="gc-i">⚠️</div><h3>Sanctions ties?</h3></div>
+    <div class="gc"><div class="gc-i">📄</div><h3>Doc failure rates?</h3></div>
+    <div class="gc"><div class="gc-i">🔄</div><h3>Case return %?</h3></div>
+    <div class="gc"><div class="gc-i">📈</div><h3>Monthly growth?</h3></div>
+    <div class="gc"><div class="gc-i">🏢</div><h3>TL authority split?</h3></div>
+    <div class="gc"><div class="gc-i">⏳</div><h3>Onboarding duration?</h3></div>
+    <div class="gc"><div class="gc-i">📉</div><h3>Merchant churn?</h3></div>
+    <div class="gc"><div class="gc-i">🔍</div><h3>Processor efficiency?</h3></div>
+    <div class="gc"><div class="gc-i">📊</div><h3>SLA compliance?</h3></div>
+  </div>
+</section>
+
+<!-- ═══ 4 — BEFORE & AFTER ═══ -->
+<section class="s s-alt">
+  <div class="eyebrow">Transformation</div>
+  <h2>Before & After</h2>
+  <div class="ba">
+    <div class="ba-c">
+      <h3 style="color:var(--r)">Email Today</h3>
+      <div class="bi"><div class="bd" style="background:var(--r)"></div><span>Cases in scattered email threads</span></div>
+      <div class="bi"><div class="bd" style="background:var(--r)"></div><span>~4 hrs manual review per case</span></div>
+      <div class="bi"><div class="bd" style="background:var(--r)"></div><span>Zero expiry monitoring</span></div>
+      <div class="bi"><div class="bd" style="background:var(--r)"></div><span>Unstructured return feedback</span></div>
+      <div class="bi"><div class="bd" style="background:var(--r)"></div><span>Monthly manual Excel compilation</span></div>
+      <div class="bi"><div class="bd" style="background:var(--r)"></div><span>No compliance visibility</span></div>
+      <div class="bi"><div class="bd" style="background:var(--r)"></div><span>Shareholder data trapped in PDFs</span></div>
+      <div class="bi"><div class="bd" style="background:var(--r)"></div><span>No rate or volume analytics</span></div>
+    </div>
+    <div class="ba-c">
+      <h3 style="color:var(--g)">Platform</h3>
+      <div class="bi"><div class="bd" style="background:var(--g)"></div><span>Full lifecycle tracking with audit trail</span></div>
+      <div class="bi"><div class="bd" style="background:var(--g)"></div><span>AI extraction in seconds</span></div>
+      <div class="bi"><div class="bd" style="background:var(--g)"></div><span>30 / 60 / 90 day alerts — 5 doc types</span></div>
+      <div class="bi"><div class="bd" style="background:var(--g)"></div><span>Itemized returns with resolution tracking</span></div>
+      <div class="bi"><div class="bd" style="background:var(--g)"></div><span>Real-time dashboards + 6 export reports</span></div>
+      <div class="bi"><div class="bd" style="background:var(--g)"></div><span>Live PEP, sanctions, KYC monitoring</span></div>
+      <div class="bi"><div class="bd" style="background:var(--g)"></div><span>Structured DB — name, nationality, expiry</span></div>
+      <div class="bi"><div class="bd" style="background:var(--g)"></div><span>Portfolio-wide rate & volume intelligence</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 5 — LIFECYCLE FLOW ═══ -->
+<section class="s">
+  <div class="eyebrow">How It Works</div>
+  <h2>End-to-end merchant lifecycle</h2>
+  <div class="flow">
+    <div class="fn"><div class="fi">📋</div><span class="fl">Create</span></div><div class="fa">→</div>
+    <div class="fn"><div class="fi">📄</div><span class="fl">Upload</span></div><div class="fa">→</div>
+    <div class="fn"><div class="fi">🤖</div><span class="fl">AI Extract</span></div><div class="fa">→</div>
+    <div class="fn"><div class="fi">✅</div><span class="fl">Score</span></div><div class="fa">→</div>
+    <div class="fn"><div class="fi">📤</div><span class="fl">Submit</span></div><div class="fa">→</div>
+    <div class="fn"><div class="fi">🔍</div><span class="fl">Review</span></div><div class="fa">→</div>
+    <div class="fn"><div class="fi">🏪</div><span class="fl">Active</span></div><div class="fa">→</div>
+    <div class="fn"><div class="fi">🔄</div><span class="fl">Renew</span></div>
+  </div>
+  <div class="stats" style="max-width:820px;width:100%">
+    <div class="stat"><div class="sv" style="color:var(--accent)">6</div><div class="sl">Case Types</div></div>
+    <div class="stat"><div class="sv" style="color:var(--accent)">12</div><div class="sl">Statuses</div></div>
+    <div class="stat"><div class="sv" style="color:var(--accent)">25+</div><div class="sl">Doc Types</div></div>
+    <div class="stat"><div class="sv" style="color:var(--accent)">17</div><div class="sl">Card Schemes</div></div>
+    <div class="stat"><div class="sv" style="color:var(--accent)">10+</div><div class="sl">OCR Tables</div></div>
+  </div>
+</section>
+
+<!-- ═══ 6 — THREE ROLES ═══ -->
+<section class="s s-alt">
+  <div class="eyebrow">Role-Based Design</div>
+  <h2>Sales. Processing. Management.</h2>
+  <div class="roles">
+    <div class="role">
+      <h3><span style="font-size:1.2rem">📱</span> Sales</h3>
+      <ul>
+        <li>3-step case wizard</li>
+        <li>Dynamic checklist per case type</li>
+        <li>AI auto-classifies docs</li>
+        <li>Live readiness score (G/A/R)</li>
+        <li>Structured return feedback</li>
+        <li>Weekly MID target tracking</li>
+      </ul>
+    </div>
+    <div class="role">
+      <h3><span style="font-size:1.2rem">⚙️</span> Processing</h3>
+      <ul>
+        <li>Priority queue + aging</li>
+        <li>AI pre-extracts all fields</li>
+        <li>Cross-doc consistency checks</li>
+        <li>Itemized returns + severity</li>
+        <li>24h / 48h SLA per processor</li>
+        <li>Escalation to management</li>
+      </ul>
+    </div>
+    <div class="role">
+      <h3><span style="font-size:1.2rem">📊</span> Management</h3>
+      <ul>
+        <li>6 analytics dashboards</li>
+        <li>6 exportable report types</li>
+        <li>Pipeline + team leaderboards</li>
+        <li>Compliance: PEP, sanctions, expiry</li>
+        <li>Financial: rates, banks, volume</li>
+        <li>Period filter: day → all time</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 7 — AI ═══ -->
+<section class="s">
+  <div class="eyebrow">AI Engine</div>
+  <h2>Gemini 2.0 Flash <span class="grad">Vision</span></h2>
+  <div style="display:flex;align-items:center;gap:48px;margin-top:40px;flex-wrap:wrap;justify-content:center">
+    <div style="text-align:center">
+      <svg width="160" height="160" viewBox="0 0 160 160">
+        <circle cx="80" cy="80" r="66" fill="none" stroke="#e4e4e8" stroke-width="11"/>
+        <circle cx="80" cy="80" r="66" fill="none" stroke="url(#lg)" stroke-width="11" stroke-dasharray="376 415" stroke-linecap="round" transform="rotate(-90 80 80)"/>
+        <defs><linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#4f46e5"/><stop offset="100%" style="stop-color:#7c3aed"/></linearGradient></defs>
+        <text x="80" y="73" text-anchor="middle" fill="#0f0f10" font-size="26" font-weight="800">$0.02</text>
+        <text x="80" y="93" text-anchor="middle" fill="#8b8b96" font-size="9.5" font-weight="500">per case</text>
+      </svg>
+      <div style="font-size:.65rem;color:var(--t3);margin-top:6px">~$2/mo at 100 cases</div>
+    </div>
+    <div class="grid g2" style="margin-top:0;max-width:480px">
+      <div class="gc"><div class="gc-i">📋</div><h3>MDF</h3><p>Merchant info, fees, KYC, settlement</p></div>
+      <div class="gc"><div class="gc-i">📜</div><h3>Trade License</h3><p>Number, dates, activities, authority</p></div>
+      <div class="gc"><div class="gc-i">🤝</div><h3>MOA</h3><p>Shareholders, %, signatories, capital</p></div>
+      <div class="gc"><div class="gc-i">🪪</div><h3>Passport + EID</h3><p>Name, nationality, DOB, expiry</p></div>
+      <div class="gc"><div class="gc-i">🏦</div><h3>Bank Statement</h3><p>Balances, credits, debits, IBAN</p></div>
+      <div class="gc"><div class="gc-i">🧾</div><h3>VAT + Tenancy</h3><p>TRN, Ejari, rent, expiry dates</p></div>
+    </div>
+  </div>
+  <div class="grid g4" style="max-width:640px;margin-top:24px">
+    <div class="gc" style="text-align:center;padding:14px"><span style="font-size:1rem">🚫</span><p style="margin-top:3px">Expired docs</p></div>
+    <div class="gc" style="text-align:center;padding:14px"><span style="font-size:1rem">🔀</span><p style="margin-top:3px">Name mismatches</p></div>
+    <div class="gc" style="text-align:center;padding:14px"><span style="font-size:1rem">👥</span><p style="margin-top:3px">Shareholder gaps</p></div>
+    <div class="gc" style="text-align:center;padding:14px"><span style="font-size:1rem">🏦</span><p style="margin-top:3px">IBAN validation</p></div>
+  </div>
+</section>
+
+<!-- ═══ 8 — COMPLIANCE ═══ -->
+<section class="s s-alt">
+  <div class="eyebrow">Compliance Engine</div>
+  <h2>Proactive monitoring</h2>
+  <div style="display:flex;gap:1px;margin-top:36px;width:100%;max-width:860px;background:var(--border);border-radius:14px;overflow:hidden;flex-wrap:wrap">
+    <div style="flex:1;min-width:320px;background:var(--card);padding:24px">
+      <div style="font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:14px">Expiry Tracking</div>
+      <svg width="100%" height="148" viewBox="0 0 300 148" preserveAspectRatio="xMinYMin meet">
+        <rect x="0" y="2" width="300" height="30" rx="5" fill="#fef2f2"/>
+        <rect x="0" y="2" width="95" height="30" rx="5" fill="#dc2626"/>
+        <text x="105" y="22" fill="#0f0f10" font-size="10" font-weight="700">4 expired</text>
+        <text x="230" y="22" fill="#8b8b96" font-size="8">Critical</text>
+        <rect x="0" y="38" width="300" height="30" rx="5" fill="#fef2f2"/>
+        <rect x="0" y="38" width="148" height="30" rx="5" fill="#ef4444" opacity=".65"/>
+        <text x="158" y="58" fill="#0f0f10" font-size="10" font-weight="700">6 docs</text>
+        <text x="230" y="58" fill="#8b8b96" font-size="8">&lt;30 days</text>
+        <rect x="0" y="74" width="300" height="30" rx="5" fill="#fffbeb"/>
+        <rect x="0" y="74" width="190" height="30" rx="5" fill="#d97706" opacity=".45"/>
+        <text x="200" y="94" fill="#0f0f10" font-size="10" font-weight="700">8 docs</text>
+        <text x="250" y="94" fill="#8b8b96" font-size="8">30-90d</text>
+        <rect x="0" y="110" width="300" height="30" rx="5" fill="#ecfdf5"/>
+        <rect x="0" y="110" width="280" height="30" rx="5" fill="#059669" opacity=".3"/>
+        <text x="230" y="130" fill="#0f0f10" font-size="10" font-weight="700">36 valid</text>
+      </svg>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);min-width:180px">
+      <div style="background:var(--card);padding:18px;text-align:center"><div style="font-size:1.8rem;font-weight:800;color:var(--r)">4</div><div style="font-size:.55rem;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Expired TLs</div></div>
+      <div style="background:var(--card);padding:18px;text-align:center"><div style="font-size:1.8rem;font-weight:800;color:var(--r)">3</div><div style="font-size:.55rem;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Expired KYC</div></div>
+      <div style="background:var(--card);padding:18px;text-align:center"><div style="font-size:1.8rem;font-weight:800;color:var(--a)">2</div><div style="font-size:.55rem;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">PEP Flagged</div></div>
+      <div style="background:var(--card);padding:18px;text-align:center"><div style="font-size:1.8rem;font-weight:800;color:var(--a)">4</div><div style="font-size:.55rem;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Sanctions</div></div>
+    </div>
+  </div>
+  <div class="tags" style="margin-top:16px">
+    <span class="tag ta">Trade License</span><span class="tag ta">Passport</span><span class="tag ta">Emirates ID</span><span class="tag ta">VAT Certificate</span><span class="tag ta">Tenancy / Ejari</span>
+  </div>
+</section>
+
+<!-- ═══ 9 — PARTNERSHIPS ═══ -->
+<section class="s">
+  <div class="eyebrow">Strategic Partnerships</div>
+  <h2>Data unlocks <span class="grad">revenue</span></h2>
+  <div class="pgrid">
+    <div class="pc"><div style="font-size:1.1rem;margin-bottom:6px">🏢</div><h4>License Authorities</h4><p>We know every TL expiry. Partner with DED, JAFZA, DMCC for renewal alerts & fast-track services.</p></div>
+    <div class="pc"><div style="font-size:1.1rem;margin-bottom:6px">🏦</div><h4>Banking Partners</h4><p>Pre-verified merchant packages with AI-validated IBANs, KYC, and financials.</p></div>
+    <div class="pc"><div style="font-size:1.1rem;margin-bottom:6px">🛡️</div><h4>KYC / AML Providers</h4><p>Structured shareholder data with nationality, PEP results, sanctions screening.</p></div>
+    <div class="pc"><div style="font-size:1.1rem;margin-bottom:6px">📊</div><h4>Market Intelligence</h4><p>Rate benchmarking, emirate distribution, volume data as an industry insights product.</p></div>
+  </div>
+</section>
+
+<!-- ═══ 10 — IMPACT ═══ -->
+<section class="s s-alt">
+  <div class="eyebrow">Impact</div>
+  <h2>Measurable from day one</h2>
+  <div class="stats" style="max-width:840px;width:100%">
+    <div class="stat" style="border-top:3px solid var(--g)"><div class="sv" style="color:var(--g)">80%</div><div class="sl">Faster Review</div></div>
+    <div class="stat" style="border-top:3px solid var(--accent)"><div class="sv" style="color:var(--accent)">100%</div><div class="sl">Expiry Visibility</div></div>
+    <div class="stat" style="border-top:3px solid var(--b)"><div class="sv" style="color:var(--b)">24h</div><div class="sl">SLA Tracking</div></div>
+    <div class="stat" style="border-top:3px solid var(--a)"><div class="sv" style="color:var(--a)">$2/mo</div><div class="sl">AI Cost</div></div>
+  </div>
+  <div class="grid g3" style="max-width:840px">
+    <div class="gc"><h3 style="color:var(--g)">Sales</h3><p>No guesswork. Readiness scoring. Exact return feedback. MID targets.</p></div>
+    <div class="gc"><h3 style="color:var(--accent)">Processing</h3><p>AI pre-fills fields. Cross-doc checks. Structured returns. SLA visibility.</p></div>
+    <div class="gc"><h3 style="color:var(--a)">Management</h3><p>Real-time pipeline. Team leaderboards. Compliance posture. 6 reports.</p></div>
+  </div>
+</section>
+
+<!-- ═══ 11 — CLOSE ═══ -->
+<section class="s">
+  <img src="/rfm-logo.jpg" alt="RFM Loyalty" class="logo" style="margin-bottom:20px">
+  <h1 style="font-size:clamp(2rem,4.5vw,3.5rem)">Ready for <span class="grad">demo.</span></h1>
+  <p class="sub" style="text-align:center">60 live cases. Full analytics. Real compliance data.</p>
+  <div style="margin-top:28px;display:flex;align-items:center;gap:8px">
+    <img src="/gemini-logo.png" alt="Gemini" style="height:18px;width:18px">
+    <span style="font-size:.7rem;color:var(--t3)">Powered by Google Gemini 2.0 Flash</span>
+  </div>
+  <div class="fn-note">RFM Loyalty Co. — Confidential</div>
+</section>
+
+</body>
+</html>

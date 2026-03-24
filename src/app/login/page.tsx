@@ -55,9 +55,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="w-full h-dvh relative overflow-hidden flex flex-col lg:flex-row p-4 sm:p-8 lg:p-12 gap-3 bg-white dark:bg-zinc-950">
+    <div className="w-full h-dvh relative overflow-hidden flex flex-col md:flex-row p-4 sm:p-8 md:p-12 gap-3 bg-white dark:bg-zinc-950">
       {/* ── Left: Form panel ── */}
-      <div className="flex-1 lg:w-1/2 flex flex-col justify-between p-6 sm:p-10 lg:p-16 rounded-xl z-10">
+      <div className="flex-1 md:w-1/2 flex flex-col justify-between p-6 sm:p-10 md:p-16 rounded-xl z-10">
         {/* Logo */}
         <img src="/rfm-logo.jpg" alt="RFM Loyalty" className="h-8 w-auto object-contain self-start" />
 
@@ -65,13 +65,13 @@ export default function LoginPage() {
         <div className="flex-1 flex flex-col justify-center max-w-lg">
           {/* Big bold statement */}
           {step === 0 ? (
-            <h1 className="text-3xl lg:text-[2.5rem] font-normal leading-[1.2] tracking-tight text-foreground">
+            <h1 className="text-3xl md:text-[2.5rem] font-normal leading-[1.2] tracking-tight text-foreground">
               Enter your email address
               <br />
               to sign in.
             </h1>
           ) : (
-            <h1 className="text-3xl lg:text-[2.5rem] font-normal leading-[1.2] tracking-tight text-foreground">
+            <h1 className="text-3xl md:text-[2.5rem] font-normal leading-[1.2] tracking-tight text-foreground">
               Enter your password
               <br />
               to continue.
@@ -89,7 +89,7 @@ export default function LoginPage() {
                 placeholder="you@company.com"
                 autoFocus
                 autoComplete="email"
-                className="w-full text-xl lg:text-2xl font-medium text-primary placeholder-primary/30 bg-transparent border-none outline-none caret-primary"
+                className="w-full text-xl md:text-2xl font-medium text-primary placeholder-primary/30 bg-transparent border-none outline-none caret-primary"
               />
             ) : (
               <>
@@ -103,7 +103,7 @@ export default function LoginPage() {
                   placeholder="Password"
                   autoFocus
                   autoComplete="current-password"
-                  className="w-full text-xl lg:text-2xl font-medium text-primary placeholder-primary/30 bg-transparent border-none outline-none caret-primary"
+                  className="w-full text-xl md:text-2xl font-medium text-primary placeholder-primary/30 bg-transparent border-none outline-none caret-primary"
                 />
               </>
             )}
@@ -144,13 +144,13 @@ export default function LoginPage() {
       </div>
 
       {/* ── Right: Boxes background panel ── */}
-      <div className="hidden lg:block relative lg:w-1/2 rounded-xl overflow-hidden bg-zinc-900">
+      <div className="hidden md:block relative md:w-1/2 rounded-xl overflow-hidden bg-zinc-900">
         <Boxes rows={30} cols={20} />
         <div className="pointer-events-none absolute inset-0 z-20 bg-zinc-900 [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]" />
 
         {/* Platform title */}
         <div className="absolute top-12 left-12 z-30">
-          <h2 className="text-4xl xl:text-6xl font-normal leading-[1.1] tracking-tight text-white">
+          <h2 className="text-4xl lg:text-6xl font-normal leading-[1.1] tracking-tight text-white">
             Merchant Processing
             <br />
             & Management
