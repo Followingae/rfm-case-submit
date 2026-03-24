@@ -145,7 +145,7 @@ export default function LoginPage() {
 
       {/* ── Right: Boxes background panel ── */}
       <div className="hidden md:block relative md:w-1/2 rounded-xl overflow-hidden bg-zinc-900">
-        <Boxes rows={30} cols={20} />
+        <Boxes rows={60} cols={40} />
         <div className="pointer-events-none absolute inset-0 z-20 bg-zinc-900 [mask-image:radial-gradient(ellipse_at_center,transparent_20%,black)]" />
 
         {/* Platform title */}
