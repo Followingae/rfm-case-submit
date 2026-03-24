@@ -1,31 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseServer } from "@/lib/supabase-server";
+import { getPeriodStart } from "@/lib/period-filter";
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   const user = await requireAuth(["management", "superadmin"]);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const supabase = await createSupabaseServer();
+  const period = req.nextUrl.searchParams.get("period") || "all";
+  const periodStart = getPeriodStart(period);
+
+  // Build cases query with optional period filter
+  let casesQuery = supabase
+    .from("cases")
+    .select("id, legal_name, dba, case_type, status, readiness_score, readiness_tier, created_by, assigned_to, submitted_at, reviewed_at, created_at, creator:profiles!cases_created_by_fkey(full_name), assignee:profiles!cases_assigned_to_fkey(full_name)")
+    .in("status", ["incomplete", "complete", "submitted", "in_review", "approved", "returned", "escalated"])
+    .order("created_at", { ascending: false });
+  if (periodStart) {
+    casesQuery = casesQuery.gte("created_at", periodStart.toISOString());
+  }
+
+  // Build history query with optional period filter
+  let historyQuery = supabase
+    .from("case_status_history")
+    .select("case_id, from_status, to_status, changed_by, note, created_at, changer:profiles!case_status_history_changed_by_fkey(full_name), case:cases!case_status_history_case_id_fkey(legal_name)")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (periodStart) {
+    historyQuery = historyQuery.gte("created_at", periodStart.toISOString());
+  }
 
   // Parallel fetches
   const [casesRes, profilesRes, historyRes] = await Promise.all([
-    supabase
-      .from("cases")
-      .select("id, legal_name, dba, case_type, status, readiness_score, readiness_tier, created_by, assigned_to, submitted_at, reviewed_at, created_at, creator:profiles!cases_created_by_fkey(full_name), assignee:profiles!cases_assigned_to_fkey(full_name)")
-      .in("status", ["incomplete", "complete", "submitted", "in_review", "approved", "returned", "escalated"])
-      .order("created_at", { ascending: false }),
+    casesQuery,
     supabase
       .from("profiles")
       .select("id, full_name, role, is_active")
       .eq("is_active", true),
-    supabase
-      .from("case_status_history")
-      .select("case_id, from_status, to_status, changed_by, note, created_at, changer:profiles!case_status_history_changed_by_fkey(full_name), case:cases!case_status_history_case_id_fkey(legal_name)")
-      .order("created_at", { ascending: false })
-      .limit(20),
+    historyQuery,
   ]);
 
   const cases = casesRes.data || [];

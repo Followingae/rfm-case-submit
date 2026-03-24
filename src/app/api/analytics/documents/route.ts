@@ -1,19 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseServer } from "@/lib/supabase-server";
+import { getPeriodStart } from "@/lib/period-filter";
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   const user = await requireAuth(["management", "superadmin"]);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const supabase = await createSupabaseServer();
+  const period = req.nextUrl.searchParams.get("period") || "all";
+  const periodStart = getPeriodStart(period);
+
+  let docsQuery = supabase.from("case_documents").select("id, item_id, label, category, ai_metadata, case_id");
+  let exceptionsQuery = supabase.from("case_exceptions").select("id, item_id, reason, reason_category, case_id");
+  let casesQuery = supabase.from("cases").select("id, case_type, status");
+
+  if (periodStart) {
+    const iso = periodStart.toISOString();
+    docsQuery = docsQuery.gte("created_at", iso);
+    exceptionsQuery = exceptionsQuery.gte("created_at", iso);
+    casesQuery = casesQuery.gte("created_at", iso);
+  }
 
   const [docsRes, exceptionsRes, casesRes] = await Promise.all([
-    supabase.from("case_documents").select("id, item_id, label, category, ai_metadata, case_id"),
-    supabase.from("case_exceptions").select("id, item_id, reason, reason_category, case_id"),
-    supabase.from("cases").select("id, case_type, status"),
+    docsQuery,
+    exceptionsQuery,
+    casesQuery,
   ]);
 
   const docs = docsRes.data || [];

@@ -1,21 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth-guard";
 import { createSupabaseServer } from "@/lib/supabase-server";
+import { getPeriodStart } from "@/lib/period-filter";
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
   const user = await requireAuth(["management", "superadmin"]);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const supabase = await createSupabaseServer();
+  const period = req.nextUrl.searchParams.get("period") || "all";
+  const periodStart = getPeriodStart(period);
 
   const now = new Date();
   const startOfWeek = new Date(now);
   startOfWeek.setDate(now.getDate() - now.getDay());
   startOfWeek.setHours(0, 0, 0, 0);
-
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  // Helper: apply period filter to a query
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyPeriod = (query: any) =>
+    periodStart ? query.gte("created_at", periodStart.toISOString()) : query;
 
   const [
     totalRes,
@@ -28,7 +35,7 @@ export async function GET(_req: NextRequest) {
     allCasesRes,
     statusBreakdownRes,
   ] = await Promise.all([
-    supabase.from("cases").select("id", { count: "exact", head: true }),
+    applyPeriod(supabase.from("cases").select("id", { count: "exact", head: true })),
     supabase
       .from("cases")
       .select("id", { count: "exact", head: true })
@@ -37,28 +44,15 @@ export async function GET(_req: NextRequest) {
       .from("cases")
       .select("id", { count: "exact", head: true })
       .gte("created_at", startOfMonth.toISOString()),
-    supabase
-      .from("cases")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "approved"),
-    supabase
-      .from("cases")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "returned"),
-    supabase
-      .from("cases")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "escalated"),
+    applyPeriod(supabase.from("cases").select("id", { count: "exact", head: true }).eq("status", "approved")),
+    applyPeriod(supabase.from("cases").select("id", { count: "exact", head: true }).eq("status", "returned")),
+    applyPeriod(supabase.from("cases").select("id", { count: "exact", head: true }).eq("status", "escalated")),
     supabase
       .from("cases")
       .select("id", { count: "exact", head: true })
       .in("status", ["active", "exported", "renewal_pending"]),
-    supabase
-      .from("cases")
-      .select("readiness_score, submitted_at, reviewed_at"),
-    supabase
-      .from("cases")
-      .select("status"),
+    applyPeriod(supabase.from("cases").select("readiness_score, submitted_at, reviewed_at")),
+    applyPeriod(supabase.from("cases").select("status")),
   ]);
 
   const totalCases = totalRes.count || 0;

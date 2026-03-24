@@ -50,14 +50,15 @@ export default function AnalyticsPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    const p = period;
     const results = await Promise.all([
-      fetch("/api/analytics/summary").then((r) => r.json()).catch(() => null),
-      fetch(`/api/analytics/team?period=${period}`).then((r) => r.json()).catch(() => null),
-      fetch("/api/analytics/documents").then((r) => r.json()).catch(() => null),
+      fetch(`/api/analytics/summary?period=${p}`).then((r) => r.json()).catch(() => null),
+      fetch(`/api/analytics/team?period=${p}`).then((r) => r.json()).catch(() => null),
+      fetch(`/api/analytics/documents?period=${p}`).then((r) => r.json()).catch(() => null),
       fetch("/api/analytics/compliance").then((r) => r.json()).catch(() => null),
       fetch("/api/analytics/financial").then((r) => r.json()).catch(() => null),
-      fetch(`/api/analytics/timeseries?period=${period === "all" ? "month" : period}`).then((r) => r.json()).catch(() => null),
-      fetch("/api/analytics/operations").then((r) => r.json()).catch(() => null),
+      fetch(`/api/analytics/timeseries?period=${p === "all" ? "month" : p}`).then((r) => r.json()).catch(() => null),
+      fetch(`/api/analytics/operations?period=${p}`).then((r) => r.json()).catch(() => null),
     ]);
     setSummary(results[0]);
     setTeam(results[1]);
