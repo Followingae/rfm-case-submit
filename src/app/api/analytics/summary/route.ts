@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
   const activeMerchants = activeMerchantsRes.count || 0;
 
   // Compute avg readiness
-  const casesData = allCasesRes.data || [];
+  const casesData: { readiness_score: number | null; submitted_at: string | null; reviewed_at: string | null }[] = allCasesRes.data || [];
   const readinessScores = casesData
     .map((c) => c.readiness_score)
     .filter((s): s is number => s !== null && s !== undefined);
@@ -86,8 +86,8 @@ export async function GET(req: NextRequest) {
   const processingTimes = casesData
     .filter((c) => c.submitted_at && c.reviewed_at)
     .map((c) => {
-      const submitted = new Date(c.submitted_at).getTime();
-      const reviewed = new Date(c.reviewed_at).getTime();
+      const submitted = new Date(c.submitted_at!).getTime();
+      const reviewed = new Date(c.reviewed_at!).getTime();
       return (reviewed - submitted) / (1000 * 60 * 60);
     })
     .filter((h) => h >= 0);
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
 
   // Status breakdown
   const byStatus: Record<string, number> = {};
-  for (const row of statusBreakdownRes.data || []) {
+  for (const row of (statusBreakdownRes.data || []) as { status: string }[]) {
     byStatus[row.status] = (byStatus[row.status] || 0) + 1;
   }
 
