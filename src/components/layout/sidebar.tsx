@@ -60,10 +60,10 @@ export function AppSidebar() {
   return (
     <SidebarPrimitive>
       {/* ── Header: Logo ── */}
-      <SidebarHeader className="px-4 py-5">
-        <Link href="/" className="flex items-center gap-2.5">
-          <img src="/rfm-logo.jpg" alt="RFM Loyalty" className="h-5" />
-          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-sidebar-foreground/40">Portal</span>
+      <SidebarHeader className="px-4 py-5 overflow-hidden">
+        <Link href="/" className="flex items-center gap-2.5 min-w-0">
+          <img src="/rfm-logo.jpg" alt="RFM Loyalty" className="h-5 w-auto shrink-0 object-contain max-w-[80px]" />
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-sidebar-foreground/40 truncate">Portal</span>
         </Link>
       </SidebarHeader>
 

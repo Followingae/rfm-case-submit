@@ -227,48 +227,12 @@ nav {
   scrollbar-color: oklch(0.5 0 0 / 15%) transparent;
 }
 
-/* ── Tablet (iPad) optimizations ── */
-@media (min-width: 640px) and (max-width: 1024px) {
-  /* Larger tap targets on tablet */
-  button,
-  a,
-  [role="button"] {
-    min-height: 44px;
-  }
-
-  /* Sidebar collapsed by default on tablet portrait */
-  [data-slot="sidebar"] {
-    --sidebar-width: 3rem;
-  }
-
-  /* Make tables scroll horizontally on tablet */
-  table {
-    display: block;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  thead, tbody, tr {
-    display: table;
-    width: 100%;
-    table-layout: fixed;
-  }
-
-  /* Prevent text selection on drag/touch */
-  .no-select {
-    -webkit-user-select: none;
-    user-select: none;
-  }
-}
-
-/* ── Touch device: prevent double-tap zoom ── */
+/* ── Touch device: prevent double-tap zoom + iOS zoom on input focus ── */
 @media (pointer: coarse) {
-  * {
+  html {
     touch-action: manipulation;
   }
-
-  /* Slightly larger interactive elements */
   input, select, textarea {
-    font-size: 16px; /* prevents iOS zoom on focus */
+    font-size: 16px;
   }
 }

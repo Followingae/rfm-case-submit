@@ -70,8 +70,8 @@ export function TopBar() {
       <Separator orientation="vertical" className="mr-2 h-4" />
 
       {/* Date + role */}
-      <div className="hidden sm:flex items-center gap-2.5">
-        <span className="text-xs text-muted-foreground">{formattedDate}</span>
+      <div className="hidden md:flex items-center gap-2.5 min-w-0">
+        <span className="text-xs text-muted-foreground truncate">{formattedDate}</span>
         {user && (
           <span className={cn(
             "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium",

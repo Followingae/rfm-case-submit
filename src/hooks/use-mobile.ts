@@ -1,7 +1,6 @@
 import * as React from "react"
 
-// 640px = sm breakpoint — iPad portrait (768px) gets sidebar, phones get sheet
-const MOBILE_BREAKPOINT = 640
+const MOBILE_BREAKPOINT = 768
 
 export function useIsMobile() {
   const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
